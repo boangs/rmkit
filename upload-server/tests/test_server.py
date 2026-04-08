@@ -1,0 +1,52 @@
+import pytest
+from httpx import AsyncClient, ASGITransport
+from pathlib import Path
+
+@pytest.fixture
+def fonts_dir(tmp_path):
+    return tmp_path / "fonts"
+
+@pytest.fixture
+def app_with_dirs(fonts_dir, tmp_path):
+    fonts_dir.mkdir()
+    screens_dir = tmp_path / "screens"
+    screens_dir.mkdir()
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    import main as m
+    m.FONTS_DIR = fonts_dir
+    m.SCREENS_DIR = screens_dir
+    return m.app
+
+@pytest.mark.asyncio
+async def test_list_fonts_empty(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.get("/fonts")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+@pytest.mark.asyncio
+async def test_upload_font(app_with_dirs, fonts_dir):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.post(
+            "/fonts",
+            files={"file": ("MiSans.ttf", b"fake-font-data", "application/octet-stream")}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "MiSans.ttf"
+    assert (fonts_dir / "MiSans.ttf").exists()
+
+@pytest.mark.asyncio
+async def test_delete_font(app_with_dirs, fonts_dir):
+    (fonts_dir / "OldFont.ttf").write_bytes(b"data")
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.delete("/fonts/OldFont.ttf")
+    assert resp.status_code == 200
+    assert not (fonts_dir / "OldFont.ttf").exists()
+
+@pytest.mark.asyncio
+async def test_delete_font_not_found(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.delete("/fonts/nonexistent.ttf")
+    assert resp.status_code == 404
