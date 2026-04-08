@@ -52,3 +52,34 @@ def delete_font(name: str):
         raise HTTPException(status_code=404, detail="文件不存在")
     target.unlink()
     return {"deleted": name}
+
+
+@app.get("/screens")
+def list_screens():
+    return [
+        {"name": f.name, "size": f.stat().st_size}
+        for f in sorted(SCREENS_DIR.iterdir())
+        if f.suffix.lower() in ALLOWED_SCREEN_EXTS
+    ]
+
+
+@app.post("/screens")
+async def upload_screen(file: UploadFile):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    safe_filename = Path(file.filename).name
+    suffix = Path(safe_filename).suffix.lower()
+    if suffix not in ALLOWED_SCREEN_EXTS:
+        raise HTTPException(status_code=400, detail="仅支持 .png 文件")
+    dest = SCREENS_DIR / safe_filename
+    dest.write_bytes(await file.read())
+    return {"name": safe_filename}
+
+
+@app.delete("/screens/{name}")
+def delete_screen(name: str):
+    target = _safe_name(name, SCREENS_DIR)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    target.unlink()
+    return {"deleted": name}

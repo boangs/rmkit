@@ -73,3 +73,48 @@ async def test_path_traversal_delete_blocked(app_with_dirs):
     async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
         resp = await client.delete("/fonts/..%2Fevil")
     assert resp.status_code in (400, 404)
+
+@pytest.mark.asyncio
+async def test_list_screens_empty(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.get("/screens")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+@pytest.mark.asyncio
+async def test_upload_screen(app_with_dirs, tmp_path):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.post(
+            "/screens",
+            files={"file": ("sleep.png", b"\x89PNG\r\n", "image/png")}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "sleep.png"
+
+@pytest.mark.asyncio
+async def test_upload_screen_wrong_format(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.post(
+            "/screens",
+            files={"file": ("image.jpg", b"jpeg-data", "image/jpeg")}
+        )
+    assert resp.status_code == 400
+
+@pytest.mark.asyncio
+async def test_delete_screen(app_with_dirs, tmp_path):
+    import sys
+    if "main" in sys.modules:
+        import main as m
+        screens = m.SCREENS_DIR
+    else:
+        screens = tmp_path / "screens"
+    (screens / "old.png").write_bytes(b"data")
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.delete("/screens/old.png")
+    assert resp.status_code == 200
+
+@pytest.mark.asyncio
+async def test_path_traversal_screen_delete_blocked(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.delete("/screens/..%2Fevil")
+    assert resp.status_code in (400, 404)
