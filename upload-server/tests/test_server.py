@@ -8,11 +8,17 @@ def fonts_dir(tmp_path):
 
 @pytest.fixture
 def app_with_dirs(fonts_dir, tmp_path):
-    fonts_dir.mkdir()
+    import importlib
+    import sys
+
+    fonts_dir.mkdir(exist_ok=True)
     screens_dir = tmp_path / "screens"
     screens_dir.mkdir()
 
-    import sys
+    # 确保每次测试重新加载模块，避免全局状态污染
+    if "main" in sys.modules:
+        del sys.modules["main"]
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
     import main as m
     m.FONTS_DIR = fonts_dir
@@ -50,3 +56,20 @@ async def test_delete_font_not_found(app_with_dirs):
     async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
         resp = await client.delete("/fonts/nonexistent.ttf")
     assert resp.status_code == 404
+
+@pytest.mark.asyncio
+async def test_path_traversal_upload_blocked(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.post(
+            "/fonts",
+            files={"file": ("../evil.ttf", b"data", "application/octet-stream")}
+        )
+    # ../evil.ttf 的 Path(...).name 应该变成 evil.ttf，不会逃出目录
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "evil.ttf"
+
+@pytest.mark.asyncio
+async def test_path_traversal_delete_blocked(app_with_dirs):
+    async with AsyncClient(transport=ASGITransport(app=app_with_dirs), base_url="http://test") as client:
+        resp = await client.delete("/fonts/..%2Fevil")
+    assert resp.status_code in (400, 404)
