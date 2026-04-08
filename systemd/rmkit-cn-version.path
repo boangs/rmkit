@@ -1,0 +1,8 @@
+[Unit]
+Description=监听 reMarkable 固件版本变化
+
+[Path]
+PathChanged=/etc/remarkable/version
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=rmkit-cn 文件上传服务
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/root/rmkit-cn/upload-server
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

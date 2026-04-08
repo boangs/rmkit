@@ -1,0 +1,8 @@
+[Unit]
+Description=rmkit-cn 固件版本切换
+After=xochitl.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/home/root/rmkit-cn/bin/version-switcher.sh
