@@ -83,3 +83,11 @@ def delete_screen(name: str):
         raise HTTPException(status_code=404, detail="文件不存在")
     target.unlink()
     return {"deleted": name}
+
+
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+
+
+@app.get("/", response_class=FileResponse)
+def index():
+    return str(Path(__file__).parent / "static/index.html")
