@@ -1,0 +1,12 @@
+[Unit]
+Description=rmkit-cn 输入法 udev 触发器
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl start rmkit-cn-ime.service
+ExecStop=/bin/systemctl stop rmkit-cn-ime.service
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

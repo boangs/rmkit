@@ -13,8 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ "${1:-}" == "--uninstall" ]]; then
   echo "=== rmkit-cn 卸载 ==="
   ssh "$DEVICE_USER@$DEVICE_IP" "
-    systemctl stop rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-ime.service 2>/dev/null || true
-    systemctl disable rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-ime.service 2>/dev/null || true
+    systemctl stop rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-ime.service rmkit-cn-ime-udev.service 2>/dev/null || true
+    systemctl disable rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-ime.service rmkit-cn-ime-udev.service 2>/dev/null || true
     rm -rf $REMOTE_BASE
     rm -f /etc/systemd/system/rmkit-cn-*.service /etc/systemd/system/rmkit-cn-*.path
     rm -f /etc/udev/rules.d/99-rmkit-cn-ime.rules
@@ -96,13 +96,15 @@ fi
 # 部署 IME（如果存在）
 if [ -d "$SCRIPT_DIR/ime" ] && [ "$(ls -A "$SCRIPT_DIR/ime" 2>/dev/null)" ]; then
   echo "正在部署输入法..."
-  scp -r "$SCRIPT_DIR/ime/" "$DEVICE_USER@$DEVICE_IP:$REMOTE_BASE/"
+  ssh "$DEVICE_USER@$DEVICE_IP" "mkdir -p $REMOTE_BASE/ime/dict"
+  scp "$SCRIPT_DIR/ime/pinyin.py" "$SCRIPT_DIR/ime/keyboard.py" "$SCRIPT_DIR/ime/injector.py" "$SCRIPT_DIR/ime/overlay.py" "$SCRIPT_DIR/ime/main.py" "$SCRIPT_DIR/ime/build_dict.py" "$DEVICE_USER@$DEVICE_IP:$REMOTE_BASE/ime/"
+  scp "$SCRIPT_DIR/ime/dict/chars.json" "$DEVICE_USER@$DEVICE_IP:$REMOTE_BASE/ime/dict/" 2>/dev/null || true
 fi
 
 # ─── 安装 Python 依赖 ─────────────────────────────────────────
 echo "正在安装 Python 依赖..."
 ssh "$DEVICE_USER@$DEVICE_IP" "
-  pip3 install fastapi uvicorn python-multipart 2>&1 | tail -5
+  pip3 install fastapi uvicorn python-multipart pypinyin pillow 2>&1 | tail -5
 "
 
 # ─── 部署 systemd 服务 ────────────────────────────────────────
@@ -114,6 +116,9 @@ scp "$SCRIPT_DIR/systemd/rmkit-cn-version.service" "$DEVICE_USER@$DEVICE_IP:/etc
 # 部署 IME 服务（如果存在）
 if [ -f "$SCRIPT_DIR/systemd/rmkit-cn-ime.service" ]; then
   scp "$SCRIPT_DIR/systemd/rmkit-cn-ime.service" "$DEVICE_USER@$DEVICE_IP:/etc/systemd/system/"
+fi
+if [ -f "$SCRIPT_DIR/systemd/rmkit-cn-ime-udev.service" ]; then
+  scp "$SCRIPT_DIR/systemd/rmkit-cn-ime-udev.service" "$DEVICE_USER@$DEVICE_IP:/etc/systemd/system/"
 fi
 if [ -f "$SCRIPT_DIR/systemd/99-rmkit-cn-ime.rules" ]; then
   scp "$SCRIPT_DIR/systemd/99-rmkit-cn-ime.rules" "$DEVICE_USER@$DEVICE_IP:/etc/udev/rules.d/"

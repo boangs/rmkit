@@ -1,0 +1,16 @@
+[Unit]
+Description=rmkit-cn 拼音输入法
+After=multi-user.target
+Wants=rmkit-cn-ime-udev.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/root/rmkit-cn/ime
+ExecStart=/usr/bin/python3 main.py /dev/input/by-path/platform-gpio-keys-event
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONPATH=/home/root/rmkit-cn/ime
+
+[Install]
+WantedBy=multi-user.target
