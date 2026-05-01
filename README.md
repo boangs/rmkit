@@ -36,7 +36,8 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
 ├── intercept/           xochitl 输入法 hook (C++ → ime_hook.so)
 ├── upload-server-go/    扫码上传 / AI 配置 / 字体&截图管理后端 (Go)
 │   └── static/          web UI (qr.html / index.html)
-├── upload-server/       早期 Python 后端 (历史保留, 不再部署)
+├── legacy/              历史归档 (不再部署, 仅供参考)
+│   └── upload-server-py/   早期 Python 上传服务器
 ├── systemd/             *.service / *.path / udev 规则
 ├── scripts/             开发辅助 (apply-screen / version-switcher / 翻译批处理)
 ├── tools/               构建工具 (hash-qmd.py / create_rcc) + hashtab 当前副本
