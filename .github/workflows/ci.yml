@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n syntax
+        run: |
+          set -euo pipefail
+          for f in installer/install.sh installer/uninstall.sh; do
+            echo "==> $f"; bash -n "$f"
+          done
+          for f in scripts/*.sh; do
+            echo "==> $f"; bash -n "$f"
+          done
+          if [ -f vendor/xovi/xochitl-xovi ]; then
+            echo "==> vendor/xovi/xochitl-xovi"
+            bash -n vendor/xovi/xochitl-xovi
+          fi
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@master
+        env:
+          SHELLCHECK_OPTS: -e SC1091 -e SC2029 -e SC2087 -e SC2086
+        with:
+          severity: error
+          ignore_paths: vendor qml-dump qmd qmd-src tools/hashtabs dist
+
+  python:
+    name: python tools syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: py_compile
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/hash-qmd.py
+          python -m py_compile tools/qmd_hash_check.py
+          python -m py_compile scripts/merge_ts.py
+          python -m py_compile scripts/translate_ts.py
+
+  qmd-hash:
+    name: qmd hash validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: validate qmd hashes against hashtabs
+        run: python3 tools/qmd_hash_check.py
+
+  go-ime:
+    name: go IME daemon
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ime-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ime-go/go.mod
+          cache-dependency-path: ime-go/go.sum
+
+      - run: go vet ./...
+      - run: go test ./...
+
+      - name: cross-compile aarch64
+        run: |
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' \
+            -o /tmp/ime-server-aarch64 ./cmd/ime-server
+      - name: cross-compile armv7
+        run: |
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' \
+            -o /tmp/ime-server-armv7 ./cmd/ime-server
+
+  go-upload:
+    name: go upload-server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: upload-server-go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: upload-server-go/go.mod
+          cache-dependency-path: upload-server-go/go.sum
+
+      - run: go vet ./...
+      - run: go test ./...
+
+      - name: cross-compile aarch64
+        run: |
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' \
+            -o /tmp/upload-server-aarch64 ./cmd/upload-server
+      - name: cross-compile armv7
+        run: |
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' \
+            -o /tmp/upload-server-armv7 ./cmd/upload-server
