@@ -6,7 +6,14 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/home/root/rmkit-cn/upload-server
-ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8080
+ExecStart=/home/root/rmkit-cn/upload-server/upload-server \
+  -listen 0.0.0.0:8080 \
+  -static /home/root/rmkit-cn/upload-server/static \
+  -fonts /home/root/.local/share/rmkit-cn/fonts \
+  -screens /home/root/.local/share/rmkit-cn/screens \
+  -staging /tmp/rmkit_upload \
+  -fonts-active /home/root/.local/share/fonts \
+  -xochitl-conf /home/root/.config/remarkable/xochitl.conf
 Restart=on-failure
 RestartSec=5
 
