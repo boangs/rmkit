@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>上传到 reMarkable</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0; padding: 24px 20px;
+    background: #f5f5f5; color: #222;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 28px 22px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    width: 100%; max-width: 420px;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
+  .subtitle { font-size: 13px; color: #888; text-align: center; margin-bottom: 22px; }
+  label.pick {
+    display: block; width: 100%; padding: 18px;
+    background: #111; color: #fff; border-radius: 12px;
+    text-align: center; font-size: 16px; font-weight: 500;
+    cursor: pointer; user-select: none;
+    transition: background 0.15s;
+  }
+  label.pick:active { background: #444; }
+  label.pick.disabled { background: #aaa; pointer-events: none; }
+  input[type=file] { display: none; }
+  .hint { font-size: 12px; color: #999; text-align: center; margin-top: 12px; }
+  .progress-wrap {
+    margin-top: 18px; display: none;
+  }
+  .progress {
+    width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden;
+  }
+  .progress-bar {
+    width: 0%; height: 100%; background: #111; transition: width 0.2s;
+  }
+  .progress-text {
+    font-size: 13px; color: #555; margin-top: 8px; text-align: center;
+  }
+  .result {
+    margin-top: 16px; padding: 12px; border-radius: 8px;
+    font-size: 14px; text-align: center; display: none;
+  }
+  .result.ok { background: #e8f5e9; color: #2e7d32; }
+  .result.err { background: #fdecea; color: #c62828; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>上传到 reMarkable</h1>
+  <p class="subtitle">支持 PDF / EPUB</p>
+
+  <label class="pick" id="pickLabel" for="fileInput">📄 选择文件</label>
+  <input type="file" id="fileInput" accept=".pdf,.epub,application/pdf,application/epub+zip">
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-text" id="progressText">准备上传…</div>
+  </div>
+
+  <div class="result" id="result"></div>
+
+  <p class="hint">上传完成后，文件会自动出现在设备首页</p>
+</div>
+
+<script>
+const input = document.getElementById('fileInput');
+const pickLabel = document.getElementById('pickLabel');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+const result = document.getElementById('result');
+
+input.addEventListener('change', () => {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  upload(file);
+});
+
+function showResult(ok, msg) {
+  result.style.display = 'block';
+  result.className = 'result ' + (ok ? 'ok' : 'err');
+  result.textContent = msg;
+}
+
+function reset() {
+  pickLabel.classList.remove('disabled');
+  pickLabel.textContent = '📄 选择文件';
+  input.value = '';
+}
+
+function upload(file) {
+  result.style.display = 'none';
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '0%';
+  progressText.textContent = '上传中 0%';
+  pickLabel.classList.add('disabled');
+  pickLabel.textContent = '上传中…';
+
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/documents');
+
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    progressBar.style.width = pct + '%';
+    progressText.textContent = '上传中 ' + pct + '%';
+  };
+
+  xhr.onload = () => {
+    progressWrap.style.display = 'none';
+    if (xhr.status >= 200 && xhr.status < 300) {
+      showResult(true, '✅ 已发送到 reMarkable：' + file.name);
+    } else {
+      let msg = '上传失败 (' + xhr.status + ')';
+      try {
+        const j = JSON.parse(xhr.responseText);
+        if (j.detail) msg = '❌ ' + j.detail;
+      } catch (_) {}
+      showResult(false, msg);
+    }
+    reset();
+  };
+
+  xhr.onerror = () => {
+    progressWrap.style.display = 'none';
+    showResult(false, '❌ 网络错误，请确认与 reMarkable 在同一 Wi-Fi');
+    reset();
+  };
+
+  xhr.send(fd);
+}
+</script>
+</body>
+</html>
