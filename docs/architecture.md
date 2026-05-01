@@ -157,6 +157,6 @@ AI 配置写到 `/home/root/.local/share/rmkit-cn/ai_config.json`, advanced_pane
 | `vendor/extensions/<ext>-<arch>.so` | `/home/root/xovi/extensions.d/<ext>.so` |
 | `dist/reMarkable_zh_CN.qm` | `/usr/share/remarkable/xochitl/translations/` |
 | `systemd/*.service` `*.path` | `/etc/systemd/system/` (bind-mount 持久化) |
-| `systemd/99-rmkit-cn-ime.rules` | `/etc/udev/rules.d/` |
+| `systemd/zz-rmkit-cn.conf` | `/etc/systemd/system/xochitl.service.d/` (LD_PRELOAD 注入入口) |
 
 `/etc` 是 overlayfs (lowerdir=ext4 ro, upperdir=tmpfs), 直接写会随 systemctl daemon-reload 丢. install.sh 用 `mount --bind /` 临时暴露下层 ext4, 写到下层做持久化.

@@ -37,10 +37,15 @@ rmkit-cn 是面向 reMarkable 用户的中文化 / IME / AI 工具集. 本文规
 ```bash
 cd ime-go && go vet ./... && go test ./...
 
-# cross-compile 看本地能不能编 (CI 也跑同样命令)
-GOOS=linux GOARCH=arm64 go build -o /tmp/ime-server ./cmd/ime-server
-GOOS=linux GOARCH=arm GOARM=7 go build -o /tmp/ime-server-armv7 ./cmd/ime-server
+# cross-compile 看本地能不能编 — 用 Makefile 跟 CI 完全一致
+# (-trimpath -ldflags="-s -w", 产物落 ../dist/, 比裸 go build 立省 30%)
+make build           # 同时 aarch64 + armv7
+make aarch64         # 只 aarch64
+make armv7           # 只 armv7
+make clean           # 清 dist/
 ```
+
+**不要**裸跑 `go build` (没 strip, dist 会肿 30%, install.sh 部署量也跟着肿).
 
 任何时候**避免 cgo** (除非有明确理由); cross-compile 静态二进制是首要约束, cgo 让
 跨架构构建复杂 10 倍.

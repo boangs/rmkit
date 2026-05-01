@@ -83,7 +83,7 @@ rm2 (无 A/B) 风险更高, RMPP/RMPPM 有 A/B 兜底但 errcnt 累 3 仍切换.
     cat /etc/systemd/system/xochitl.service.d/*.conf   # 不应有 Requires= 炸弹
 □ 跑 installer/install.sh (只部署, 不重启 xochitl)
 □ 验证独立 service:
-    systemctl is-active rmkit-cn-upload rmkit-cn-ime-go rmkit-cn-ime-http
+    systemctl is-active rmkit-cn-upload rmkit-cn-ime-http rmkit-cn-version.path
     浏览器访问 http://10.11.99.1:8080
 □ 告诉用户"新代码已部署, 下次冷启动生效"; 不要主动 restart xochitl
 □ (可选) 用户要求立即生效 → installer/apply-and-restart.sh, 严格按铁律 #4

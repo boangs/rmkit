@@ -5,7 +5,51 @@
 
 ## [Unreleased]
 
-(下次 release 之前的累积变更写在这里. release 时改为版本号.)
+### Changed
+
+- **install.sh 走 tarball 单次流式传输**: 把原来 56 次 `scp` + 多次 `ssh` 调用
+  收口成"本地构造 staging → `tar -czf - | ssh tar -xzf -` 1 次连接"
+  - 部署体积: 30 MB (raw) → **13.6 MB** (gzip 流式, -55%)
+  - SSH 连接数: ~60 次 → **2 次** (-97%)
+  - 实测部署时间预计: 60-120s → **8-20s**
+  - systemd unit 仍走 bind-mount 双写 (lower 持久 + upper 立即生效)
+- **Go 二进制本地 build 强制 strip**: 新增 `ime-go/Makefile` 和
+  `upload-server-go/Makefile`, 与 CI 命令一致 (`-trimpath -ldflags="-s -w"`).
+  CONTRIBUTING.md / docs/devices.md 改为 `make build` 入口.
+  实测 `dist/upload-server-aarch64` 9.2M → **6.3M** (-31%).
+  (开发者本地裸 `go build` 漏 strip 是历史 dist 肿胀的根因.)
+
+### Removed
+
+- **早期 Python 拼音 IME 全部下线归档**: 早已被 Go `ime-server` + `ime_hook.so`
+  + `pinyin_interceptor.qmd` 取代, 但仓库一直没归档. 本次清理:
+  - `ime/` (整个 Python 实现 + tests) → `legacy/ime-py/`
+  - `systemd/rmkit-cn-ime.service` (`ExecStart=python3 main.py ...`) → `legacy/ime-py/systemd/`
+  - `systemd/rmkit-cn-ime-udev.service` (USB 键盘插拔触发器, Python IME 配套) → 同上
+  - `systemd/99-rmkit-cn-ime.rules` (udev 规则, 触发上面那条) → 同上
+  - `systemd/rmkit-cn-ime-go.service` 直接删除 (跟 `rmkit-cn-ime-http.service`
+    内容完全重复, install.sh 也不引用 — 是历史孤儿)
+  - `installer/install.sh` 删除 Python IME staging 分支
+  - `installer/install.sh --uninstall` 仍 `stop/disable` 老 unit (兼容旧设备残留)
+  - `installer/install.sh` 不再部署 `scripts/apply-font.sh` / `apply-screen.sh` 到设备 —
+    这两个原本就不在生产路径上 (web UI 的 `/api/fonts` 接管了字体管理),
+    脚本留在仓库 `scripts/` 给开发者本地引用即可
+  - `legacy/ime-py/README.md` 写归档说明
+  - 部署文件数: 58 → **52**
+
+### Fixed
+
+- **xochitl drop-in 部署缺失** (历史遗留, v0.1.0 漏): `systemd/zz-rmkit-cn.conf`
+  从未入库, `installer/install.sh` 也未部署. 现象: 重启后只有 zh_CN.qm
+  原生翻译生效 (xochitl.conf `language=zh_CN` 走 Qt 自带 i18n), 而 IME /
+  AI / 高级面板 / qmldiff 全失效 (因都靠 LD_PRELOAD 注入 xovi+ime_hook).
+  历史上设备能 work 完全靠手工/老 install 留在 ext4 lowerdir 的"野文件",
+  OTA 切到干净 B slot 即崩盘.
+  - 新增 `systemd/zz-rmkit-cn.conf` 模板 (After=home.mount + LD_PRELOAD +
+    QT_RESOURCE_REBUILDER_PATH + WatchdogSec=0 + QML_XHR_*)
+  - `install.sh` bind-mount 双写 lowerdir + upperdir, 顺手清
+    `zz-rmkit-cn.conf.bak*` / `.old` 残留 (避免 #DEBUG_DISABLED 之类炸弹)
+  - `install.sh --uninstall` 也走 bind-mount 双清
 
 ---
 
