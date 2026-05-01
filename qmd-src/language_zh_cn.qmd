@@ -1,0 +1,30 @@
+; rmkit-cn: Inject zh_CN option into System Language selector
+
+AFFECT /qml/device/view/settings/LanguageAndKeyboard.qml
+    TRAVERSE DeviceKeyboardNavigationHandler#root > Component#languageDialog
+        REPLACE SelectionComponent WITH {
+            SelectionComponent {
+                title: qsTr("System language")
+                objectName: "SystemLanguageDialog"
+                model: {
+                    var base = languageSettings.availableLanguageCodes
+                    var arr = []
+                    for (var i = 0; i < base.length; i++) arr.push(base[i])
+                    if (arr.indexOf("zh_CN") === -1) arr.push("zh_CN")
+                    return arr
+                }
+                selectedIndex: model.indexOf(languageSettings.languageCode)
+                display: (modelData) => {
+                    if (modelData === "zh_CN") return "\u4e2d\u6587\uff08\u7b80\u4f53\uff09"
+                    return root.languageSettings.getLanguageDisplayName(modelData)
+                }
+                onSelected: (selection) => {
+                    console.warn("XOVI-LANG: user picked", selection)
+                    languageSettings.languageCode = selection
+                    subpageLoader.sourceComponent = null
+                }
+                onRejected: subpageLoader.sourceComponent = null
+            }
+        }
+    END TRAVERSE
+END AFFECT
