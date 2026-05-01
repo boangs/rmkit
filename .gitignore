@@ -53,8 +53,10 @@ qmd/_obsolete/
 **/*.tmp
 
 # ─── 工具临时缓存 ───
-# tools/hashtab 是 install.sh 同步设备时的"工作副本",每次部署被覆盖;
-# 长期保存的快照在 tools/hashtabs/ 按机型分文件存储, 入库
+# tools/hashtab 是 install.sh 同步设备时的"工作副本", 每次部署被覆盖;
+# 缺失时从 tools/hashtabs/<机型> 拷贝种子 (install.sh 自动处理).
+# 长期保存的快照在 tools/hashtabs/ 按机型分文件存储, 入库.
+tools/hashtab
 tools/hashtab.device
 
 # ─── 系统垃圾 ───

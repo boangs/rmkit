@@ -168,15 +168,30 @@ if [ -d "$QMD_SRC_DIR" ] && [ -f "$HASH_TOOL" ]; then
   if ! command -v python3 &>/dev/null; then
     echo "警告: 未找到 python3, 跳过 .qmd 重编, 直接用 dist/ 现有版本 (可能过时)"
   else
+    # tools/hashtab 不入 git (是工作副本), 缺失时从 tools/hashtabs/ 按架构选种子
+    if [ ! -f "$HASHTAB_LOCAL" ]; then
+      case "$ARCH" in
+        aarch64) SEED_NAME="hashtab-rmpp-ferrari-3.26.0.68" ;;
+        armv7l)  SEED_NAME="hashtab-rm2-3.26.0.68" ;;
+        *)       SEED_NAME="" ;;
+      esac
+      if [ -n "$SEED_NAME" ] && [ -f "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" ]; then
+        cp "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" "$HASHTAB_LOCAL"
+        echo "tools/hashtab 缺失, 已用 hashtabs/$SEED_NAME 作种子初始化"
+      fi
+    fi
+
     echo ""
     echo "正在同步设备 hashtab..."
     REMOTE_HASHTAB=$(ssh "$DEVICE_USER@$DEVICE_IP" "ls -d /home/root/xovi/exthome/qt-resource-rebuilder*/hashtab 2>/dev/null | head -n 1" || true)
     if [ -n "$REMOTE_HASHTAB" ]; then
-      cp "$HASHTAB_LOCAL" "$HASHTAB_LOCAL.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
       scp -q "$DEVICE_USER@$DEVICE_IP:$REMOTE_HASHTAB" "$HASHTAB_LOCAL"
       echo "  → tools/hashtab 已同步设备版本 ($REMOTE_HASHTAB)"
-    else
+    elif [ -f "$HASHTAB_LOCAL" ]; then
       echo "警告: 设备未找到 hashtab, 沿用本地 tools/hashtab (hash 可能不命中)"
+    else
+      echo "✗ 致命: tools/hashtab 不存在且未能从设备同步, 也无可用种子" >&2
+      exit 1
     fi
 
     echo "正在用 hash-qmd.py 重编 qmd-src/*.qmd..."
