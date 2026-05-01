@@ -1,0 +1,13 @@
+[Unit]
+Description=rmkit-cn 拼音输入法 HTTP 服务
+After=multi-user.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/home/root/rmkit-cn/bin/ime-server
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
