@@ -75,7 +75,7 @@ cd upload-server-go && make build    # 同上
 - `hashtab-rmpp-pp-3.26.0.68` (社区/老固件版本)
 - `hashtab-rmpp-chiappa-3.26.0.68`
 
-`tools/qmd_hash_check.py` 取所有的并集做"宽松校验": 任何 qmd 引用的 hash 至少在某一台设备的 hashtab 里. 严格校验 (按机型分别校验) 看后续是否要做.
+`dist/qmd-tool check` (Go, 替代了 `tools/qmd_hash_check.py`) 取所有的并集做"宽松校验": 任何 qmd 引用的 hash 至少在某一台设备的 hashtab 里. 严格校验 (按机型分别校验) 看后续是否要做.
 
 ### systemd unit 写法
 

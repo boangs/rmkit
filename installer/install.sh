@@ -117,62 +117,66 @@ esac
 # ─── 同步设备 hashtab 并重新编译 qmd-src/*.qmd → dist/ ────────
 # 必须每次部署前重编, 因为: ① qmd-src 是源, dist 是产物; ② 设备 hashtab 可能与本地不同步,
 # 用过时 hashtab 编译会导致 identifier hash 不命中, 注入 silent skip, 高级面板/AI 等功能消失
+# 注: 重编工具是 dist/qmd-tool (Go), 替代了原 tools/hash-qmd.py — 设备端 OTA 时同样
+# 复用同一二进制, 0 Python 依赖.
 QMD_SRC_DIR="$SCRIPT_DIR/qmd-src"
 DIST_DIR="$SCRIPT_DIR/dist"
-HASH_TOOL="$SCRIPT_DIR/tools/hash-qmd.py"
+HASH_TOOL="$SCRIPT_DIR/dist/qmd-tool"
 HASHTAB_LOCAL="$SCRIPT_DIR/tools/hashtab"
 
-if [ -d "$QMD_SRC_DIR" ] && [ -f "$HASH_TOOL" ]; then
-  if ! command -v python3 &>/dev/null; then
-    echo "警告: 未找到 python3, 跳过 .qmd 重编, 直接用 dist/ 现有版本 (可能过时)"
-  else
-    # tools/hashtab 不入 git (是工作副本), 缺失时从 tools/hashtabs/ 按架构选种子
-    if [ ! -f "$HASHTAB_LOCAL" ]; then
-      case "$ARCH" in
-        aarch64) SEED_NAME="hashtab-rmpp-ferrari-3.26.0.68" ;;
-        armv7l)  SEED_NAME="hashtab-rm2-3.26.0.68" ;;
-        *)       SEED_NAME="" ;;
-      esac
-      if [ -n "$SEED_NAME" ] && [ -f "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" ]; then
-        cp "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" "$HASHTAB_LOCAL"
-        echo "tools/hashtab 缺失, 已用 hashtabs/$SEED_NAME 作种子初始化"
-      fi
-    fi
+if [ -d "$QMD_SRC_DIR" ]; then
+  if [ ! -x "$HASH_TOOL" ]; then
+    echo "✗ 致命: $HASH_TOOL 不存在或不可执行" >&2
+    echo "  跑一遍 'cd tools/qmd-tool && make build' 重编" >&2
+    exit 1
+  fi
 
-    echo ""
-    echo "正在同步设备 hashtab..."
-    REMOTE_HASHTAB=$(ssh "$DEVICE_USER@$DEVICE_IP" "ls -d /home/root/xovi/exthome/qt-resource-rebuilder*/hashtab 2>/dev/null | head -n 1" || true)
-    if [ -n "$REMOTE_HASHTAB" ]; then
-      scp -q "$DEVICE_USER@$DEVICE_IP:$REMOTE_HASHTAB" "$HASHTAB_LOCAL"
-      echo "  → tools/hashtab 已同步设备版本 ($REMOTE_HASHTAB)"
-    elif [ -f "$HASHTAB_LOCAL" ]; then
-      echo "警告: 设备未找到 hashtab, 沿用本地 tools/hashtab (hash 可能不命中)"
+  # tools/hashtab 不入 git (是工作副本), 缺失时从 tools/hashtabs/ 按架构选种子
+  if [ ! -f "$HASHTAB_LOCAL" ]; then
+    case "$ARCH" in
+      aarch64) SEED_NAME="hashtab-rmpp-ferrari-3.26.0.68" ;;
+      armv7l)  SEED_NAME="hashtab-rm2-3.26.0.68" ;;
+      *)       SEED_NAME="" ;;
+    esac
+    if [ -n "$SEED_NAME" ] && [ -f "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" ]; then
+      cp "$SCRIPT_DIR/tools/hashtabs/$SEED_NAME" "$HASHTAB_LOCAL"
+      echo "tools/hashtab 缺失, 已用 hashtabs/$SEED_NAME 作种子初始化"
+    fi
+  fi
+
+  echo ""
+  echo "正在同步设备 hashtab..."
+  REMOTE_HASHTAB=$(ssh "$DEVICE_USER@$DEVICE_IP" "ls -d /home/root/xovi/exthome/qt-resource-rebuilder*/hashtab 2>/dev/null | head -n 1" || true)
+  if [ -n "$REMOTE_HASHTAB" ]; then
+    scp -q "$DEVICE_USER@$DEVICE_IP:$REMOTE_HASHTAB" "$HASHTAB_LOCAL"
+    echo "  → tools/hashtab 已同步设备版本 ($REMOTE_HASHTAB)"
+  elif [ -f "$HASHTAB_LOCAL" ]; then
+    echo "警告: 设备未找到 hashtab, 沿用本地 tools/hashtab (hash 可能不命中)"
+  else
+    echo "✗ 致命: tools/hashtab 不存在且未能从设备同步, 也无可用种子" >&2
+    exit 1
+  fi
+
+  echo "正在用 qmd-tool (Go) 重编 qmd-src/*.qmd..."
+  mkdir -p "$DIST_DIR"
+  for src in "$QMD_SRC_DIR"/*.qmd; do
+    [ -f "$src" ] || continue
+    base=$(basename "$src")
+    out="$DIST_DIR/$base"
+    if "$HASH_TOOL" hash -hashtab "$HASHTAB_LOCAL" "$src" > "$out.tmp"; then
+      mv "$out.tmp" "$out"
+      echo "  ✓ $base"
     else
-      echo "✗ 致命: tools/hashtab 不存在且未能从设备同步, 也无可用种子" >&2
+      rm -f "$out.tmp"
+      echo "  ✗ $base 编译失败" >&2
       exit 1
     fi
-
-    echo "正在用 hash-qmd.py 重编 qmd-src/*.qmd..."
-    mkdir -p "$DIST_DIR"
-    for src in "$QMD_SRC_DIR"/*.qmd; do
-      [ -f "$src" ] || continue
-      base=$(basename "$src")
-      out="$DIST_DIR/$base"
-      if python3 "$HASH_TOOL" "$src" > "$out.tmp"; then
-        mv "$out.tmp" "$out"
-        echo "  ✓ $base"
-      else
-        rm -f "$out.tmp"
-        echo "  ✗ $base 编译失败" >&2
-        exit 1
-      fi
-    done
-  fi
+  done
 fi
 
 # ─── qmd 校验 ────────────────────────────────────────────────
-# hash-qmd.py 历史上 stderr 当 stdout 写入过 Python traceback 当 .qmd,
-# 部署前必须验证 dist/*.qmd 是真 qmd 不是 traceback
+# 历史 hash-qmd.py 失败时曾把 stderr 当 stdout 写入过 Python traceback 到 dist/*.qmd,
+# 现在 qmd-tool (Go) 已经走 stderr 报错 + 非零退出码, 但保留 magic-byte 兜底校验.
 qmd_is_valid() {
   local f="$1"
   [ -f "$f" ] || return 1
