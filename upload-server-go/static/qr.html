@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>上传到 reMarkable</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0; padding: 24px 20px;
+    background: #f5f5f5; color: #222;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 22px 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    width: 100%; max-width: 420px;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
+  .subtitle { font-size: 13px; color: #888; text-align: center; margin-bottom: 18px; }
+
+  .tabs {
+    display: flex; background: #eee; border-radius: 10px; padding: 4px; margin-bottom: 18px;
+  }
+  .tab {
+    flex: 1; padding: 10px 0; text-align: center;
+    font-size: 14px; font-weight: 500; color: #555;
+    border-radius: 7px; cursor: pointer; user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab.active { background: #fff; color: #111; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  label.pick {
+    display: block; width: 100%; padding: 18px;
+    background: #111; color: #fff; border-radius: 12px;
+    text-align: center; font-size: 16px; font-weight: 500;
+    cursor: pointer; user-select: none;
+    transition: background 0.15s;
+  }
+  label.pick:active { background: #444; }
+  label.pick.disabled { background: #aaa; pointer-events: none; }
+  input[type=file] { display: none; }
+  .hint { font-size: 12px; color: #999; text-align: center; margin-top: 12px; }
+
+  .progress-wrap { margin-top: 18px; display: none; }
+  .progress { width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+  .progress-bar { width: 0%; height: 100%; background: #111; transition: width 0.2s; }
+  .progress-text { font-size: 13px; color: #555; margin-top: 8px; text-align: center; }
+
+  .result { margin-top: 16px; padding: 12px; border-radius: 8px;
+            font-size: 14px; text-align: center; display: none; }
+  .result.ok { background: #e8f5e9; color: #2e7d32; }
+  .result.err { background: #fdecea; color: #c62828; }
+
+  .form-row { margin-bottom: 14px; }
+  .form-row label.lbl { display: block; font-size: 13px; color: #555; margin-bottom: 6px; }
+  .form-row select, .form-row input[type=text], .form-row input[type=password] {
+    width: 100%; padding: 12px 14px; font-size: 15px;
+    border: 1px solid #ddd; border-radius: 10px; background: #fafafa;
+    -webkit-appearance: none; appearance: none;
+    font-family: inherit;
+  }
+  .form-row select:focus, .form-row input:focus { outline: none; border-color: #111; background: #fff; }
+  .key-wrap { position: relative; }
+  .key-wrap input { padding-right: 56px; }
+  .key-wrap .toggle-eye {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: transparent; border: 0; padding: 8px 12px;
+    color: #888; font-size: 13px; cursor: pointer;
+  }
+  button.save {
+    width: 100%; padding: 16px;
+    background: #111; color: #fff; border: 0; border-radius: 12px;
+    font-size: 16px; font-weight: 500; cursor: pointer;
+  }
+  button.save:disabled { background: #aaa; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>上传到 reMarkable</h1>
+  <p class="subtitle">文档 / 字体 / 壁纸</p>
+
+  <div class="tabs">
+    <div class="tab active" data-target="doc">文档</div>
+    <div class="tab" data-target="font">字体</div>
+    <div class="tab" data-target="screen">壁纸</div>
+    <div class="tab" data-target="ai">AI</div>
+  </div>
+
+  <div class="panel active" id="panel-doc">
+    <label class="pick" for="file-doc">📄 选择 PDF / EPUB</label>
+    <input type="file" id="file-doc" data-endpoint="/documents"
+           accept=".pdf,.epub,application/pdf,application/epub+zip">
+    <p class="hint">上传完成后会自动出现在设备首页</p>
+  </div>
+
+  <div class="panel" id="panel-font">
+    <label class="pick" for="file-font">🔤 选择 TTF / OTF</label>
+    <input type="file" id="file-font" data-endpoint="/fonts"
+           accept=".ttf,.otf,font/ttf,font/otf">
+    <p class="hint">上传后到设备「高级」面板里选择启用，启用会重启界面</p>
+  </div>
+
+  <div class="panel" id="panel-screen">
+    <label class="pick" for="file-screen">🖼️ 选择 PNG 图片</label>
+    <input type="file" id="file-screen" data-endpoint="/screens"
+           accept=".png,image/png">
+    <p class="hint">上传后到设备「高级」面板里选作休眠壁纸，下次休眠生效</p>
+  </div>
+
+  <div class="panel" id="panel-ai">
+    <div class="form-row">
+      <label class="lbl">服务商预设</label>
+      <select id="ai-preset">
+        <option value="custom">自定义 (OpenAI 兼容)</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="kimi">Kimi (月之暗面)</option>
+        <option value="qwen">通义千问</option>
+        <option value="zhipu">智谱 GLM</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label class="lbl">API URL</label>
+      <input type="text" id="ai-url" placeholder="https://api.example.com/v1" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <label class="lbl">API Key</label>
+      <div class="key-wrap">
+        <input type="password" id="ai-key" placeholder="sk-..." autocomplete="off">
+        <button type="button" class="toggle-eye" id="ai-key-toggle">显示</button>
+      </div>
+      <p class="hint" style="margin-top:6px;text-align:left;">留空保留原值</p>
+    </div>
+    <div class="form-row">
+      <label class="lbl">模型</label>
+      <input type="text" id="ai-model" placeholder="gpt-4o-mini" autocomplete="off">
+    </div>
+    <button class="save" id="ai-save">保存</button>
+    <p class="hint">保存后到平板「高级 → AI 设置」点测试连接</p>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-text" id="progressText">准备上传…</div>
+  </div>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+(function() {
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.panel');
+  function activateTab(target) {
+    tabs.forEach(x => x.classList.toggle('active', x.dataset.target === target));
+    panels.forEach(p => p.classList.toggle('active', p.id === 'panel-' + target));
+  }
+  tabs.forEach(t => t.addEventListener('click', () => activateTab(t.dataset.target)));
+
+  const focus = new URLSearchParams(location.search).get('focus');
+  if (focus && document.querySelector('.tab[data-target="' + focus + '"]')) {
+    activateTab(focus);
+  }
+
+  const inputs = document.querySelectorAll('input[type=file]');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  const result = document.getElementById('result');
+  const labels = document.querySelectorAll('label.pick');
+
+  function showResult(ok, msg) {
+    result.style.display = 'block';
+    result.className = 'result ' + (ok ? 'ok' : 'err');
+    result.textContent = msg;
+  }
+
+  function setBusy(busy, busyText) {
+    labels.forEach(l => {
+      l.classList.toggle('disabled', busy);
+      if (busy) l.dataset.original = l.dataset.original || l.textContent;
+      l.textContent = busy ? (busyText || '上传中…') : (l.dataset.original || l.textContent);
+    });
+  }
+
+  inputs.forEach(input => {
+    input.addEventListener('change', () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const endpoint = input.dataset.endpoint;
+      upload(file, endpoint);
+      input.value = '';
+    });
+  });
+
+  function upload(file, endpoint) {
+    result.style.display = 'none';
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressText.textContent = '上传中 0%';
+    setBusy(true);
+
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', endpoint);
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progressBar.style.width = pct + '%';
+      progressText.textContent = '上传中 ' + pct + '%';
+    };
+    xhr.onload = () => {
+      progressWrap.style.display = 'none';
+      setBusy(false);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let displayName = file.name;
+        try {
+          const j = JSON.parse(xhr.responseText);
+          if (j && typeof j.name === 'string' && j.name) displayName = j.name;
+        } catch (_) {}
+        showResult(true, '✅ 已上传：' + displayName);
+      } else {
+        let msg = '上传失败 (' + xhr.status + ')';
+        try {
+          const j = JSON.parse(xhr.responseText);
+          if (j.detail) msg = '❌ ' + j.detail;
+        } catch (_) {}
+        showResult(false, msg);
+      }
+    };
+    xhr.onerror = () => {
+      progressWrap.style.display = 'none';
+      setBusy(false);
+      showResult(false, '❌ 网络错误，请确认与 reMarkable 在同一 Wi-Fi');
+    };
+    xhr.send(fd);
+  }
+
+  // ─── AI 设置 ────────────────────────────────────────────────
+  const PRESETS = {
+    deepseek:   { kind: 'openai',    url: 'https://api.deepseek.com/v1',                          model: 'deepseek-chat' },
+    kimi:       { kind: 'openai',    url: 'https://api.moonshot.cn/v1',                           model: 'moonshot-v1-8k' },
+    qwen:       { kind: 'openai',    url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',    model: 'qwen-plus' },
+    zhipu:      { kind: 'openai',    url: 'https://open.bigmodel.cn/api/paas/v4',                 model: 'glm-4-flash' },
+    openrouter: { kind: 'openai',    url: 'https://openrouter.ai/api/v1',                         model: 'anthropic/claude-sonnet-4.5' },
+    openai:     { kind: 'openai',    url: 'https://api.openai.com/v1',                            model: 'gpt-4o-mini' },
+    anthropic:  { kind: 'anthropic', url: 'https://api.anthropic.com/v1',                         model: 'claude-sonnet-4-5' },
+  };
+
+  const aiPreset = document.getElementById('ai-preset');
+  const aiUrl    = document.getElementById('ai-url');
+  const aiKey    = document.getElementById('ai-key');
+  const aiModel  = document.getElementById('ai-model');
+  const aiSave   = document.getElementById('ai-save');
+  const aiKeyToggle = document.getElementById('ai-key-toggle');
+
+  // currentKind: 跟踪从磁盘读出来的 kind, 切预设时同步更新.
+  // 自定义预设不动 kind, 维持原值.
+  let currentKind = 'openai';
+
+  aiKeyToggle.addEventListener('click', () => {
+    if (aiKey.type === 'password') { aiKey.type = 'text'; aiKeyToggle.textContent = '隐藏'; }
+    else { aiKey.type = 'password'; aiKeyToggle.textContent = '显示'; }
+  });
+
+  aiPreset.addEventListener('change', () => {
+    const p = PRESETS[aiPreset.value];
+    if (!p) return; // custom: 不动
+    aiUrl.value = p.url;
+    aiModel.value = p.model;
+    currentKind = p.kind;
+  });
+
+  function loadAIConfig() {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', '/ai-config');
+    xhr.onload = () => {
+      if (xhr.status !== 200) return;
+      try {
+        const j = JSON.parse(xhr.responseText);
+        currentKind  = j.kind  || 'openai';
+        aiUrl.value  = j.url   || '';
+        aiModel.value = j.model || '';
+        // key 故意不回填, 避免在公开环境暴露; 留空保留原值
+        aiKey.value = '';
+        aiKey.placeholder = j.key ? '已保存 (留空保留)' : 'sk-...';
+        // 根据当前 url+model 命中哪个预设
+        const hit = Object.entries(PRESETS).find(([_, v]) => v.url === j.url && v.kind === currentKind);
+        aiPreset.value = hit ? hit[0] : 'custom';
+      } catch (_) {}
+    };
+    xhr.send();
+  }
+
+  aiSave.addEventListener('click', () => {
+    aiSave.disabled = true;
+    aiSave.textContent = '保存中…';
+    const body = JSON.stringify({
+      kind:  currentKind,
+      url:   aiUrl.value.trim(),
+      key:   aiKey.value,        // 不 trim, 保留原始 key
+      model: aiModel.value.trim(),
+    });
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', '/ai-config');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = () => {
+      aiSave.disabled = false;
+      aiSave.textContent = '保存';
+      if (xhr.status >= 200 && xhr.status < 300) {
+        showResult(true, '✅ AI 配置已保存');
+        // 重新加载, 把 placeholder 更新为"已保存"
+        loadAIConfig();
+      } else {
+        let msg = '保存失败 (' + xhr.status + ')';
+        try {
+          const j = JSON.parse(xhr.responseText);
+          if (j.detail) msg = '❌ ' + j.detail;
+        } catch (_) {}
+        showResult(false, msg);
+      }
+    };
+    xhr.onerror = () => {
+      aiSave.disabled = false;
+      aiSave.textContent = '保存';
+      showResult(false, '❌ 网络错误');
+    };
+    xhr.send(body);
+  });
+
+  loadAIConfig();
+})();
+</script>
+</body>
+</html>

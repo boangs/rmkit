@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rmkit-cn 管理</title>
+<style>
+  body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; background: #f5f5f5; }
+  h2 { border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+  .card { background: white; border-radius: 8px; padding: 16px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  input[type=file] { display: block; margin: 8px 0; }
+  button { padding: 8px 16px; background: #333; color: white; border: none; border-radius: 4px; cursor: pointer; }
+  button.del { background: #c0392b; margin-left: 8px; padding: 4px 10px; font-size: 12px; }
+  ul { list-style: none; padding: 0; }
+  li { display: flex; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+  li span { flex: 1; }
+  .msg { color: green; font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>rmkit-cn 管理</h1>
+
+<div class="card">
+  <h2>字体管理</h2>
+  <input type="file" id="fontFile" accept=".ttf,.otf">
+  <button onclick="upload('fonts','fontFile')">上传字体</button>
+  <div class="msg" id="fontMsg"></div>
+  <ul id="fontList"></ul>
+</div>
+
+<div class="card">
+  <h2>休眠屏管理</h2>
+  <input type="file" id="screenFile" accept=".png">
+  <button onclick="upload('screens','screenFile')">上传图片</button>
+  <div class="msg" id="screenMsg"></div>
+  <ul id="screenList"></ul>
+</div>
+
+<script>
+async function load(type) {
+  const resp = await fetch(`/${type}`);
+  const items = await resp.json();
+  const listId = type === 'fonts' ? 'fontList' : 'screenList';
+  const list = document.getElementById(listId);
+  list.innerHTML = items.map(i =>
+    `<li><span>${i.name}</span><button class="del" onclick="del('${type}','${i.name}')">删除</button></li>`
+  ).join('');
+}
+
+async function upload(type, inputId) {
+  const file = document.getElementById(inputId).files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  const resp = await fetch(`/${type}`, { method: 'POST', body: fd });
+  const msgId = type === 'fonts' ? 'fontMsg' : 'screenMsg';
+  if (resp.ok) {
+    document.getElementById(msgId).textContent = '上传成功';
+    load(type);
+  } else {
+    const err = await resp.json();
+    document.getElementById(msgId).textContent = '错误：' + err.detail;
+  }
+}
+
+async function del(type, name) {
+  if (!confirm(`确认删除 ${name}？`)) return;
+  await fetch(`/${type}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  load(type);
+}
+
+load('fonts');
+load('screens');
+</script>
+</body>
+</html>
