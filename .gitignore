@@ -1,8 +1,67 @@
+# ──────────────────────────────────────────────────────────
+# rmkit-cn .gitignore
+# 原则: 只入库源代码 / 资产 / vendor; 构建产物全部排除
+# ──────────────────────────────────────────────────────────
+
+# ─── 构建产物 (由 build 流程从源代码重新生成) ───
+# dist/ 由 installer/install.sh 在部署前现场构建:
+#   tools/hash-qmd.py qmd-src/*.qmd → dist/*.qmd
+#   ime-go build → dist/ime-server{,-armv7}
+#   upload-server-go build → dist/upload-server-{aarch64,armv7}
+#   intercept build → dist/ime_hook{,-armv7}.so
+#   tools/create_rcc → dist/zh_CN.rcc
+#   .ts → dist/reMarkable_zh_CN.qm
+dist/
+
+# Go 编译副产物
+*.exe
+*.test
+*.prof
+upload-server-go/upload-server
+ime-go/ime-server
+
+# C/C++ 编译副产物
+*.o
+*.a
+intercept/build/
+intercept/*.so
+
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
 *.egg-info/
-dist/
+.pytest_cache/
 .venv/
 venv/
-*.DS_Store
+
+# Node (qml-dump 等可能涉及)
+node_modules/
+
+# ─── 历史/废弃产物 ───
+qmd/_obsolete/
+**/*.bak
+**/*.bak.*
+**/*.old
+**/*.tmp
+
+# ─── 工具临时缓存 ───
+# tools/hashtab 是 install.sh 同步设备时的"工作副本",每次部署被覆盖;
+# 长期保存的快照在 tools/hashtabs/ 按机型分文件存储, 入库
+tools/hashtab.device
+
+# ─── 系统垃圾 ───
+.DS_Store
+**/.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ─── IDE ───
+.idea/
+.vscode/
+*.iml
+
+# ─── 设备调试产物 ───
+*.log
+journal-*.txt
+qml-dump/output/
