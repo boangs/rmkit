@@ -13,12 +13,20 @@
 #   .ts → dist/reMarkable_zh_CN.qm
 dist/
 
-# Go 编译副产物
+# Go 编译副产物 (部署产物去 dist/, 本地 dev 产物在这里排除)
 *.exe
 *.test
 *.prof
-upload-server-go/upload-server
+ime-go/bin/
+ime-go/ime
 ime-go/ime-server
+ime-go/ime-arm64
+ime-go/ime-server-arm64
+ime-go/ime-armv7
+ime-go/ime-server-armv7
+upload-server-go/upload-server
+upload-server-go/upload-server-aarch64
+upload-server-go/upload-server-armv7
 
 # C/C++ 编译副产物
 *.o
