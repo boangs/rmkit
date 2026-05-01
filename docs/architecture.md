@@ -75,7 +75,7 @@ INSERT BEFORE {
 END
 ```
 
-`[[hash]]` 是 u64 BE, 由 `tools/hash-qmd.py` 把 identifier 名 (`MainView` / `children` / ...) 查 `hashtab` 替换得来.
+`[[hash]]` 是 u64 BE, 由 `dist/qmd-tool` (Go, 源在 `tools/qmd-tool/`) 把 identifier 名 (`MainView` / `children` / ...) 查 `hashtab` 替换得来. 同一二进制可在 PC 和设备上跑, OTA 时设备本机重编 .qmd 不需要 Python.
 
 ### hashtab 是什么
 
@@ -85,13 +85,13 @@ END
 
 | 现象 | 根因 |
 |---|---|
-| 注入 silent skip (功能消失但不 crash) | hash-qmd.py 漏处理某关键字, 错把保留字 hash 化, 破坏 typeof 比较表达式 |
+| 注入 silent skip (功能消失但不 crash) | qmd-tool 漏处理某关键字, 错把保留字 hash 化, 破坏 typeof 比较表达式 |
 | xochitl crash → A/B 切换 | qmd 引用的 hash 在 device 当前 hashtab 里**不存在** ("孤儿 hash"), qmldiff Rust panic |
-| dist/*.qmd 是 Python traceback | hash-qmd.py 失败时, 调用方把 stderr 重定向到 stdout, traceback 当 .qmd 写入 dist/ |
+| dist/*.qmd 含错误信息而非 .qmd 内容 | qmd-tool 失败时, 调用方把 stderr 重定向到 stdout, 错误文本当 .qmd 写入 dist/ |
 
 CI 兜底:
-- `tools/qmd_hash_check.py` 校验所有 qmd hash 在任一 hashtab 命中
-- `installer/install.sh` 部署前 `qmd_is_valid()` 拒绝 traceback 文本
+- `dist/qmd-tool check` 校验所有 qmd hash 在任一 hashtab 命中 (Go, 替代旧 `tools/qmd_hash_check.py`)
+- `installer/install.sh` 部署前 `qmd_is_valid()` 拒绝错误文本 (magic-byte 校验)
 
 ---
 

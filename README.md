@@ -40,7 +40,8 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
 │   └── upload-server-py/   早期 Python 上传服务器
 ├── systemd/             *.service / *.path / udev 规则
 ├── scripts/             开发辅助 (apply-screen / version-switcher / 翻译批处理)
-├── tools/               构建工具 (hash-qmd.py / create_rcc) + hashtab 当前副本
+├── tools/               构建工具 (qmd-tool Go / create_rcc) + hashtab 当前副本
+│   └── qmd-tool/        qmd 编译 + hash 校验 (Go, 替代了原 Python tools)
 │   └── hashtabs/        按机型/版本分类的 hashtab 快照
 ├── assets/              静态资产 (chess/ 图标 svg/png)
 ├── vendor/              第三方源码副本
@@ -58,8 +59,7 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
 ### 前置
 
 - macOS / Linux 开发机
-- Go ≥ 1.22 (`brew install go`)
-- Python 3 (用于 `tools/hash-qmd.py`)
+- Go ≥ 1.22 (`brew install go`) — 编 ime-server / upload-server / qmd-tool
 - ssh 已配置到 `root@10.11.99.1` (USB-C)
 - 设备已安装 [xovi](https://github.com/asivery/xovi) (一次性, 见 `vendor/xovi/`)
 
@@ -72,8 +72,8 @@ bash installer/install.sh
 `install.sh` 会:
 
 1. 同步设备最新 hashtab → `tools/hashtab`
-2. 用 `tools/hash-qmd.py` 重编 `qmd-src/*.qmd` → `dist/*.qmd`
-3. **预检** `dist/*.qmd` 不是 Python traceback (历史事故根因)
+2. 用 `dist/qmd-tool` (Go) 重编 `qmd-src/*.qmd` → `dist/*.qmd`
+3. **预检** `dist/*.qmd` 不是错误输出 (历史事故根因)
 4. 部署 .qmd / .so / IME / upload-server / 翻译 / 资产
 5. 写入 systemd unit (bind-mount 持久化绕过 /etc overlayfs)
 6. **不主动重启 xochitl** — 让用户冷启动自然加载
@@ -120,7 +120,7 @@ bash installer/diagnose.sh
 | 风险 | 现象 | 缓解 |
 |---|---|---|
 | qmd hash 不命中 | qmldiff Rust panic → xochitl crash → A/B 切换 | install.sh 部署前重编 + magic-byte 预检 |
-| `dist/*.qmd` 是 Python traceback | hash-qmd.py 失败时 stderr 当 stdout 写入 | install.sh `qmd_is_valid()` 预检 |
+| `dist/*.qmd` 含错误信息而非真 .qmd | qmd-tool 失败时调用方把 stderr 重定向到 stdout | install.sh `qmd_is_valid()` 预检 magic byte |
 | /etc 是 overlayfs(tmpfs) | systemd unit 重启丢失 | bind-mount 持久化 |
 | LD_PRELOAD 早于 /home 挂载 | .so 静默忽略 → 注入全失效 | drop-in `After=home.mount` |
 | extensions.d/ 留 .bak | xovi "processed more than once" fatal → A/B | 备份只放 xovi 目录外 |
@@ -131,11 +131,12 @@ bash installer/diagnose.sh
 
 详见 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-- 改 `.qmd` 注入: 先 `python3 tools/qmd_hash_check.py` 校验 hash 命中
-- 改 Go: `cd ime-go && go vet ./... && go test ./...` (或 `upload-server-go`)
+- 改 `.qmd` 注入: 先 `dist/qmd-tool check` 校验 hash 命中
+  (跑前需 `cd tools/qmd-tool && make build`)
+- 改 Go: `cd ime-go && go vet ./... && go test ./...` (或 `upload-server-go` / `tools/qmd-tool`)
 - 改 systemd unit: 改完跑 `systemd-analyze verify systemd/*.service`
 - 提交前 `bash -n` + `shellcheck` (CI 也会跑)
-- CI: GitHub Actions 自动跑 shell + python + qmd hash + go 全套校验
+- CI: GitHub Actions 自动跑 shell + qmd-tool (含 hash 校验) + go 全套校验
 
 ---
 

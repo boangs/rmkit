@@ -7,6 +7,19 @@
 
 ### Changed
 
+- **`tools/hash-qmd.py` + `tools/qmd_hash_check.py` Go 重写为 `tools/qmd-tool/`**:
+  ime-server 18M 是 rime-frost 词库 embed 的 Go 二进制, 设备上能跑;
+  原 Python 工具在 reMarkable Paper Pro Move (`imx93-chiappa`) 上**没有** Python3
+  可用 (`/usr/bin/python*` 不存在). 这导致设备端 OTA "本机重编 .qmd 对齐当前 hashtab"
+  这一步走不通 — 这是 OTA 的关键阻塞.
+  - 新增 `tools/qmd-tool/` (Go, 0 外部依赖, 纯标准库), 单一二进制提供 `hash` / `check` 子命令
+  - 三平台 cross-compile (host / aarch64 / armv7), 各 ~2 MB
+  - golden 单测 (`compile_test.go`) 用真实 `qmd-src/*.qmd` + 现役 hashtab 对比 dist 产物,
+    保证 byte-for-byte 与 Python 版完全一致
+  - `installer/install.sh` 不再 require `python3`, 改调 `dist/qmd-tool hash`
+  - `.github/workflows/ci.yml` 用 `qmd-tool check` 替代旧 `python3 tools/qmd_hash_check.py`
+  - 旧 `tools/hash-qmd.py` + `tools/qmd_hash_check.py` 归档到 `legacy/qmd-tool-py/`
+  - 文档 (README / CONTRIBUTING / docs/architecture / docs/devices / docs/upgrade-sop) 同步
 - **install.sh 走 tarball 单次流式传输**: 把原来 56 次 `scp` + 多次 `ssh` 调用
   收口成"本地构造 staging → `tar -czf - | ssh tar -xzf -` 1 次连接"
   - 部署体积: 30 MB (raw) → **13.6 MB** (gzip 流式, -55%)
@@ -160,7 +173,7 @@
 
 - [ ] 完善 docs/troubleshooting.md (常见问题排查决策树)
 - [ ] systemd unit 加 `systemd-analyze verify` 到 CI
-- [ ] qmd_hash_check.py 支持按机型分别校验 (而不是只取并集)
+- [ ] qmd-tool check 支持按机型分别校验 (而不是只取并集)
 - [ ] release 自动打包 (installer + dist 产物 → GitHub Release tarball)
 - [ ] CHANGELOG 自动从 conventional commit 生成 (例如 git-cliff)
 

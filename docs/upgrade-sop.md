@@ -96,7 +96,7 @@ rm2 (无 A/B) 风险更高, RMPP/RMPPM 有 A/B 兜底但 errcnt 累 3 仍切换.
 □ 看 docs/devices.md "RMPP A/B slot 切换" 找回滚命令
 □ 排查必看:
    - extensions.d 有无重名文件 (.bak / .old)
-   - qmd hash 是否对得上 (跑 tools/qmd_hash_check.py)
+   - qmd hash 是否对得上 (跑 `dist/qmd-tool check`)
    - drop-in 有无 Requires= 炸弹 (After= 才对)
 □ 修问题 → 清 errcnt → 切回主 slot → reboot 验证
 ```
@@ -108,7 +108,7 @@ rm2 (无 A/B) 风险更高, RMPP/RMPPM 有 A/B 兜底但 errcnt 累 3 仍切换.
 `.github/workflows/ci.yml` 在每次 push / PR 时跑:
 
 - `bash -n` + `shellcheck` 校验所有 shell
-- `tools/qmd_hash_check.py` 校验 qmd 引用的 hash 全部命中 hashtab (孤儿 hash 是历史 A/B 切换根因)
-- `go vet` + `go test` + cross-compile aarch64/armv7
+- `dist/qmd-tool check` (Go, 由 `tools/qmd-tool` job 自己 build 后跑) 校验 qmd 引用的 hash 全部命中 hashtab (孤儿 hash 是历史 A/B 切换根因)
+- `go vet` + `go test` + cross-compile aarch64/armv7 — 三个 Go 项目: `ime-go` / `upload-server-go` / `tools/qmd-tool`
 
-任何一项 fail 都会卡 PR, 部署链上**不会**再出现 hash-qmd.py 失败时 stderr 当 stdout 写入的 Python traceback 进入 dist/ 这种事.
+任何一项 fail 都会卡 PR, 部署链上**不会**再出现 qmd-tool 失败时 stderr 当 stdout 写入的错误进入 dist/ 这种事 (`install.sh` 的 `qmd_is_valid` 还会兜底 magic-byte 检查).

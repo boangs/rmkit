@@ -39,7 +39,7 @@ jobs:
           ignore_paths: vendor qml-dump qmd qmd-src tools/hashtabs dist
 
   python:
-    name: python tools syntax
+    name: python helper syntax
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,25 +47,37 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: py_compile
+      - name: py_compile (开发辅助脚本, 不再含 hash-qmd / qmd_hash_check)
         run: |
           set -euo pipefail
-          python -m py_compile tools/hash-qmd.py
-          python -m py_compile tools/qmd_hash_check.py
           python -m py_compile scripts/merge_ts.py
           python -m py_compile scripts/translate_ts.py
 
-  qmd-hash:
-    name: qmd hash validation
+  qmd-tool:
+    name: qmd-tool (Go) — hash-qmd + check 的重写
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-go@v5
         with:
-          python-version: '3.12'
+          go-version-file: tools/qmd-tool/go.mod
+          cache-dependency-path: tools/qmd-tool/go.mod
 
-      - name: validate qmd hashes against hashtabs
-        run: python3 tools/qmd_hash_check.py
+      - name: vet + test
+        working-directory: tools/qmd-tool
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: build host (用于 check) + cross-compile aarch64/armv7
+        working-directory: tools/qmd-tool
+        run: |
+          go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool .
+          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-aarch64 .
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-armv7 .
+
+      - name: validate qmd hashes against hashtabs (替代旧 python qmd_hash_check.py)
+        run: /tmp/qmd-tool check
 
   go-ime:
     name: go IME daemon
