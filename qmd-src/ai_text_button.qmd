@@ -1,0 +1,608 @@
+; rmkit-cn: 在文字选择菜单 (TextSelectionMenu) 注入 AI 按钮 + 二级菜单 + /ai-page-chat 调用.
+;
+; 一级 (默认): cut/copy/paste/B | AI(✨notebook_sparkles) | I | Edit
+;   点 AI 按钮 → root.sourceComponent 切到 aiMenuComponent (二级菜单).
+; 二级: 润色 | 翻译 | 总结 | 回答
+;   点其中一个 → 立即关菜单, 弹出底部预览面板, 后台 XHR 调 /ai-page-chat 流式拿 token.
+;   面板里实时显示生成内容; 用户点 "插入" 时再走 IME 一次性 commit 到光标处, 点 "取消/删除" 直接关掉.
+;
+; 整页方案: QML 层无法读取 selectedText / 整页文字 (只暴露 cursor/selection 坐标, 不暴露文字).
+;   所以走服务器端: Go 版 rmscene 扫 ~/.local/share/remarkable/xochitl 找 mtime 最新的 .rm,
+;   解析出 typed text plain string, 拼到用户的 prompt 后面调 AI.
+;
+; 预览面板设计:
+;   - 尺寸: 黄金比例, width = parent.width * 0.618, height = parent.height * 0.382
+;   - 水平居中, 垂直跟随光标 (优先放下方, 不够再上方, 都不够顶部 fallback).
+;   - 内容区 Flickable + Text 自动换行/可滚动, 文字流式追加.
+;   - 底部双按钮, 等宽:
+;       生成中: [插入(置灰)] [取消(白底, abort XHR)]
+;       完成后: [插入(黑底)] [删除(白底, 仅关掉)]
+;   - 面板挂在顶层 Window.contentItem, 不受 root.close() 影响.
+;
+; 失败时只 console.warn 到 journal, 不动文档.
+
+AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
+    TRAVERSE Loader#root
+        LOCATE AFTER Component#menuComponent
+        INSERT {
+            Component {
+                id: aiPreviewPanelComponent
+                Rectangle {
+                    id: panel
+                    property string bodyText: ""
+                    property string actionLabel: ""
+                    property bool isStreaming: true
+                    property real cursorTopY: 0
+                    property real cursorBottomY: 0
+                    signal insertRequested()
+                    signal rightButtonClicked()
+                    // 面板挂在 Loader#root 的父节点 (documentview 子树容器):
+                    //   - r.close() 只销毁 sourceComponent, host 不变 → 面板留下
+                    //   - 锁屏/休眠 → documentview 不可见 → 面板不可见 (Qt 可见性继承)
+                    // 但 documentview 是常驻组件, 退出文档/换文档不销毁 host, 所以
+                    // 必须靠焦点监听主动清理 (参考拼音 IME):
+                    //   - 离开文档视图: activeFocusItem 不再是 SceneView → 销毁面板
+                    //   - 休眠: Window.visible=false → 不清理 (保留面板, 唤醒后还在)
+                    // 创建后 400ms grace period 内不响应, 避开 r.close() 引起的瞬时焦点抖动.
+
+                    // 翻页状态: 0-based pageIdx. 校正逻辑在 bodyTextItem.onLineCountChanged
+                    // (bodyText 变化 → Text 重排 → lineCount 变 → 我们才知道新 totalPages).
+                    property int pageIdx: 0
+
+                    property bool _focusGuardReady: false
+                    Timer {
+                        interval: 400
+                        running: true
+                        repeat: false
+                        onTriggered: panel._focusGuardReady = true
+                    }
+                    Connections {
+                        target: panel.Window.window
+                        ignoreUnknownSignals: true
+                        function onActiveFocusItemChanged() {
+                            if (!panel._focusGuardReady) return
+                            var win = panel.Window.window
+                            if (!win || !win.visible) return
+                            var item = win.activeFocusItem
+                            // SceneView 有 controller, TextInput 有 text 属性. 都算"还在编辑视图".
+                            if (item && (item.controller || item.text !== undefined)) return
+                            console.warn("XOVI-AI: focus left editor, panel cleanup")
+                            panel.destroy()
+                        }
+                    }
+
+                    z: 9999
+                    radius: 16
+                    color: "#ffffff"
+                    border.width: 0
+
+                    // Rectangle.border 不支持虚线, 用 Canvas 自绘. 1px 灰虚线圆角矩形.
+                    Canvas {
+                        id: dashedBorder
+                        anchors.fill: parent
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+                        onPaint: {
+                            var ctx = getContext("2d")
+                            ctx.clearRect(0, 0, width, height)
+                            ctx.strokeStyle = "#444444"
+                            ctx.lineWidth = 1
+                            ctx.setLineDash([8, 5])
+                            var r = panel.radius
+                            var w = width
+                            var h = height
+                            ctx.beginPath()
+                            ctx.moveTo(r, 0.5)
+                            ctx.lineTo(w - r, 0.5)
+                            ctx.quadraticCurveTo(w - 0.5, 0.5, w - 0.5, r)
+                            ctx.lineTo(w - 0.5, h - r)
+                            ctx.quadraticCurveTo(w - 0.5, h - 0.5, w - r, h - 0.5)
+                            ctx.lineTo(r, h - 0.5)
+                            ctx.quadraticCurveTo(0.5, h - 0.5, 0.5, h - r)
+                            ctx.lineTo(0.5, r)
+                            ctx.quadraticCurveTo(0.5, 0.5, r, 0.5)
+                            ctx.closePath()
+                            ctx.stroke()
+                        }
+                    }
+                    width: parent ? Math.round(parent.width * 0.82) : 800
+                    height: parent ? Math.round(parent.height * 0.26) : 560
+
+                    // 正文区可用高度 = panel.height - 顶部固定占位 - 底部固定占位.
+                    // 顶部: statusLine.topMargin(14) + statusLine.height(40) + sep.topMargin(8) + sep.height(1) + bodyArea.topMargin(14) = 77
+                    // 底部: btnRow.height(56) + btnRow.bottomMargin(16) = 72
+                    // bodyArea 高度动态 = pageH (linesPerPage*lineH), 严格行对齐;
+                    // 用 bodyAvailableH 算 linesPerPage, 避免循环依赖 (bodyArea.height ↔ pageH).
+                    readonly property real bodyAvailableH: Math.max(50, height - 77 - 72)
+                    // 屏幕水平居中: host (r.parent) 不一定占满屏幕宽度,
+                    // 直接用 Window 宽度算 x, 把 host 在 window 中的 x 偏移补回来.
+                    x: {
+                        var win = panel.Window.window
+                        if (!win || !parent) return 0
+                        var hostInWin = parent.mapToItem(null, 0, 0)
+                        return Math.round(win.width / 2 - hostInWin.x - width / 2)
+                    }
+                    y: {
+                        var pH = parent ? parent.height : 1872
+                        var marg = 24
+                        var below = cursorBottomY + 24
+                        if (below + height <= pH - marg) return below
+                        var above = cursorTopY - 24 - height
+                        if (above >= marg) return above
+                        return marg
+                    }
+
+                    // 拦截背景点击, 避免穿透到底层文档
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {}
+                    }
+
+                    // 顶部状态行: 左 "润色 · 已生成 N 字", 右 "← N/M →"
+                    Item {
+                        id: statusLine
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: 36
+                        anchors.rightMargin: 36
+                        anchors.topMargin: 14
+                        height: 40
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "#333333"
+                            font.pixelSize: 25
+                            text: panel.actionLabel + " \u00b7 " + (panel.isStreaming ? "\u6b63\u5728\u751f\u6210\u2026" : "\u5df2\u751f\u6210 " + panel.bodyText.length + " \u5b57")
+                        }
+
+                        // 翻页控件: reMarkable 自带 chevron_right SVG 图标; 左箭头用 mirror 水平翻转.
+                        Row {
+                            id: pager
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 18
+                            visible: bodyArea.totalPages > 1
+
+                            Item {
+                                width: 72; height: 40
+                                Image {
+                                    anchors.centerIn: parent
+                                    source: "qrc:/ark/icons/arrow_right"
+                                    width: 36; height: 36
+                                    sourceSize.width: 36; sourceSize.height: 36
+                                    fillMode: Image.PreserveAspectFit
+                                    opacity: panel.pageIdx > 0 ? 1.0 : 0.3
+                                    // mirror: true 在这套 Qt 上失效, 改用 transform: Scale 显式翻转.
+                                    transform: Scale { origin.x: 18; origin.y: 18; xScale: -1 }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: panel.pageIdx > 0
+                                    onClicked: panel.pageIdx = Math.max(0, panel.pageIdx - 1)
+                                }
+                            }
+
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: "#333333"
+                                font.pixelSize: 25
+                                text: (panel.pageIdx + 1) + "/" + bodyArea.totalPages
+                            }
+
+                            Item {
+                                width: 72; height: 40
+                                Image {
+                                    anchors.centerIn: parent
+                                    source: "qrc:/ark/icons/arrow_right"
+                                    width: 36; height: 36
+                                    sourceSize.width: 36; sourceSize.height: 36
+                                    fillMode: Image.PreserveAspectFit
+                                    opacity: panel.pageIdx < bodyArea.totalPages - 1 ? 1.0 : 0.3
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: panel.pageIdx < bodyArea.totalPages - 1
+                                    onClicked: panel.pageIdx = Math.min(bodyArea.totalPages - 1, panel.pageIdx + 1)
+                                }
+                            }
+                        }
+                    }
+
+                    // 状态行下分隔线 (替代外框, 视觉边界).
+                    Rectangle {
+                        id: topSeparator
+                        anchors.top: statusLine.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: 36
+                        anchors.rightMargin: 36
+                        anchors.topMargin: 8
+                        height: 1
+                        color: "#666666"
+                    }
+
+                    // 正文区: 自身严格行对齐 (height = pageH) + clip + Text.y 平移翻页.
+                    // linesPerPage 从 panel.bodyAvailableH 算 (不能用 bodyArea.height, 那是 pageH 反过来依赖).
+                    // 这样按钮直接贴在文字底部, 不会留无意义大空白; 也不会因为 height 非 lineH 整数倍而重叠首末行.
+                    Item {
+                        id: bodyArea
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: topSeparator.bottom
+                        anchors.leftMargin: 36
+                        anchors.rightMargin: 36
+                        anchors.topMargin: 14
+                        height: pageH
+                        clip: true
+
+                        // lineH 用 Text 实际报告的值 (implicitHeight / lineCount), 而非估算
+                        // (Qt ProportionalHeight 模式: 行高 = lineHeight × 字体自然行高 ≈ pixelSize × 1.2,
+                        // 不是 pixelSize × lineHeight, 估算偏差导致翻页错位 + 最后一页空白).
+                        readonly property real lineH: (bodyTextItem.lineCount > 0 && bodyTextItem.implicitHeight > 0)
+                            ? (bodyTextItem.implicitHeight / bodyTextItem.lineCount)
+                            : 42
+                        readonly property int linesPerPage: Math.max(1, Math.floor(panel.bodyAvailableH / lineH))
+                        readonly property real pageH: linesPerPage * lineH
+                        readonly property int totalPages: bodyTextItem.lineCount > 0
+                            ? Math.max(1, Math.ceil(bodyTextItem.lineCount / linesPerPage))
+                            : 1
+
+                        Text {
+                            id: bodyTextItem
+                            y: -panel.pageIdx * bodyArea.pageH
+                            width: bodyArea.width
+                            wrapMode: Text.Wrap
+                            font.pixelSize: 30
+                            color: "#000000"
+                            lineHeight: 1.4
+                            lineHeightMode: Text.ProportionalHeight
+                            text: panel.bodyText.length > 0 ? panel.bodyText : "AI \u601d\u8003\u4e2d..."
+
+                            // 流式时不自动跟随到末页 (e-ink 翻页闪烁影响阅读), 让用户静态停在第 1 页,
+                            // 进度由状态栏 "已生成 N 字" 反馈. 用户手动翻页也不被打断.
+                            // 这里只 clamp pageIdx 到合法范围 (totalPages 实时变化, 防越界).
+                            onLineCountChanged: {
+                                var t = bodyArea.totalPages
+                                panel.pageIdx = Math.max(0, Math.min(panel.pageIdx, t - 1))
+                            }
+                        }
+                    }
+
+                    // [✓ 插入 | ✗ 取消], 无外框, 中间竖线分隔.
+                    Rectangle {
+                        id: btnRow
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottomMargin: 16
+                        width: 460
+                        height: 56
+                        radius: height / 2
+                        color: "#ffffff"
+                        border.width: 0
+
+                        Item {
+                            id: insertHalf
+                            anchors.left: parent.left
+                            anchors.right: btnDivider.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            Text {
+                                anchors.centerIn: parent
+                                color: panel.isStreaming ? "#999999" : "#000000"
+                                font.pixelSize: 28
+                                // ✓ 插入
+                                text: "\u2713 \u63d2\u5165"
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !panel.isStreaming
+                                onClicked: panel.insertRequested()
+                            }
+                        }
+
+                        Rectangle {
+                            id: btnDivider
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 1
+                            height: parent.height - 16
+                            color: "#444444"
+                        }
+
+                        Item {
+                            id: cancelHalf
+                            anchors.left: btnDivider.right
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            Text {
+                                anchors.centerIn: parent
+                                color: "#000000"
+                                font.pixelSize: 28
+                                // ✗ 取消
+                                text: "\u2717 \u53d6\u6d88"
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: panel.rightButtonClicked()
+                            }
+                        }
+                    }
+                }
+            }
+
+            Component {
+                id: aiMenuComponent
+
+                SelectionContextualMenu {
+                    id: aiMenu
+                    availableRect: root.availableSceneRect
+                    selectionRect: {
+                        tileManager.sceneToViewTransform;
+                        if (controller.hasSelection) {
+                            return MathUtils.sceneToViewAligned(tileManager, controller.textSelectionBounds);
+                        }
+                        const pos = controller.textCursorPosition;
+                        return MathUtils.sceneToViewAligned(tileManager, Qt.rect(pos.x, pos.y - controller.textLineHeight, 1, controller.fontPixelSize));
+                    }
+                    preferAbove: true
+
+                    function _aiRun(promptPrefix, actionLabel) {
+                        var c = controller
+                        var r = root
+
+                        // 必须在 r.close() 前把 aiPreviewPanelComponent 抓到闭包局部变量.
+                        // r.close() 会销毁 aiMenu (当前 sourceComponent), 它所在的 QML 作用域也随之失效;
+                        // 之后在异步回调 (Timer/_start) 里再写裸 id "aiPreviewPanelComponent" 会 ReferenceError.
+                        // 闭包局部变量 panelComp 不依赖 QML scope, 所以安全.
+                        var panelComp = aiPreviewPanelComponent
+
+                        // 段落格式化: 折叠所有连续 \n 为单个 \n (去段间空行),
+                        // 给每个非空段落开头加两个全角空格 (中文首行缩进).
+                        // 必须放 _aiRun 闭包内: 后面会 r.close() 销毁 aiMenu 自身,
+                        // 若挂在 aiMenu 上, 流式 callback 访问会拿到 null QObject.
+                        function _formatParagraphs(s) {
+                            if (!s) return ""
+                            var collapsed = s.replace(/\n+/g, "\n")
+                            var lines = collapsed.split("\n")
+                            var out = []
+                            for (var i = 0; i < lines.length; i++) {
+                                var line = lines[i]
+                                if (line.length > 0) {
+                                    out.push("\u3000\u3000" + line)
+                                } else {
+                                    out.push(line)
+                                }
+                            }
+                            return out.join("\n")
+                        }
+
+                        // 必须有选区才能继续. (AI 按钮已经 visible: controller.hasSelection,
+                        // 但 _aiRun 时再保险检查一次, 避免极端时序下选区已被释放.)
+                        if (!c.hasSelection) {
+                            console.warn("XOVI-AI: no selection, abort")
+                            r.close()
+                            return
+                        }
+
+                        // 光标/选区 → host 坐标 (host = r.parent, 面板挂载点).
+                        // 必须在 r.close() 前算好 (selectionRect 来自 aiMenu, r.close 后 aiMenu 销毁).
+                        var host = r.parent
+                        var topHost = Qt.point(0, 0)
+                        var bottomHost = Qt.point(0, 40)
+                        try {
+                            var sr = aiMenu.selectionRect
+                            if (host && sr) {
+                                topHost = r.mapToItem(host, sr.x, sr.y)
+                                bottomHost = r.mapToItem(host, sr.x, sr.y + sr.height)
+                            }
+                            console.warn("XOVI-AI: sr=(" + sr.x + "," + sr.y + " " + sr.width + "x" + sr.height + ") topHost=" + topHost.y + " botHost=" + bottomHost.y)
+                        } catch (ec) {
+                            console.warn("XOVI-AI: cursor coord transform fail e=" + ec)
+                        }
+
+                        // 触发系统复制. Clipboard 写入是异步的 (经 IPC), 立即读 Clipboard.text 会拿到旧值
+                        // (上一次 AI 调用残留的内容 — 实测会读到上次的源文字, 完全错乱).
+                        // 所以挂个 Timer 200ms, 等 Clipboard 真正更新后再读 + 创建 panel + 发 XHR.
+                        c.copySelectedText()
+                        c.clearSelectedText()
+                        if (Qt.inputMethod.visible) {
+                            try { Qt.inputMethod.hide() } catch (ek) { console.warn("XOVI-AI: hide kbd e=" + ek) }
+                        }
+
+                        // _start 在 Clipboard 就绪后跑: 读选区文字 → 建 panel → 起 XHR.
+                        // Clipboard.textString() 是 Q_INVOKABLE, 返回 plain string (从 SceneClipboardText 抠出真实文字).
+                        // 这个方法不在 qml-dump 里也不是 Q_PROPERTY, 是从 ingatellent/xovi-qmd-extensions 反混淆出的关键 API.
+                        function _start() {
+                            var selectedText = ""
+                            try {
+                                if (Clipboard.textString) {
+                                    selectedText = ("" + (Clipboard.textString() || ""))
+                                    console.warn("XOVI-AI: Clipboard.textString() -> len=" + selectedText.length + " head=" + selectedText.substring(0, 80))
+                                } else {
+                                    console.warn("XOVI-AI: Clipboard.textString missing")
+                                }
+                            } catch (ets) {
+                                console.warn("XOVI-AI: Clipboard.textString err=" + ets)
+                            }
+                            console.warn("XOVI-AI: selectedText len=" + selectedText.length)
+                            if (selectedText.length === 0) {
+                                console.warn("XOVI-AI: clipboard empty after wait, abort")
+                                return
+                            }
+
+                            var panel = null
+                            try {
+                                if (host) {
+                                    panel = panelComp.createObject(host, {
+                                        cursorTopY: topHost.y,
+                                        cursorBottomY: bottomHost.y,
+                                        isStreaming: true,
+                                        actionLabel: actionLabel || "",
+                                        bodyText: ""
+                                    })
+                                }
+                            } catch (eo) {
+                                console.warn("XOVI-AI: panel create failed e=" + eo)
+                            }
+                            if (!panel) {
+                                console.warn("XOVI-AI: no panel, abort")
+                                return
+                            }
+
+                            var fullText = ""
+                            var xhr = null
+
+                            function _destroyPanel() {
+                                if (panel) {
+                                    try { panel.destroy() } catch (ed) { /* ignore */ }
+                                    panel = null
+                                }
+                            }
+
+                            function _doInsert() {
+                                if (!fullText || fullText.length === 0) {
+                                    _destroyPanel()
+                                    return
+                                }
+                                var formatted = _formatParagraphs(fullText)
+                                try {
+                                    c.beginInputMethodTransaction()
+                                    c.replaceComposeText("\n\n" + formatted, true)
+                                    c.commitInputMethod()
+                                    c.clearComposeRange()
+                                    c.endInputMethodTransaction()
+                                    try {
+                                        if (tileManager && tileManager.scrollToMakeScenePositionVisible) {
+                                            tileManager.scrollToMakeScenePositionVisible(c.textCursorPosition)
+                                        }
+                                    } catch (esv) { /* ignore */ }
+                                } catch (eim) {
+                                    console.warn("XOVI-AI: insert err e=" + eim)
+                                }
+                                _destroyPanel()
+                            }
+
+                            panel.insertRequested.connect(function() {
+                                _doInsert()
+                            })
+                            panel.rightButtonClicked.connect(function() {
+                                if (panel && panel.isStreaming && xhr) {
+                                    try { xhr.abort() } catch (ea) { /* ignore */ }
+                                }
+                                _destroyPanel()
+                            })
+
+                            xhr = new XMLHttpRequest()
+                            xhr.open("POST", "http://127.0.0.1:8080/ai-page-chat")
+                            xhr.setRequestHeader("Content-Type", "application/json")
+
+                            // 流式增量解析: 按 \n 切 NDJSON, 维护未完成的 tail.
+                            // LOADING 阶段每次进来读 responseText 新增部分,
+                            // DONE 时把剩余 tail 也吃掉, 把按钮状态切到完成.
+                            var lastRespLen = 0
+                            var tail = ""
+                            xhr.onreadystatechange = function() {
+                                var rs = xhr.readyState
+                                if (rs !== XMLHttpRequest.LOADING && rs !== XMLHttpRequest.DONE) return
+                                var newPart = xhr.responseText.substring(lastRespLen)
+                                lastRespLen = xhr.responseText.length
+                                var combined = tail + newPart
+                                var lines = combined.split("\n")
+                                if (rs === XMLHttpRequest.DONE) {
+                                    tail = ""
+                                } else {
+                                    tail = lines.pop()
+                                }
+                                for (var i = 0; i < lines.length; i++) {
+                                    var line = lines[i].replace(/\r$/, "")
+                                    if (line.length === 0) continue
+                                    var d
+                                    try { d = JSON.parse(line) } catch (ep) { continue }
+                                    if (d.meta) continue
+                                    if (typeof d.text === "string" && d.text.length > 0) {
+                                        fullText += d.text
+                                        if (panel) panel.bodyText = _formatParagraphs(fullText)
+                                    } else if (d.error && panel) {
+                                        panel.bodyText = "[\u9519\u8bef] " + d.error
+                                    }
+                                }
+                                if (rs === XMLHttpRequest.DONE) {
+                                    if (xhr.status !== 200) {
+                                        console.warn("XOVI-AI: HTTP " + xhr.status + " body=" + xhr.responseText)
+                                        if (panel && fullText.length === 0) {
+                                            panel.bodyText = "[HTTP " + xhr.status + "] " + xhr.responseText
+                                        }
+                                    }
+                                    if (panel) panel.isStreaming = false
+                                    console.warn("XOVI-AI: done status=" + xhr.status + " len=" + fullText.length)
+                                }
+                            }
+                            // 客户端拼好完整 prompt: 系统提示 + 选中文字. 服务器纯转发, 不再扫 .rm.
+                            var fullPrompt = promptPrefix + "\n\n" + selectedText
+                            xhr.send(JSON.stringify({prompt: fullPrompt}))
+                        }
+
+                        // Timer 挂 host 上 (host 不会被 r.close 销毁), 200ms 后跑 _start.
+                        // 200ms 是 Clipboard IPC 传播 + 安全余量; 实测设备上 < 200ms 就能更新到位.
+                        var clipTimer = Qt.createQmlObject(
+                            'import QtQuick; Timer { interval: 200; running: true; repeat: false }',
+                            host
+                        )
+                        clipTimer.triggered.connect(function() {
+                            clipTimer.destroy()
+                            _start()
+                        })
+
+                        r.close()
+                    }
+
+                    MenuButtonWithDivider {
+                        id: aiPolishButton
+                        text: "\u6da6\u8272"
+                        dividerVisible: true
+                        onClicked: aiMenu._aiRun("\u8bf7\u6da6\u8272\u4ee5\u4e0b\u6587\u5b57\uff0c\u4fdd\u6301\u539f\u610f\u8ba9\u8868\u8fbe\u66f4\u81ea\u7136\u6d41\u7545\u3002\u76f4\u63a5\u8f93\u51fa\u6da6\u8272\u540e\u7684\u6587\u5b57\uff0c\u4e0d\u8981\u4efb\u4f55\u89e3\u91ca\u3001\u524d\u7f00\u3001\u540e\u7f00\u3001\u5f15\u53f7\u3001Markdown\u3002", "\u6da6\u8272")
+                    }
+
+                    MenuButtonWithDivider {
+                        id: aiTranslateButton
+                        text: "\u7ffb\u8bd1"
+                        dividerVisible: true
+                        onClicked: aiMenu._aiRun("\u4ee5\u4e0b\u6587\u5b57\u5982\u679c\u662f\u4e2d\u6587\u8bf7\u7ffb\u8bd1\u4e3a\u82f1\u6587\uff0c\u5982\u679c\u662f\u5176\u4ed6\u8bed\u8a00\u8bf7\u7ffb\u8bd1\u4e3a\u4e2d\u6587\u3002\u76f4\u63a5\u8f93\u51fa\u8bd1\u6587\uff0c\u4e0d\u8981\u4efb\u4f55\u89e3\u91ca\u3001\u524d\u7f00\u3001\u540e\u7f00\u3001\u5f15\u53f7\u3001Markdown\u3002", "\u7ffb\u8bd1")
+                    }
+
+                    MenuButtonWithDivider {
+                        id: aiSummarizeButton
+                        text: "\u603b\u7ed3"
+                        dividerVisible: true
+                        onClicked: aiMenu._aiRun("\u8bf7\u7528\u7b80\u6d01\u7684\u4e2d\u6587\u603b\u7ed3\u4ee5\u4e0b\u6587\u5b57\u7684\u6838\u5fc3\u5185\u5bb9\u3002\u76f4\u63a5\u8f93\u51fa\u603b\u7ed3\uff0c\u4e0d\u8981\u4efb\u4f55\u89e3\u91ca\u3001\u524d\u7f00\u3001\u540e\u7f00\u3001\u5f15\u53f7\u3001Markdown\u3002", "\u603b\u7ed3")
+                    }
+
+                    MenuButtonWithDivider {
+                        id: aiAnswerButton
+                        text: "\u56de\u7b54"
+                        dividerVisible: false
+                        onClicked: aiMenu._aiRun("\u8bf7\u7528\u4e2d\u6587\u56de\u7b54\u4ee5\u4e0b\u95ee\u9898\u3002\u4e0d\u8981\u4f7f\u7528 Markdown \u6807\u8bb0\uff08\u4e0d\u8981\u4f7f\u7528 **\u52a0\u7c97**\u3001## \u6807\u9898\u3001- \u9879\u76ee\u7b26\u53f7\uff09", "\u56de\u7b54")
+                    }
+                }
+            }
+        }
+    END TRAVERSE
+
+    TRAVERSE Loader#root > Component#menuComponent > SelectionContextualMenu
+        LOCATE BEFORE MenuButtonWithDivider#italicButton
+        INSERT {
+            MenuButtonWithDivider {
+                id: aiButton
+                iconSource: "qrc:/ark/icons/notebook_sparkles"
+                visible: controller.hasSelection
+                dividerVisible: true
+                onClicked: {
+                    root.sourceComponent = aiMenuComponent
+                }
+            }
+        }
+    END TRAVERSE
+END AFFECT
