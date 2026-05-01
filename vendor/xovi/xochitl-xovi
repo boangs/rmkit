@@ -1,0 +1,31 @@
+#!/bin/bash
+# 重新挂载 tmpfs 确保配置持久（以防 systemd restart 卸载了它）
+if ! mount | grep -q 'xochitl.service.d'; then
+    mount -t tmpfs tmpfs /usr/lib/systemd/system/xochitl.service.d/ 2>/dev/null
+    cat > /usr/lib/systemd/system/xochitl.service.d/xochitl-service-override.conf << 'OVERRIDE'
+[Unit]
+Requires=dev-dri-card0.device
+After=dev-dri-card0.device tee-supplicant.service
+Wants=tee-supplicant.service
+JobTimeoutSec=60s
+OnFailure=emergency.target
+
+[Service]
+Environment="MALLOC_ARENA_MAX=8"
+OVERRIDE
+    printf '[Service]\nExecStart=\nExecStart=/home/root/xovi/xochitl-xovi\n' > /usr/lib/systemd/system/xochitl.service.d/xovi.conf
+    systemctl daemon-reload
+fi
+
+# 启动 ime-server（如果没运行）
+pgrep -f ime-server > /dev/null || nohup /home/root/rmkit-cn/bin/ime-server > /tmp/ime-server.log 2>&1 &
+
+# 用 LD_PRELOAD exec 替换为 xochitl
+export QML_DISABLE_DISK_CACHE=1
+export QML_XHR_ALLOW_FILE_WRITE=1
+export QML_XHR_ALLOW_FILE_READ=1
+export QT_LOGGING_RULES=qml=true
+export LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so
+export QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc
+
+exec /usr/bin/xochitl --system

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="6" fill="#fafafa"/>
+  <g stroke="#d0d0d0" stroke-width="0.6">
+    <line x1="10" y1="20" x2="90" y2="20"/>
+    <line x1="10" y1="35" x2="90" y2="35"/>
+    <line x1="10" y1="65" x2="90" y2="65"/>
+    <line x1="10" y1="80" x2="90" y2="80"/>
+    <line x1="25" y1="10" x2="25" y2="90"/>
+    <line x1="40" y1="10" x2="40" y2="90"/>
+    <line x1="60" y1="10" x2="60" y2="90"/>
+    <line x1="75" y1="10" x2="75" y2="90"/>
+  </g>
+  <g stroke="#1a0f04" stroke-width="1.4" stroke-linecap="round" fill="none">
+    <line x1="10" y1="50" x2="92" y2="50"/>
+    <line x1="50" y1="8"  x2="50" y2="92"/>
+    <polygon points="92,50 87,47 87,53" fill="#1a0f04" stroke="none"/>
+    <polygon points="50,8  47,13 53,13" fill="#1a0f04" stroke="none"/>
+  </g>
+  <path d="M 10 50 Q 22 18, 34 50 T 58 50 T 82 50 T 92 50"
+        stroke="#c0392b" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <path d="M 10 65 L 30 55 L 50 50 L 70 45 L 90 35"
+        stroke="#2980b9" stroke-width="2" fill="none" stroke-linecap="round" stroke-dasharray="3 2"/>
+</svg>
