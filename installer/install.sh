@@ -358,12 +358,21 @@ if [ "$ARCH" = "armv7l" ]; then
       chmod 644 /etc/systemd/system/\$(basename \"\$f\")
     done
 
-    # 安装 zz-rmkit-cn.conf (不含 After=home.mount)
-    mkdir -p /etc/systemd/system/xochitl.service.d/
-    cat > /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf << 'CONFEOF'
+    # rm2 上 xovi/start 会 mount tmpfs 到 xochitl.service.d/, 遮住 /etc 里的文件.
+    # 真正生效的路径: 把配置放到 /home/root/xovi/services/xochitl.service/,
+    # xovi/start copy 到 tmpfs 时自动带上.
+    # 同时也写 /etc/... 作为 xovi-reenable 第一次运行前的备用.
+    mkdir -p /home/root/xovi/services/xochitl.service
+    cat > /home/root/xovi/services/xochitl.service/rmkit-cn.conf << 'CONFEOF'
 $ZZ_CONF_CONTENT
 CONFEOF
-    chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+    chmod 644 /home/root/xovi/services/xochitl.service/rmkit-cn.conf
+
+    # /etc 里也写一份 (tmpfs 没挂时生效)
+    mkdir -p /etc/systemd/system/xochitl.service.d/
+    cp /home/root/xovi/services/xochitl.service/rmkit-cn.conf \
+       /etc/systemd/system/xochitl.service.d/rmkit-cn.conf
+    chmod 644 /etc/systemd/system/xochitl.service.d/rmkit-cn.conf
 
     # 创建 xovi-reenable.service: home.mount 后 restart xochitl 让 LD_PRELOAD 生效
     cat > /etc/systemd/system/xovi-reenable.service << 'SVCEOF'
