@@ -114,6 +114,24 @@ case "$ARCH" in
     ;;
 esac
 
+# ─── 架构相关: zz-rmkit-cn.conf 和 systemd 安装方式 ─────────────
+# rm2 (armv7l):
+#   - /etc 不是 overlay (直接 ext4), 不需要 bind-mount 双写
+#   - /home 在 xochitl 之后挂 (fstab x-systemd.after=xochitl), After=home.mount 会造成循环
+#   - 用 xovi-reenable.service 在 home.mount 后 restart xochitl
+# aarch64 (RMPP/RMPPM):
+#   - /etc 是 overlay, 需要 bind-mount 双写
+#   - /home 是 LUKS 加密, After=home.mount 安全且必要
+case "$ARCH" in
+  armv7l)
+    ZZ_UNIT_HEADER=""
+    ;;
+  aarch64)
+    ZZ_UNIT_HEADER="[Unit]
+After=home.mount"
+    ;;
+esac
+
 # ─── 同步设备 hashtab 并重新编译 qmd-src/*.qmd → dist/ ────────
 # 必须每次部署前重编, 因为: ① qmd-src 是源, dist 是产物; ② 设备 hashtab 可能与本地不同步,
 # 用过时 hashtab 编译会导致 identifier hash 不命中, 注入 silent skip, 高级面板/AI 等功能消失
@@ -299,51 +317,110 @@ tar -czf - -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo "  传输完成 (${ELAPSED}s)"
 
-# ─── 设备端: bind-mount 双写 systemd + enable + start + version 链接 ───
-# /etc 是 overlayfs, tar 解出来的 systemd 文件已经落在 /tmp/rmkit-cn-systemd-staging/,
-# 这里把它们 bind-mount 双写到 /etc 上层 (立即生效) + 下层 (重启保留).
+# ─── 生成架构专用的 zz-rmkit-cn.conf ────────────────────────────
+# 写入 staging 目录里 (tar 已经传过去了), 或直接在设备端用 heredoc 写
+ZZ_CONF_CONTENT="${ZZ_UNIT_HEADER}
+[Service]
+WatchdogSec=0
+Environment=\"QML_DISABLE_DISK_CACHE=1\"
+Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"
+Environment=\"QML_XHR_ALLOW_FILE_READ=1\"
+Environment=\"LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so\"
+Environment=\"QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc\""
+
+# ─── 设备端: 安装 systemd + 启动 ──────────────────────────────────
 echo "正在配置系统服务 + 启动..."
-ssh "$DEVICE_USER@$DEVICE_IP" "
-  set -e
-  STAGE=/tmp/rmkit-cn-systemd-staging
-  MNT=/tmp/rmkit-cn-rootfs
-  mkdir -p \$MNT
-  mount --bind / \$MNT
-  trap 'umount -l \$MNT 2>/dev/null || true; rmdir \$MNT 2>/dev/null || true' EXIT
-  # 双写: \$1=源文件, \$2=目标相对路径(无前导 /, 基于 rootfs 根)
-  # BusyBox 无 install(1), 用 cp + chmod 替代
-  install_both() {
-    mkdir -p \"\$MNT/\$(dirname \"\$2\")\" \"/\$(dirname \"\$2\")\"
-    cp \"\$1\" \"\$MNT/\$2\" && chmod 644 \"\$MNT/\$2\"
-    cp \"\$1\" \"/\$2\"      && chmod 644 \"/\$2\"
-  }
-  for f in \$STAGE/*.service \$STAGE/*.path; do
-    [ -f \"\$f\" ] || continue
-    install_both \"\$f\" \"etc/systemd/system/\$(basename \"\$f\")\"
-  done
-  if [ -f \$STAGE/zz-rmkit-cn.conf ]; then
+if [ "$ARCH" = "armv7l" ]; then
+  # rm2: /etc 直接在 ext4, 不需要 bind-mount 双写
+  ssh "$DEVICE_USER@$DEVICE_IP" "
+    set -e
+    STAGE=/tmp/rmkit-cn-systemd-staging
+
+    # 修复 /home/root owner (rm2 出厂重置后会设成 uid 502)
+    chown root:root /home/root 2>/dev/null || true
+
+    # 安装 service/path units 到 /etc
+    for f in \$STAGE/*.service \$STAGE/*.path; do
+      [ -f \"\$f\" ] || continue
+      cp \"\$f\" /etc/systemd/system/\$(basename \"\$f\")
+      chmod 644 /etc/systemd/system/\$(basename \"\$f\")
+    done
+
+    # 安装 zz-rmkit-cn.conf (不含 After=home.mount)
+    mkdir -p /etc/systemd/system/xochitl.service.d/
+    cat > /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf << 'CONFEOF'
+$ZZ_CONF_CONTENT
+CONFEOF
+    chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+
+    # 创建 xovi-reenable.service: home.mount 后 restart xochitl 让 LD_PRELOAD 生效
+    cat > /etc/systemd/system/xovi-reenable.service << 'SVCEOF'
+[Unit]
+Description=Re-enable xovi after /home mount (rm2)
+After=home.mount
+Requires=home.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c \"systemctl restart xochitl.service\"
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+    chmod 644 /etc/systemd/system/xovi-reenable.service
+
+    rm -rf \$STAGE
+    systemctl daemon-reload
+    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path xovi-reenable.service
+    systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
+    if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
+      systemctl enable rmkit-cn-ime-http.service
+      systemctl start  rmkit-cn-ime-http.service
+    fi
+    udevadm control --reload-rules 2>/dev/null || true
+    RMKIT_DIR=$REMOTE_BASE VERSION_FILE=/etc/version XOVI_DIR=/home/root/xovi \
+      $REMOTE_BASE/bin/version-switcher.sh 2>/dev/null || echo '(QMD 版本切换跳过)'
+  "
+else
+  # aarch64 (RMPP/RMPPM): /etc 是 overlay, 需要 bind-mount 双写
+  ssh "$DEVICE_USER@$DEVICE_IP" "
+    set -e
+    STAGE=/tmp/rmkit-cn-systemd-staging
+    MNT=/tmp/rmkit-cn-rootfs
+    mkdir -p \$MNT
+    mount --bind / \$MNT
+    trap 'umount -l \$MNT 2>/dev/null || true; rmdir \$MNT 2>/dev/null || true' EXIT
+    install_both() {
+      mkdir -p \"\$MNT/\$(dirname \"\$2\")\" \"/\$(dirname \"\$2\")\"
+      cp \"\$1\" \"\$MNT/\$2\" && chmod 644 \"\$MNT/\$2\"
+      cp \"\$1\" \"/\$2\"      && chmod 644 \"/\$2\"
+    }
+    for f in \$STAGE/*.service \$STAGE/*.path; do
+      [ -f \"\$f\" ] || continue
+      install_both \"\$f\" \"etc/systemd/system/\$(basename \"\$f\")\"
+    done
+    # 安装含 After=home.mount 的 zz-rmkit-cn.conf (aarch64 安全)
+    cat > \$STAGE/zz-rmkit-cn.conf << 'CONFEOF'
+$ZZ_CONF_CONTENT
+CONFEOF
     install_both \$STAGE/zz-rmkit-cn.conf \"etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf\"
-    # 清历史调试残留 (避免 #DEBUG_DISABLED / Requires=home.mount 之类炸弹复活)
     rm -f \$MNT/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.bak* \
-          /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.bak* \
-          \$MNT/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.old \
-          /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.old 2>/dev/null || true
-  fi
-  rm -rf \$STAGE
+          /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.bak* 2>/dev/null || true
+    rm -rf \$STAGE
 
-  systemctl daemon-reload
-  systemctl enable rmkit-cn-upload.service rmkit-cn-version.path
-  systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
-  if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
-    systemctl enable rmkit-cn-ime-http.service
-    systemctl start  rmkit-cn-ime-http.service
-  fi
-  udevadm control --reload-rules 2>/dev/null || true
-
-  # 初始化 QMD 版本链接 (qmd/current → qmd/<fw 版本>)
-  RMKIT_DIR=$REMOTE_BASE VERSION_FILE=/etc/version XOVI_DIR=/home/root/xovi \
-    $REMOTE_BASE/bin/version-switcher.sh 2>/dev/null || echo '(QMD 版本切换跳过)'
-"
+    systemctl daemon-reload
+    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path
+    systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
+    if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
+      systemctl enable rmkit-cn-ime-http.service
+      systemctl start  rmkit-cn-ime-http.service
+    fi
+    udevadm control --reload-rules 2>/dev/null || true
+    RMKIT_DIR=$REMOTE_BASE VERSION_FILE=/etc/version XOVI_DIR=/home/root/xovi \
+      $REMOTE_BASE/bin/version-switcher.sh 2>/dev/null || echo '(QMD 版本切换跳过)'
+  "
+fi
 
 
 # ─── 完成 ─────────────────────────────────────────────────────
