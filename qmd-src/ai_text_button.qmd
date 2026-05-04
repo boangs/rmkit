@@ -293,7 +293,7 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
                                 color: panel.isStreaming ? "#999999" : "#000000"
                                 font.pixelSize: 28
                                 // ✓ 插入
-                                text: "\u2713 \u63d2\u5165"
+                                text: "\u63d2\u5165"
                             }
                             MouseArea {
                                 anchors.fill: parent
@@ -322,7 +322,7 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
                                 color: "#000000"
                                 font.pixelSize: 28
                                 // ✗ 取消
-                                text: "\u2717 \u53d6\u6d88"
+                                text: "\u53d6\u6d88"
                             }
                             MouseArea {
                                 anchors.fill: parent
@@ -341,7 +341,7 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
                     availableRect: root.availableSceneRect
                     selectionRect: {
                         tileManager.sceneToViewTransform;
-                        if (controller.hasSelection) {
+                        if (controller.hasTextSelection) {
                             return MathUtils.sceneToViewAligned(tileManager, controller.textSelectionBounds);
                         }
                         const pos = controller.textCursorPosition;
@@ -379,9 +379,9 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
                             return out.join("\n")
                         }
 
-                        // 必须有选区才能继续. (AI 按钮已经 visible: controller.hasSelection,
+                        // 必须有选区才能继续. (AI 按钮已经 visible: controller.hasTextSelection,
                         // 但 _aiRun 时再保险检查一次, 避免极端时序下选区已被释放.)
-                        if (!c.hasSelection) {
+                        if (!c.hasTextSelection) {
                             console.warn("XOVI-AI: no selection, abort")
                             r.close()
                             return
@@ -597,7 +597,7 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
             MenuButtonWithDivider {
                 id: aiButton
                 iconSource: "qrc:/ark/icons/notebook_sparkles"
-                visible: controller.hasSelection
+                visible: controller.hasTextSelection || controller.isTextSelected
                 dividerVisible: true
                 onClicked: {
                     root.sourceComponent = aiMenuComponent
