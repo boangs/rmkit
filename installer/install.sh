@@ -163,11 +163,21 @@ if [ -d "$QMD_SRC_DIR" ]; then
   fi
 
   echo ""
-  echo "正在同步设备 hashtab..."
+  echo "正在检查设备 hashtab..."
   REMOTE_HASHTAB=$(ssh "$DEVICE_USER@$DEVICE_IP" "ls -d /home/root/xovi/exthome/qt-resource-rebuilder*/hashtab 2>/dev/null | head -n 1" || true)
+  NEED_RECOMPILE=true
   if [ -n "$REMOTE_HASHTAB" ]; then
-    scp -q "$DEVICE_USER@$DEVICE_IP:$REMOTE_HASHTAB" "$HASHTAB_LOCAL"
-    echo "  → tools/hashtab 已同步设备版本 ($REMOTE_HASHTAB)"
+    # 对比本地和远端 hashtab md5，相同则跳过重编
+    REMOTE_MD5=$(ssh "$DEVICE_USER@$DEVICE_IP" "md5sum '$REMOTE_HASHTAB' 2>/dev/null | cut -d' ' -f1" || true)
+    LOCAL_MD5=""
+    [ -f "$HASHTAB_LOCAL" ] && LOCAL_MD5=$(md5sum "$HASHTAB_LOCAL" 2>/dev/null | cut -d' ' -f1 || true)
+    if [ -n "$REMOTE_MD5" ] && [ "$REMOTE_MD5" = "$LOCAL_MD5" ]; then
+      echo "  → hashtab 未变化，跳过重编 (使用缓存 dist/*.qmd)"
+      NEED_RECOMPILE=false
+    else
+      scp -q "$DEVICE_USER@$DEVICE_IP:$REMOTE_HASHTAB" "$HASHTAB_LOCAL"
+      echo "  → tools/hashtab 已同步设备版本 ($REMOTE_HASHTAB)"
+    fi
   elif [ -f "$HASHTAB_LOCAL" ]; then
     echo "警告: 设备未找到 hashtab, 沿用本地 tools/hashtab (hash 可能不命中)"
   else
@@ -175,21 +185,23 @@ if [ -d "$QMD_SRC_DIR" ]; then
     exit 1
   fi
 
-  echo "正在用 qmd-tool (Go) 重编 qmd-src/*.qmd..."
-  mkdir -p "$DIST_DIR"
-  for src in "$QMD_SRC_DIR"/*.qmd; do
-    [ -f "$src" ] || continue
-    base=$(basename "$src")
-    out="$DIST_DIR/$base"
-    if "$HASH_TOOL" hash -hashtab "$HASHTAB_LOCAL" "$src" > "$out.tmp"; then
-      mv "$out.tmp" "$out"
-      echo "  ✓ $base"
-    else
-      rm -f "$out.tmp"
-      echo "  ✗ $base 编译失败" >&2
-      exit 1
-    fi
-  done
+  if [ "$NEED_RECOMPILE" = "true" ]; then
+    echo "正在用 qmd-tool (Go) 重编 qmd-src/*.qmd..."
+    mkdir -p "$DIST_DIR"
+    for src in "$QMD_SRC_DIR"/*.qmd; do
+      [ -f "$src" ] || continue
+      base=$(basename "$src")
+      out="$DIST_DIR/$base"
+      if "$HASH_TOOL" hash -hashtab "$HASHTAB_LOCAL" "$src" > "$out.tmp"; then
+        mv "$out.tmp" "$out"
+        echo "  ✓ $base"
+      else
+        rm -f "$out.tmp"
+        echo "  ✗ $base 编译失败" >&2
+        exit 1
+      fi
+    done
+  fi
 fi
 
 # ─── qmd 校验 ────────────────────────────────────────────────
