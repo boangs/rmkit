@@ -255,6 +255,7 @@ mkdir -p \
 # 与屏幕已经由 upload-server web UI 接管, 这两个脚本只在仓库 scripts/ 留给
 # 开发者本地引用 (设备上没人调用过它们).
 cp "$SCRIPT_DIR/scripts/version-switcher.sh" "$PAYLOAD/home/root/rmkit-cn/bin/"
+cp "$SCRIPT_DIR/installer/reenable.sh" "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 chmod +x "$PAYLOAD/home/root/rmkit-cn/bin/"*
@@ -341,67 +342,42 @@ Environment=\"LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hoo
 Environment=\"QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc\""
 
 # ─── 设备端: 安装 systemd + 启动 ──────────────────────────────────
+# rm2 (armv7l): /etc 直接在 ext4, 直接写, 无需 bind-mount
+# aarch64 (RMPP/RMPPM): /etc 是 overlay, 需要 bind-mount 双写
+# 两者 OTA 后都通过 reenable.sh 一键恢复, 逻辑统一
 echo "正在配置系统服务 + 启动..."
 if [ "$ARCH" = "armv7l" ]; then
-  # rm2: /etc 直接在 ext4, 不需要 bind-mount 双写
+  # rm2: 直接写 /etc (无 overlay)
   ssh "$DEVICE_USER@$DEVICE_IP" "
     set -e
     STAGE=/tmp/rmkit-cn-systemd-staging
 
-    # 修复 /home/root owner (rm2 出厂重置后会设成 uid 502)
+    # 修复 /home/root owner (rm2 出厂重置后会设成 uid 502, 导致 SSH 公钥失效)
     chown root:root /home/root 2>/dev/null || true
 
-    # 安装 service/path units 到 /etc
+    # 安装 service/path units
     for f in \$STAGE/*.service \$STAGE/*.path; do
       [ -f \"\$f\" ] || continue
       cp \"\$f\" /etc/systemd/system/\$(basename \"\$f\")
       chmod 644 /etc/systemd/system/\$(basename \"\$f\")
     done
 
-    # rm2 上 xovi/start 会 mount tmpfs 到 xochitl.service.d/, 遮住 /etc 里的文件.
-    # 真正生效的路径: 把配置放到 /home/root/xovi/services/xochitl.service/,
-    # xovi/start copy 到 tmpfs 时自动带上.
-    # 同时也写 /etc/... 作为 xovi-reenable 第一次运行前的备用.
-    mkdir -p /home/root/xovi/services/xochitl.service
-    cat > /home/root/xovi/services/xochitl.service/rmkit-cn.conf << 'CONFEOF'
+    # zz-rmkit-cn.conf (rm2: 无 After=home.mount, 含 ExecStartPre 版本缓存)
+    mkdir -p /etc/systemd/system/xochitl.service.d/
+    cat > /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf << 'CONFEOF'
 $ZZ_CONF_CONTENT
 CONFEOF
-    chmod 644 /home/root/xovi/services/xochitl.service/rmkit-cn.conf
-
-    # /etc 里也写一份 (tmpfs 没挂时生效)
-    mkdir -p /etc/systemd/system/xochitl.service.d/
-    cp /home/root/xovi/services/xochitl.service/rmkit-cn.conf \
-       /etc/systemd/system/xochitl.service.d/rmkit-cn.conf
-    chmod 644 /etc/systemd/system/xochitl.service.d/rmkit-cn.conf
-
-    # 创建 xovi-reenable.service: home.mount 后 restart xochitl 让 LD_PRELOAD 生效
-    cat > /etc/systemd/system/xovi-reenable.service << 'SVCEOF'
-[Unit]
-Description=Re-enable xovi after /home mount (rm2)
-After=home.mount
-Requires=home.mount
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/bin/sh -c \"systemctl restart xochitl.service\"
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-    chmod 644 /etc/systemd/system/xovi-reenable.service
+    chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
 
     rm -rf \$STAGE
     systemctl daemon-reload
-    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path xovi-reenable.service
+    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-version.service
     systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
     if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
       systemctl enable rmkit-cn-ime-http.service
       systemctl start  rmkit-cn-ime-http.service
     fi
     udevadm control --reload-rules 2>/dev/null || true
-    RMKIT_DIR=$REMOTE_BASE VERSION_FILE=/etc/version XOVI_DIR=/home/root/xovi \
-      $REMOTE_BASE/bin/version-switcher.sh 2>/dev/null || echo '(QMD 版本切换跳过)'
   "
 else
   # aarch64 (RMPP/RMPPM): /etc 是 overlay, 需要 bind-mount 双写
