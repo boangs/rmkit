@@ -1,47 +1,87 @@
 #!/usr/bin/env bash
 # scripts/version-switcher.sh
-# 检测固件版本，切换 QMD 符号链接并重建 hashtable
+# 固件版本变化时: 清旧 qmd → 等新 hashtab → 重编 → restart xochitl
 set -euo pipefail
 
 RMKIT_DIR="${RMKIT_DIR:-/home/root/rmkit-cn}"
 XOVI_DIR="${XOVI_DIR:-/home/root/xovi}"
-VERSION_FILE="${VERSION_FILE:-/etc/remarkable/version}"
-QMD_DIR="$RMKIT_DIR/qmd"
+VERSION_FILE="${VERSION_FILE:-/etc/version}"
+QMD_SRC_DIR="$RMKIT_DIR/qmd-src"
+QMD_DEPLOY_DIR="$XOVI_DIR/exthome/qt-resource-rebuilder"
+QMD_TOOL="$RMKIT_DIR/bin/qmd-tool"
+HASHTAB="$XOVI_DIR/exthome/qt-resource-rebuilder/hashtab"
 
-# 读取固件版本（取前两段，如 3.17.1.2 → 3.17）
 if [ ! -f "$VERSION_FILE" ]; then
   echo "错误：找不到版本文件 $VERSION_FILE" >&2
   exit 1
 fi
 
-# 跨平台版本提取（取前两段数字，如 3.17.1.2 → 3.17）
-FW_VERSION=$(head -1 "$VERSION_FILE" | grep -oE '^[0-9]+\.[0-9]+')
-echo "当前固件版本：$FW_VERSION"
+FW_VERSION=$(cat "$VERSION_FILE" | head -n 1)
+echo "[version-switcher] 固件版本: $FW_VERSION"
 
-# 寻找对应的 QMD 目录
-if [ -d "$QMD_DIR/$FW_VERSION" ]; then
-  TARGET="$FW_VERSION"
-  echo "找到精确匹配：$TARGET"
-else
-  # 降级到最近可用版本
-  TARGET=$(ls "$QMD_DIR" | grep -v current | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -1)
-  if [ -z "$TARGET" ]; then
-    echo "错误：没有任何可用的 QMD 版本目录" >&2
-    exit 1
+# ─── 步骤 1: 清掉旧 qmd (防止孤儿 hash 导致 xochitl crash)
+echo "[version-switcher] 清除旧 qmd..."
+for f in "$QMD_DEPLOY_DIR"/*.qmd; do
+  [ -f "$f" ] && mv "$f" "$f.upgrading" && echo "  暂移: $(basename $f)"
+done
+
+# ─── 步骤 2: 等新 hashtab 生成 (qt-resource-rebuilder 需要 xochitl 跑一次)
+echo "[version-switcher] 等待新 hashtab 生成 (最多 3 分钟)..."
+OLD_HASHTAB_MD5="${RMKIT_LAST_HASHTAB_MD5:-}"
+for i in $(seq 1 36); do
+  if [ -f "$HASHTAB" ]; then
+    NEW_MD5=$(md5sum "$HASHTAB" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$NEW_MD5" ] && [ "$NEW_MD5" != "$OLD_HASHTAB_MD5" ]; then
+      echo "[version-switcher] hashtab 已更新 (md5=$NEW_MD5)"
+      break
+    fi
   fi
-  echo "警告：固件 $FW_VERSION 暂无对应 QMD，降级使用 $TARGET"
+  sleep 5
+done
+
+if [ ! -f "$HASHTAB" ]; then
+  echo "[version-switcher] 警告: hashtab 未生成，跳过重编"
+  # 恢复旧 qmd 以维持基本功能
+  for f in "$QMD_DEPLOY_DIR"/*.qmd.upgrading; do
+    [ -f "$f" ] && mv "$f" "${f%.upgrading}"
+  done
+  exit 0
 fi
 
-# 切换符号链接
-ln -sfn "$QMD_DIR/$TARGET" "$QMD_DIR/current"
-echo "已切换到：$QMD_DIR/current -> $TARGET"
+# ─── 步骤 3: 用 qmd-tool 重编 qmd-src/*.qmd
+if [ ! -x "$QMD_TOOL" ]; then
+  echo "[version-switcher] 错误: $QMD_TOOL 不存在" >&2
+  exit 1
+fi
 
-# 重建 hashtable（如果 XOVI 已安装）
-HASHTABLE_SCRIPT="$XOVI_DIR/rebuild_hashtable"
-if [ -x "$HASHTABLE_SCRIPT" ]; then
-  echo "重建 hashtable..."
-  "$HASHTABLE_SCRIPT"
-  echo "hashtable 重建完成"
+if [ ! -d "$QMD_SRC_DIR" ]; then
+  echo "[version-switcher] 错误: $QMD_SRC_DIR 不存在" >&2
+  exit 1
+fi
+
+echo "[version-switcher] 重编 qmd..."
+RECOMPILE_OK=true
+for src in "$QMD_SRC_DIR"/*.qmd; do
+  [ -f "$src" ] || continue
+  base=$(basename "$src")
+  if "$QMD_TOOL" hash -hashtab "$HASHTAB" "$src" > "$QMD_DEPLOY_DIR/$base.tmp" 2>/dev/null; then
+    mv "$QMD_DEPLOY_DIR/$base.tmp" "$QMD_DEPLOY_DIR/$base"
+    echo "  ✓ $base"
+  else
+    rm -f "$QMD_DEPLOY_DIR/$base.tmp"
+    echo "  ✗ $base 编译失败" >&2
+    RECOMPILE_OK=false
+  fi
+done
+
+# 清掉 .upgrading 备份
+rm -f "$QMD_DEPLOY_DIR"/*.qmd.upgrading
+
+if [ "$RECOMPILE_OK" = "true" ]; then
+  echo "[version-switcher] 重编完成，重启 xochitl..."
+  systemctl restart xochitl.service
+  echo "[version-switcher] ✓ 完成"
 else
-  echo "注意：$HASHTABLE_SCRIPT 不存在，跳过重建（XOVI 未安装）"
+  echo "[version-switcher] 部分编译失败，请检查" >&2
+  exit 1
 fi

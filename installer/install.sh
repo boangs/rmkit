@@ -76,7 +76,7 @@ ssh -o ConnectTimeout=10 "$DEVICE_USER@$DEVICE_IP" "echo '连接成功'" || {
 }
 
 ARCH=$(ssh "$DEVICE_USER@$DEVICE_IP" "uname -m")
-FW_VERSION=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /etc/version | grep -oE '^[0-9]+' | head -n 1")
+FW_VERSION=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /etc/version 2>/dev/null | head -n 1 | tr -d '[:space:]'")
 RESOLUTION=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /sys/class/graphics/fb0/virtual_size 2>/dev/null || echo 'unknown'" || echo "unknown")
 
 echo "设备架构：$ARCH"
@@ -101,12 +101,14 @@ case "$ARCH" in
     IME_BIN_NAME="ime-server"
     IME_HOOK_NAME="ime_hook.so"
     EXT_ARCH="aarch64"
+    QMD_TOOL_NAME="qmd-tool-aarch64"
     ;;
   armv7l)
     UPLOAD_BIN_NAME="upload-server-armv7"
     IME_BIN_NAME="ime-server-armv7"
     IME_HOOK_NAME="ime_hook-armv7.so"
     EXT_ARCH="armv7"
+    QMD_TOOL_NAME="qmd-tool-armv7"
     ;;
   *)
     echo "✗ 不支持的架构: $ARCH (本项目仅支持 aarch64 / armv7l)" >&2
@@ -228,6 +230,7 @@ done
 # ─── 校验所有需部署的 binary 在本地都存在 ───────────────────────
 DIST_DIR="$SCRIPT_DIR/dist"
 for f in "$DIST_DIR/$UPLOAD_BIN_NAME" "$DIST_DIR/$IME_BIN_NAME" "$DIST_DIR/$IME_HOOK_NAME" \
+         "$DIST_DIR/$QMD_TOOL_NAME" \
          "$SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" \
          "$SCRIPT_DIR/vendor/extensions/xovi-message-broker-${EXT_ARCH}.so"; do
   [ -f "$f" ] || { echo "✗ 缺失: $f" >&2; exit 1; }
@@ -245,6 +248,9 @@ mkdir -p \
   "$PAYLOAD/home/root/rmkit-cn/bin" \
   "$PAYLOAD/home/root/rmkit-cn/upload-server/static" \
   "$PAYLOAD/home/root/rmkit-cn/qmd/zh_CN" \
+  "$PAYLOAD/home/root/rmkit-cn/qmd-src" \
+  "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION" \
+  "$PAYLOAD/home/root/rmkit-cn/static" \
   "$PAYLOAD/home/root/xovi/exthome/qt-resource-rebuilder/chess" \
   "$PAYLOAD/home/root/xovi/extensions.d" \
   "$PAYLOAD/usr/share/remarkable/xochitl/translations" \
@@ -255,10 +261,31 @@ mkdir -p \
 # 与屏幕已经由 upload-server web UI 接管, 这两个脚本只在仓库 scripts/ 留给
 # 开发者本地引用 (设备上没人调用过它们).
 cp "$SCRIPT_DIR/scripts/version-switcher.sh" "$PAYLOAD/home/root/rmkit-cn/bin/"
-cp "$SCRIPT_DIR/installer/reenable.sh" "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
+cp "$SCRIPT_DIR/installer/reenable.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
+cp "$SCRIPT_DIR/installer/fw-upgrade.sh"  "$PAYLOAD/home/root/rmkit-cn/bin/fw-upgrade.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
+cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
 chmod +x "$PAYLOAD/home/root/rmkit-cn/bin/"*
+
+# qmd-src/: fw-upgrade.sh 在 OTA 后从此重编
+for qmd in "$QMD_SRC_DIR"/*.qmd; do
+  [ -f "$qmd" ] || continue
+  cp "$qmd" "$PAYLOAD/home/root/rmkit-cn/qmd-src/"
+done
+
+# 版本缓存：当前固件版本编译产物，OTA 后首次启动可直接命中缓存
+for qmd in advanced_panel.qmd language_zh_cn.qmd ai_text_button.qmd; do
+  cp "$DIST_DIR/$qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
+done
+
+# static/: fw-upgrade.sh 的 deploy_static() 读取这些静态资源
+[ -f "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" ] && \
+  cp "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" "$PAYLOAD/home/root/rmkit-cn/static/"
+[ -f "$SCRIPT_DIR/qmd/zh_CN.rcc" ] && \
+  cp "$SCRIPT_DIR/qmd/zh_CN.rcc" "$PAYLOAD/home/root/rmkit-cn/static/"
+[ -f "$DIST_DIR/reMarkable_zh_CN.qm" ] && \
+  cp "$DIST_DIR/reMarkable_zh_CN.qm" "$PAYLOAD/home/root/rmkit-cn/static/"
 
 # /home/root/rmkit-cn/upload-server/  Go binary + 静态 web
 cp "$DIST_DIR/$UPLOAD_BIN_NAME" "$PAYLOAD/home/root/rmkit-cn/upload-server/upload-server"
@@ -419,6 +446,10 @@ CONFEOF
   "
 fi
 
+
+# 写入基准固件版本，fw-upgrade.sh 以此判断 OTA 后是否需要重编
+ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
+echo "✓ .last_fw_version 已写入 ($FW_VERSION)"
 
 # ─── 完成 ─────────────────────────────────────────────────────
 WIFI_IP=$(ssh "$DEVICE_USER@$DEVICE_IP" "ip route get 8.8.8.8 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print \$2}'" 2>/dev/null || echo "")
