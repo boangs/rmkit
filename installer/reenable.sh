@@ -16,7 +16,7 @@ After=home.mount
 " || UNIT_HEADER=""
 
 ZZ_CONF="${UNIT_HEADER}[Service]
-ExecStartPre=/bin/sh -c 'FW=\$(cat /etc/version 2>/dev/null); CACHE=$RMKIT_DIR/compiled-qmd/\$FW; DEPLOY=$XOVI_DIR/exthome/qt-resource-rebuilder; rm -f \"\$DEPLOY\"/*.qmd; [ -d \"\$CACHE\" ] && ls \"\$CACHE\"/*.qmd >/dev/null 2>&1 && cp \"\$CACHE\"/*.qmd \"\$DEPLOY/\"; exit 0'
+ExecStartPre=/bin/sh -c 'FW=\$(cat /etc/version 2>/dev/null); CACHE=$RMKIT_DIR/compiled-qmd/\$FW; DEPLOY=$XOVI_DIR/exthome/qt-resource-rebuilder; rm -f \"\$DEPLOY\"/*.qmd; [ -d \"\$CACHE\" ] && ls \"\$CACHE\"/*.qmd >/dev/null 2>&1 && cp \"\$CACHE\"/*.qmd \"\$DEPLOY/\"; LAST=\$(cat $RMKIT_DIR/.last_fw_version 2>/dev/null); if [ \"\$FW\" != \"\$LAST\" ]; then nohup bash $RMKIT_DIR/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1 & fi; exit 0'
 WatchdogSec=0
 Environment=\"QML_DISABLE_DISK_CACHE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"

@@ -361,6 +361,7 @@ echo "  传输完成 (${ELAPSED}s)"
 # 写入 staging 目录里 (tar 已经传过去了), 或直接在设备端用 heredoc 写
 ZZ_CONF_CONTENT="${ZZ_UNIT_HEADER}
 [Service]
+ExecStartPre=/bin/sh -c 'FW=\$(cat /etc/version 2>/dev/null); CACHE=/home/root/rmkit-cn/compiled-qmd/\$FW; DEPLOY=/home/root/xovi/exthome/qt-resource-rebuilder; rm -f \"\$DEPLOY\"/*.qmd; [ -d \"\$CACHE\" ] && ls \"\$CACHE\"/*.qmd >/dev/null 2>&1 && cp \"\$CACHE\"/*.qmd \"\$DEPLOY/\"; LAST=\$(cat /home/root/rmkit-cn/.last_fw_version 2>/dev/null); if [ \"\$FW\" != \"\$LAST\" ]; then nohup bash /home/root/rmkit-cn/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1 & fi; exit 0'
 WatchdogSec=0
 Environment=\"QML_DISABLE_DISK_CACHE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"
