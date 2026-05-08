@@ -15,10 +15,11 @@ import (
 // - 关键字 (KEYWORDS) 永不替换, 即使它在 hashtab 里也不动 (避免破坏 typeof xxx === "string" 这类比较)
 
 var (
-	stringRE = regexp.MustCompile(`"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`)
-	identRE  = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
-	pathRE   = regexp.MustCompile(`/[^\s\[\]]+\.qml`)
-	stashRE  = regexp.MustCompile(`\x00STR(\d+)\x00`)
+	stringRE    = regexp.MustCompile(`"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`)
+	identRE     = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
+	dottedRE    = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+`)
+	pathRE      = regexp.MustCompile(`/[^\s\[\]]+\.qml`)
+	stashRE     = regexp.MustCompile(`\x00STR(\d+)\x00`)
 )
 
 // keywords: QMLDIFF 指令 + JS/QML 控制流 + QML 基本类型 + JS 字面值. 永不替换.
@@ -55,13 +56,31 @@ func replaceIdents(text string, table map[string]uint64, wrapFmt string) string 
 }
 
 // hashHeaderLine: 处理 AFFECT / TRAVERSE / LOCATE / REPLACE 这种外层行.
-// 路径 (/foo/bar.qml) 优先按整体查 hashtab; 然后剩余 identifier 走 [[hash]] 形式.
+// 路径 (/foo/bar.qml) 优先按整体查 hashtab; 然后点分隔类型名 (A.B.C) 生成 [[hA.hB.hC]];
+// 最后剩余 identifier 走 [[hash]] 形式.
 func hashHeaderLine(text string, table map[string]uint64) string {
 	text = pathRE.ReplaceAllStringFunc(text, func(s string) string {
 		if h, ok := table[s]; ok {
 			return fmt.Sprintf("[[%d]]", h)
 		}
 		return s
+	})
+	// 点分隔类型名 (如 ArkControls.ContextualMenu.Button) → [[hA.hB.hC]]
+	// 必须在单个 identifier 替换之前处理，否则各段会被独立替换成 [[A]].[[B]].[[C]]
+	text = dottedRE.ReplaceAllStringFunc(text, func(s string) string {
+		parts := strings.Split(s, ".")
+		hashes := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if keywords[p] {
+				return s // 含关键字，不替换整体
+			}
+			h, ok := table[p]
+			if !ok {
+				return s // 任意一段找不到，不替换整体
+			}
+			hashes = append(hashes, strconv.FormatUint(h, 10))
+		}
+		return "[[" + strings.Join(hashes, ".") + "]]"
 	})
 	return replaceIdents(text, table, "[[%d]]")
 }
