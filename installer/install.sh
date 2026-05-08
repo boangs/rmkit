@@ -100,14 +100,16 @@ case "$ARCH" in
     UPLOAD_BIN_NAME="upload-server-aarch64"
     IME_BIN_NAME="ime-server"
     IME_HOOK_NAME="ime_hook.so"
-    EXT_ARCH="aarch64"
+    EXT_ARCH="aarch64"             # vendor/extensions/*-aarch64.so
+    XOVI_ARCH="aarch64"            # vendor/xovi/xovi-aarch64.tar.gz
     QMD_TOOL_NAME="qmd-tool-aarch64"
     ;;
   armv7l)
     UPLOAD_BIN_NAME="upload-server-armv7"
     IME_BIN_NAME="ime-server-armv7"
     IME_HOOK_NAME="ime_hook-armv7.so"
-    EXT_ARCH="armv7"
+    EXT_ARCH="armv7"               # vendor/extensions/*-armv7.so
+    XOVI_ARCH="arm32"              # vendor/xovi/xovi-arm32.tar.gz (xovi 上游用 arm32 命名)
     QMD_TOOL_NAME="qmd-tool-armv7"
     ;;
   *)
@@ -115,6 +117,35 @@ case "$ARCH" in
     exit 1
     ;;
 esac
+
+# ─── xovi 自动部署 (全新设备 / 出厂 reset 后必备) ──────────────
+# install.sh 装的 .qmd 注入和 LD_PRELOAD 都依赖 /home/root/xovi/xovi.so 存在,
+# 缺失时不能直接装 drop-in (xochitl crash → A/B 回滚)。先无条件确保 xovi 在位。
+echo ""
+echo "正在检查 xovi..."
+HAVE_XOVI=$(ssh "$DEVICE_USER@$DEVICE_IP" "[ -f /home/root/xovi/xovi.so ] && echo yes || echo no")
+if [ "$HAVE_XOVI" = "no" ]; then
+  XOVI_TARBALL="$SCRIPT_DIR/vendor/xovi/xovi-${XOVI_ARCH}.tar.gz"
+  XOVI_LAUNCHER="$SCRIPT_DIR/vendor/xovi/xochitl-xovi"
+  if [ ! -f "$XOVI_TARBALL" ] || [ ! -f "$XOVI_LAUNCHER" ]; then
+    echo "✗ 设备缺 xovi 但本地 vendor/xovi/ 不全, 无法自动部署" >&2
+    echo "  需要: $XOVI_TARBALL 和 $XOVI_LAUNCHER" >&2
+    exit 1
+  fi
+  echo "  设备无 xovi, 自动部署中..."
+  scp -q "$XOVI_TARBALL" "$XOVI_LAUNCHER" "$DEVICE_USER@$DEVICE_IP:/tmp/"
+  ssh "$DEVICE_USER@$DEVICE_IP" "set -e
+    cd /home/root
+    tar -xzf /tmp/xovi-${XOVI_ARCH}.tar.gz --no-same-owner --no-same-permissions
+    cp /tmp/xochitl-xovi /home/root/xovi/xochitl-xovi
+    chmod +x /home/root/xovi/xochitl-xovi
+    chown -R root:root /home/root/xovi
+    rm /tmp/xovi-${XOVI_ARCH}.tar.gz /tmp/xochitl-xovi
+  "
+  echo "  ✓ xovi 部署完成"
+else
+  echo "  ✓ xovi 已存在"
+fi
 
 # ─── 架构相关: zz-rmkit-cn.conf 和 systemd 安装方式 ─────────────
 # rm2 (armv7l):
@@ -126,11 +157,15 @@ esac
 #   - /home 是 LUKS 加密, After=home.mount 安全且必要
 case "$ARCH" in
   armv7l)
-    ZZ_UNIT_HEADER=""
+    ZZ_UNIT_HEADER="[Unit]
+ConditionPathExists=/home/root/xovi/xovi.so
+ConditionPathExists=/home/root/rmkit-cn/bin/ime_hook.so"
     ;;
   aarch64)
     ZZ_UNIT_HEADER="[Unit]
-After=home.mount"
+After=home.mount
+ConditionPathExists=/home/root/xovi/xovi.so
+ConditionPathExists=/home/root/rmkit-cn/bin/ime_hook.so"
     ;;
 esac
 
@@ -344,7 +379,7 @@ echo "  payload 总量: $PAYLOAD_SIZE  $(find "$PAYLOAD" -type f | wc -l | tr -d
 echo ""
 echo "正在传输 (gzip 流式, 单次 SSH)..."
 START_TS=$(date +%s)
-tar -czf - -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
+tar -czf - --uid 0 --gid 0 -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
   set -e
   mount -o remount,rw / 2>/dev/null || true
   mkdir -p /home/root/.local/share/rmkit-cn/fonts \
@@ -352,105 +387,180 @@ tar -czf - -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
            /home/root/.local/share/fonts \
            /usr/share/remarkable/xochitl/translations \
            /home/root/xovi/exthome/qt-resource-rebuilder
-  cd / && tar -xzf -
+  # --no-same-owner 防止 tar 把 macOS 端打包时的 uid (xurx=502) 还原到设备文件,
+  # 否则 /home/root owner 被改成 502 导致 sshd PAM/xochitl home 访问全卡死, 设备砖机
+  cd / && tar -xzf - --no-same-owner --no-same-permissions
+  # 兜底: 强制把 /home/root 整树 owner 设回 root, 防御任何残留 502
+  chown -R root:root /home/root
+  chmod 755 /home/root
+  [ -d /home/root/.ssh ] && chmod 700 /home/root/.ssh
+  [ -f /home/root/.ssh/authorized_keys ] && chmod 600 /home/root/.ssh/authorized_keys
 '
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo "  传输完成 (${ELAPSED}s)"
 
-# ─── 生成架构专用的 zz-rmkit-cn.conf ────────────────────────────
-# 写入 staging 目录里 (tar 已经传过去了), 或直接在设备端用 heredoc 写
-ZZ_CONF_CONTENT="${ZZ_UNIT_HEADER}
+# 关键: 必须在 reenable.sh 之前写 .last_fw_version!
+# reenable.sh 末尾会 nohup 后台启动 fw-upgrade.sh, 后者读 .last_fw_version 判断是否重编 hashtab。
+# 如果文件不存在或值过旧, fw-upgrade.sh 会启动一个临时 LD_PRELOAD xochitl 写 hashtab,
+# 跟主 xochitl 进程或 systemctl restart xochitl 冲突, 反复 fail → bootloader 切 slot → 砖。
+ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
+echo "✓ .last_fw_version 已写入 ($FW_VERSION) — 防止 fw-upgrade.sh 误触发"
+
+# ─── 设备端: 7 阶段固化部署 (2026-05-07 验证, 0 砖机) ───────────────
+# 阶段 4-9: 配置 systemd, 生成 hashtab, 编译 .qmd, 启动服务
+# 设计要点 (今天踩坑总结):
+#   1) systemd unit + wants symlink 必须双写 ext4 lower (mount --bind / + remount,rw 该挂载点),
+#      否则重启后 /etc tmpfs 清空 → service inactive
+#   2) 第一次安装设备无 hashtab, 必须先装最小 drop-in (LD_PRELOAD=xovi.so 不带 ime_hook),
+#      然后 systemctl stop xochitl + QMLDIFF_HASHTAB_CREATE 跑临时 xochitl 生成 hashtab,
+#      kill 后再 systemctl start。这跟 fw-upgrade.sh 同款流程, 但避开了 race
+#   3) 用设备端 hashtab 在线编译 .qmd (而不是用本地 seed hashtab), 保证 hash 命中
+#   4) 最后写最终 drop-in (含 ime_hook + zh_CN.rcc) + restart xochitl, 让 LD_PRELOAD 生效
+
+echo ""
+echo "正在配置系统服务 + 编译 + 启动..."
+# 把 ZZ_UNIT_HEADER 展平到单一字符串 (用 \n 字面表示换行), 设备端 printf %b 还原
+ZZ_HEADER_FLAT="$(printf '%s' "$ZZ_UNIT_HEADER" | awk 'BEGIN{ORS="\\n"} {print}' | sed 's/\\n$//')"
+ssh "$DEVICE_USER@$DEVICE_IP" "FW_VERSION='$FW_VERSION' ZZ_HEADER_FLAT='$ZZ_HEADER_FLAT' bash -s" <<'REMOTE_EOF'
+set -e
+
+HASHTAB=/home/root/xovi/exthome/qt-resource-rebuilder/hashtab
+DEPLOY=/home/root/xovi/exthome/qt-resource-rebuilder
+QMD_TOOL=/home/root/rmkit-cn/bin/qmd-tool
+QMD_SRC=/home/root/rmkit-cn/qmd-src
+RMKIT_DIR=/home/root/rmkit-cn
+
+# ───── 阶段 4a: 装 systemd .service unit (双写 + wants symlink 双写) ─────
+echo "  → 装 systemd service units..."
+mkdir -p /tmp/lc && mount --bind / /tmp/lc 2>/dev/null || true
+mount -o remount,rw /tmp/lc 2>/dev/null || true
+mkdir -p /etc/systemd/system /tmp/lc/etc/systemd/system
+mkdir -p /etc/systemd/system/multi-user.target.wants /tmp/lc/etc/systemd/system/multi-user.target.wants
+for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*.path; do
+  [ -f "$f" ] || continue
+  base=$(basename "$f")
+  cp "$f" /etc/systemd/system/$base; chmod 644 /etc/systemd/system/$base
+  cp "$f" /tmp/lc/etc/systemd/system/$base; chmod 644 /tmp/lc/etc/systemd/system/$base
+  # wants symlink 双写: /etc tmpfs (本次 boot) + ext4 lower (持久化)
+  case "$base" in
+    rmkit-cn-upload.service|rmkit-cn-ime-http.service|rmkit-cn-version.path)
+      ln -sf /etc/systemd/system/$base /etc/systemd/system/multi-user.target.wants/$base
+      ln -sf /etc/systemd/system/$base /tmp/lc/etc/systemd/system/multi-user.target.wants/$base
+      ;;
+  esac
+done
+
+# ───── 阶段 4b: 装最小 drop-in (xovi.so 单独 LD_PRELOAD, 无 ime_hook 避免连锁砖) ─────
+echo "  → 装最小 drop-in (xovi-only LD_PRELOAD)..."
+mkdir -p /etc/systemd/system/xochitl.service.d /tmp/lc/etc/systemd/system/xochitl.service.d
+cat > /tmp/zz-rmkit-cn-min.conf <<EOF
+$(printf '%b' "$ZZ_HEADER_FLAT")
+ConditionPathExists=/home/root/xovi/xovi.so
+
 [Service]
-ExecStartPre=/bin/sh -c 'FW=\$(cat /etc/version 2>/dev/null); CACHE=/home/root/rmkit-cn/compiled-qmd/\$FW; DEPLOY=/home/root/xovi/exthome/qt-resource-rebuilder; rm -f \"\$DEPLOY\"/*.qmd; [ -d \"\$CACHE\" ] && ls \"\$CACHE\"/*.qmd >/dev/null 2>&1 && cp \"\$CACHE\"/*.qmd \"\$DEPLOY/\"; LAST=\$(cat /home/root/rmkit-cn/.last_fw_version 2>/dev/null); if [ \"\$FW\" != \"\$LAST\" ]; then nohup bash /home/root/rmkit-cn/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1 & fi; exit 0'
 WatchdogSec=0
-Environment=\"QML_DISABLE_DISK_CACHE=1\"
-Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"
-Environment=\"QML_XHR_ALLOW_FILE_READ=1\"
-Environment=\"LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so\"
-Environment=\"QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc\""
+Environment="QML_DISABLE_DISK_CACHE=1"
+Environment="QML_XHR_ALLOW_FILE_WRITE=1"
+Environment="QML_XHR_ALLOW_FILE_READ=1"
+Environment="LD_PRELOAD=/home/root/xovi/xovi.so"
+EOF
+cp /tmp/zz-rmkit-cn-min.conf /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+cp /tmp/zz-rmkit-cn-min.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
+systemctl daemon-reload
 
-# ─── 设备端: 安装 systemd + 启动 ──────────────────────────────────
-# rm2 (armv7l): /etc 直接在 ext4, 直接写, 无需 bind-mount
-# aarch64 (RMPP/RMPPM): /etc 是 overlay, 需要 bind-mount 双写
-# 两者 OTA 后都通过 reenable.sh 一键恢复, 逻辑统一
-echo "正在配置系统服务 + 启动..."
-if [ "$ARCH" = "armv7l" ]; then
-  # rm2: 直接写 /etc (无 overlay)
-  ssh "$DEVICE_USER@$DEVICE_IP" "
-    set -e
-    STAGE=/tmp/rmkit-cn-systemd-staging
-
-    # 修复 /home/root owner (rm2 出厂重置后会设成 uid 502, 导致 SSH 公钥失效)
-    chown root:root /home/root 2>/dev/null || true
-
-    # 安装 service/path units
-    for f in \$STAGE/*.service \$STAGE/*.path; do
-      [ -f \"\$f\" ] || continue
-      cp \"\$f\" /etc/systemd/system/\$(basename \"\$f\")
-      chmod 644 /etc/systemd/system/\$(basename \"\$f\")
-    done
-
-    # zz-rmkit-cn.conf (rm2: 无 After=home.mount, 含 ExecStartPre 版本缓存)
-    mkdir -p /etc/systemd/system/xochitl.service.d/
-    cat > /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf << 'CONFEOF'
-$ZZ_CONF_CONTENT
-CONFEOF
-    chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
-
-    rm -rf \$STAGE
-    systemctl daemon-reload
-    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path rmkit-cn-version.service
-    systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
-    if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
-      systemctl enable rmkit-cn-ime-http.service
-      systemctl start  rmkit-cn-ime-http.service
+# ───── 阶段 4c: 第一次生成 hashtab (xovi 自带的 rebuild_hashtable 流程) ─────
+if [ ! -f "$HASHTAB" ] || [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
+  echo "  → 生成 hashtab (停 xochitl, 跑临时 xochitl 写 hashtab, 重启)..."
+  systemctl stop xochitl.service 2>/dev/null || true
+  sleep 1
+  pidof xochitl >/dev/null 2>&1 && kill -15 $(pidof xochitl) 2>/dev/null || true
+  sleep 2
+  rm -f $HASHTAB
+  mkdir -p $DEPLOY
+  QMLDIFF_HASHTAB_CREATE=$HASHTAB QML_DISABLE_DISK_CACHE=1 \
+    LD_PRELOAD=/home/root/xovi/xovi.so /usr/bin/xochitl > /tmp/hashtab_gen.log 2>&1 &
+  XPID=$!
+  for i in $(seq 1 90); do
+    if [ -f "$HASHTAB" ] && [ "$(wc -c < $HASHTAB)" -gt 100000 ]; then
+      sleep 2; break
     fi
-    udevadm control --reload-rules 2>/dev/null || true
-  "
+    sleep 1
+  done
+  kill -15 $XPID 2>/dev/null || true; sleep 3; kill -9 $XPID 2>/dev/null || true
+  if [ ! -f "$HASHTAB" ] || [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
+    echo "  ✗ hashtab 生成失败! 看 /tmp/hashtab_gen.log"
+    systemctl start xochitl.service
+    exit 1
+  fi
+  echo "  ✓ hashtab ($(wc -c < $HASHTAB) bytes)"
 else
-  # aarch64 (RMPP/RMPPM): /etc 是 overlay, 需要 bind-mount 双写
-  ssh "$DEVICE_USER@$DEVICE_IP" "
-    set -e
-    STAGE=/tmp/rmkit-cn-systemd-staging
-    MNT=/tmp/rmkit-cn-rootfs
-    mkdir -p \$MNT
-    mount --bind / \$MNT
-    trap 'umount -l \$MNT 2>/dev/null || true; rmdir \$MNT 2>/dev/null || true' EXIT
-    install_both() {
-      mkdir -p \"\$MNT/\$(dirname \"\$2\")\" \"/\$(dirname \"\$2\")\"
-      cp \"\$1\" \"\$MNT/\$2\" && chmod 644 \"\$MNT/\$2\"
-      cp \"\$1\" \"/\$2\"      && chmod 644 \"/\$2\"
-    }
-    for f in \$STAGE/*.service \$STAGE/*.path; do
-      [ -f \"\$f\" ] || continue
-      install_both \"\$f\" \"etc/systemd/system/\$(basename \"\$f\")\"
-    done
-    # 安装含 After=home.mount 的 zz-rmkit-cn.conf (aarch64 安全)
-    cat > \$STAGE/zz-rmkit-cn.conf << 'CONFEOF'
-$ZZ_CONF_CONTENT
-CONFEOF
-    install_both \$STAGE/zz-rmkit-cn.conf \"etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf\"
-    rm -f \$MNT/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.bak* \
-          /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf.bak* 2>/dev/null || true
-    rm -rf \$STAGE
-
-    systemctl daemon-reload
-    systemctl enable rmkit-cn-upload.service rmkit-cn-version.path
-    systemctl start  rmkit-cn-upload.service rmkit-cn-version.path
-    if [ -f /etc/systemd/system/rmkit-cn-ime-http.service ]; then
-      systemctl enable rmkit-cn-ime-http.service
-      systemctl start  rmkit-cn-ime-http.service
-    fi
-    udevadm control --reload-rules 2>/dev/null || true
-    RMKIT_DIR=$REMOTE_BASE VERSION_FILE=/etc/version XOVI_DIR=/home/root/xovi \
-      $REMOTE_BASE/bin/version-switcher.sh 2>/dev/null || echo '(QMD 版本切换跳过)'
-  "
+  echo "  → hashtab 已存在 ($(wc -c < $HASHTAB) bytes), 跳过生成"
 fi
 
+# ───── 阶段 5/7: 用设备端 hashtab 在线编译 .qmd → inject 目录 + cache ─────
+echo "  → 编译 .qmd (用设备 hashtab)..."
+CACHE=$RMKIT_DIR/compiled-qmd/$FW_VERSION
+mkdir -p $CACHE
+# 清旧 .qmd (避免 stale hash 不命中)
+rm -f $DEPLOY/*.qmd
+for src in $QMD_SRC/*.qmd; do
+  [ -f "$src" ] || continue
+  base=$(basename $src)
+  if $QMD_TOOL hash -hashtab $HASHTAB $src > $DEPLOY/$base 2>/dev/null; then
+    cp $DEPLOY/$base $CACHE/$base
+    echo "    ✓ $base ($(wc -c < $DEPLOY/$base) bytes)"
+  else
+    rm -f $DEPLOY/$base
+    echo "    ✗ $base 编译失败"
+  fi
+done
+# 静态资源
+[ -f $RMKIT_DIR/static/pinyin_interceptor.qmd ] && cp $RMKIT_DIR/static/pinyin_interceptor.qmd $DEPLOY/
+[ -f $RMKIT_DIR/static/zh_CN.rcc ] && cp $RMKIT_DIR/static/zh_CN.rcc $DEPLOY/
 
-# 写入基准固件版本，fw-upgrade.sh 以此判断 OTA 后是否需要重编
-ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
-echo "✓ .last_fw_version 已写入 ($FW_VERSION)"
+# ───── 阶段 6: 升级到最终 drop-in (含 ime_hook + zh_CN.rcc) ─────
+echo "  → 升级 drop-in (加 ime_hook + zh_CN.rcc)..."
+mkdir -p /tmp/lc && mount --bind / /tmp/lc
+mount -o remount,rw /tmp/lc
+cat > /tmp/zz-rmkit-cn-final.conf <<EOF
+$(printf '%b' "$ZZ_HEADER_FLAT")
+ConditionPathExists=/home/root/xovi/xovi.so
+ConditionPathExists=/home/root/rmkit-cn/bin/ime_hook.so
+
+[Service]
+WatchdogSec=0
+Environment="QML_DISABLE_DISK_CACHE=1"
+Environment="QML_XHR_ALLOW_FILE_WRITE=1"
+Environment="QML_XHR_ALLOW_FILE_READ=1"
+Environment="LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so"
+Environment="QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc"
+EOF
+cp /tmp/zz-rmkit-cn-final.conf /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+cp /tmp/zz-rmkit-cn-final.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
+rm -f /tmp/zz-rmkit-cn-min.conf /tmp/zz-rmkit-cn-final.conf
+
+systemctl daemon-reload
+
+# ───── 阶段 9: 启动服务 + restart xochitl 让 LD_PRELOAD 生效 ─────
+echo "  → 启动 services..."
+systemctl start rmkit-cn-upload.service rmkit-cn-ime-http.service 2>/dev/null || true
+[ -f /etc/systemd/system/rmkit-cn-version.path ] && systemctl start rmkit-cn-version.path 2>/dev/null || true
+
+# 此时 xochitl 可能在跑 (出厂版, 无 LD_PRELOAD), 也可能因为阶段 4c 还没启动
+# 不论哪种, restart 一次让最终 drop-in 生效。.last_fw_version 已写, fw-upgrade.sh 不会触发
+echo "  → restart xochitl (让 LD_PRELOAD 生效)..."
+systemctl restart xochitl.service
+sleep 4
+echo "  → 验证: $(grep -c xovi /proc/$(pidof xochitl)/maps 2>/dev/null) xovi mappings, $(grep -c ime_hook /proc/$(pidof xochitl)/maps 2>/dev/null) ime_hook mappings"
+
+# 清理 staging
+rm -rf /tmp/rmkit-cn-systemd-staging
+echo "  ✓ 部署完成"
+REMOTE_EOF
 
 # ─── 完成 ─────────────────────────────────────────────────────
 WIFI_IP=$(ssh "$DEVICE_USER@$DEVICE_IP" "ip route get 8.8.8.8 2>/dev/null | grep -oE 'src [0-9.]+' | awk '{print \$2}'" 2>/dev/null || echo "")
