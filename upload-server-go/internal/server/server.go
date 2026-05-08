@@ -86,6 +86,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("PUT /ai-config", s.putAIConfig)
 	mux.HandleFunc("POST /ai-chat", s.aiChat)
 	mux.HandleFunc("POST /ai-page-chat", s.aiPageChat)
+	mux.HandleFunc("POST /ai-glyph-chat", s.aiGlyphChat)
+	mux.HandleFunc("POST /ai-glyph-paste", s.aiGlyphPaste)
+	mux.HandleFunc("POST /ai-glyph-handwrite", s.aiGlyphHandwrite)
+	mux.HandleFunc("POST /ai-glyph-tap", s.aiGlyphTap)
 
 	mux.HandleFunc("POST /apply", s.applyAll)
 

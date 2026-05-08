@@ -540,6 +540,15 @@ AFFECT /qml/device/view/documentview/TextSelectionMenu.qml
                                     console.warn("XOVI-AI: done status=" + xhr.status + " len=" + fullText.length)
                                 }
                             }
+                            // 不设 xhr.timeout: AI 返回有时很慢 (1-2 分钟正常)。
+                            // 取消按钮无 enabled 限制, 用户可随时手动关闭。
+                            xhr.onerror = function() {
+                                console.warn("XOVI-AI: network error")
+                                if (panel) {
+                                    if (panel.bodyText.length === 0) panel.bodyText = "[网络错误] upload-server 未运行？请点取消"
+                                    panel.isStreaming = false
+                                }
+                            }
                             // 客户端拼好完整 prompt: 系统提示 + 选中文字. 服务器纯转发, 不再扫 .rm.
                             var fullPrompt = promptPrefix + "\n\n" + selectedText
                             xhr.send(JSON.stringify({prompt: fullPrompt}))
