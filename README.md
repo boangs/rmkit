@@ -200,18 +200,25 @@ ssh root@10.11.99.1 'systemctl restart rmkit-cn-upload'
 
 ---
 
-## 致谢
+## 第三方代码致谢
 
-- [xovi](https://github.com/asivery/xovi) — LD_PRELOAD + qmldiff 注入框架
-- [rm-appload](https://github.com/asivery/rm-appload) — appload 应用加载器 + qtfb-shim
-- [ghostwriter](https://github.com/awwaiid/ghostwriter) — 笔迹模拟参考实现（handstrokes.json 字体源）
-- [rime-frost](https://github.com/boomker-zh/rime-frost) — 拼音词库
-- [FouzR/xovi-extensions](https://github.com/FouzR/xovi-extensions) — qmldiff 参考代码
+本项目使用了以下开源代码，详细 license 标注与归属见 [`NOTICE.md`](NOTICE.md)：
+
+| 项目 | License | 用途 |
+|---|---|---|
+| [asivery/xovi](https://github.com/asivery/xovi) | GPL-3.0 | LD_PRELOAD + qmldiff 注入框架 |
+| [asivery/rm-appload](https://github.com/asivery/rm-appload) | GPL-3.0 | 应用加载器 + qtfb-shim（KOReader） |
+| [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter) | MIT | 笔迹模拟参考 + handstrokes.json 字体源 |
+| [FouzR/xovi-extensions](https://github.com/FouzR/xovi-extensions) | GPL-3.0 | qmldiff 注入参考代码 |
+| [boomker-zh/rime-frost](https://github.com/boomker-zh/rime-frost) | ⚠️ 无 LICENSE | 拼音词库（法律风险，见 NOTICE） |
+
+各上游 LICENSE 全文存放在 [`third-party-licenses/`](third-party-licenses/) 目录。
 
 ---
 
 ## License
 
-[GNU General Public License v3.0](LICENSE)
+本项目采用 [**GNU General Public License v3.0**](LICENSE)。
 
-兼容上游 xovi (GPL-3.0)。
+选择 GPL-3.0 的原因：我们的项目通过 `LD_PRELOAD` 装载 GPL-3.0 协议的 xovi.so，
+根据 GPL "传染"条款衍生作品也必须使用兼容协议。
