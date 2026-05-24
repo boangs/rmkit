@@ -210,7 +210,7 @@ ssh root@10.11.99.1 'systemctl restart rmkit-cn-upload'
 | [asivery/rm-appload](https://github.com/asivery/rm-appload) | GPL-3.0 | 应用加载器 + qtfb-shim（KOReader） |
 | [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter) | MIT | 笔迹模拟参考 + handstrokes.json 字体源 |
 | [FouzR/xovi-extensions](https://github.com/FouzR/xovi-extensions) | GPL-3.0 | qmldiff 注入参考代码 |
-| [boomker-zh/rime-frost](https://github.com/boomker-zh/rime-frost) | ⚠️ 无 LICENSE | 拼音词库（法律风险，见 NOTICE） |
+| [gaboolic/rime-frost](https://github.com/gaboolic/rime-frost) | GPL-3.0 | 雾凇拼音词库 (FST 转换源) |
 
 各上游 LICENSE 全文存放在 [`third-party-licenses/`](third-party-licenses/) 目录。
 
