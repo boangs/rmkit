@@ -39,15 +39,27 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
    - Settings → General → About → Copyrights → 最底部记录 SSH 密码
    - Settings → General → Software → Enable Developer mode
 2. 设备已 USB-C 连接电脑，能 `ssh root@10.11.99.1`
-3. 本地装好 Go ≥ 1.22（`brew install go` / `apt install golang`）
 
-**步骤**：
+### 推荐：下载 Release 完整包（无需 git / Go 工具链）
+
+```bash
+curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.0.0.tar.gz
+tar -xzf rmkit-cn-v1.0.0.tar.gz
+cd rmkit-cn-v1.0.0
+bash installer/install.sh
+```
+
+完整包 (~77MB) 包含 install.sh、所有架构预编译产物 (`dist/`)、xovi 依赖 (`vendor/`)。
+
+### 开发者：git clone
 
 ```bash
 git clone https://github.com/boangs/rmkit
 cd rmkit
 bash installer/install.sh
 ```
+
+`dist/` 在 .gitignore 里 (80MB 二进制不入 git)。install.sh 检测到缺失时自动从最新 Release 下载 `dist.tar.gz` (~34MB) 补齐。
 
 `install.sh` 自动完成 7 步：
 1. 检测设备架构 + 固件版本
