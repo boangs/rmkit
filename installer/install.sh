@@ -118,6 +118,42 @@ case "$ARCH" in
     ;;
 esac
 
+# ─── 确保 dist/ 预编译产物可用 (clone 后 dist/ 为空时自动从 GitHub Release 下载) ──
+# dist/ 在 .gitignore 里, 普通用户 git clone 后没有二进制。这里检测缺失并自动下载,
+# 让用户无需本地 Go 工具链即可部署。开发者本地自行 build 时跳过下载 (文件已存在)。
+DIST_DIR_CHECK="$SCRIPT_DIR/dist"
+DIST_RELEASE_URL="${DIST_RELEASE_URL:-https://github.com/boangs/rmkit/releases/latest/download/dist.tar.gz}"
+NEED_FILES=(
+  "$DIST_DIR_CHECK/$UPLOAD_BIN_NAME"
+  "$DIST_DIR_CHECK/$IME_BIN_NAME"
+  "$DIST_DIR_CHECK/$IME_HOOK_NAME"
+  "$DIST_DIR_CHECK/$QMD_TOOL_NAME"
+  "$DIST_DIR_CHECK/reMarkable_zh_CN.qm"
+  "$DIST_DIR_CHECK/zh_CN.rcc"
+)
+DIST_OK=1
+for f in "${NEED_FILES[@]}"; do
+  [ -f "$f" ] || { DIST_OK=0; break; }
+done
+if [ "$DIST_OK" = "0" ]; then
+  echo ""
+  echo "dist/ 预编译产物缺失, 从 GitHub Release 下载..."
+  echo "  URL: $DIST_RELEASE_URL"
+  mkdir -p "$DIST_DIR_CHECK"
+  TMP_TGZ="$(mktemp -t rmkit-dist.XXXXXX.tgz)"
+  trap 'rm -f "$TMP_TGZ"' EXIT
+  if ! curl -fL --progress-bar -o "$TMP_TGZ" "$DIST_RELEASE_URL"; then
+    echo "✗ 下载失败。可手动下载并解压到 dist/:" >&2
+    echo "    curl -fL -o dist.tar.gz $DIST_RELEASE_URL" >&2
+    echo "    tar -xzf dist.tar.gz -C dist/" >&2
+    exit 1
+  fi
+  tar -xzf "$TMP_TGZ" -C "$DIST_DIR_CHECK"
+  chmod +x "$DIST_DIR_CHECK"/* 2>/dev/null || true
+  rm -f "$TMP_TGZ"; trap - EXIT
+  echo "  ✓ 预编译产物已就绪"
+fi
+
 # ─── xovi 自动部署 (全新设备 / 出厂 reset 后必备) ──────────────
 # install.sh 装的 .qmd 注入和 LD_PRELOAD 都依赖 /home/root/xovi/xovi.so 存在,
 # 缺失时不能直接装 drop-in (xochitl crash → A/B 回滚)。先无条件确保 xovi 在位。
