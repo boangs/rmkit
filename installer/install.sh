@@ -157,11 +157,17 @@ fi
 #   - /home 是 LUKS 加密, After=home.mount 安全且必要
 case "$ARCH" in
   armv7l)
-    ZZ_UNIT_HEADER="[Unit]
-ConditionPathExists=/home/root/xovi/xovi.so
-ConditionPathExists=/home/root/rmkit-cn/bin/ime_hook.so"
+    # rm2: fstab 让 /home 在 xochitl.service 之后挂载 (x-systemd.after=xochitl.service)。
+    # ConditionPathExists 检查 /home/root/.so 在冷启动时永远 fail → xochitl skip →
+    # /home 不挂 → 死锁砖。所以 rm2 上**不能**用 ConditionPathExists 守卫。
+    # 冷启动 LD_PRELOAD 的 .so 路径不存在时, glibc 行为是 warn + skip (memory feedback_xochitl_dropin_after_home)
+    # → xochitl 默认启动(无 rmkit-cn 注入), /home 挂上来, 设备能用但 rmkit-cn 失效, 不砖。
+    # 用户 ssh 后 restart xochitl 一次可恢复注入。
+    ZZ_UNIT_HEADER="[Unit]"
     ;;
   aarch64)
+    # rmpp/rmppm: 有 home.mount unit, After 让 xochitl 等 /home 挂好再启动。
+    # ConditionPathExists 此时安全可用 (xovi 未装时不加 LD_PRELOAD 防砖)
     ZZ_UNIT_HEADER="[Unit]
 After=home.mount
 ConditionPathExists=/home/root/xovi/xovi.so
@@ -406,16 +412,22 @@ echo "  传输完成 (${ELAPSED}s)"
 ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
 echo "✓ .last_fw_version 已写入 ($FW_VERSION) — 防止 fw-upgrade.sh 误触发"
 
-# ─── 设备端: 7 阶段固化部署 (2026-05-07 验证, 0 砖机) ───────────────
-# 阶段 4-9: 配置 systemd, 生成 hashtab, 编译 .qmd, 启动服务
-# 设计要点 (今天踩坑总结):
-#   1) systemd unit + wants symlink 必须双写 ext4 lower (mount --bind / + remount,rw 该挂载点),
-#      否则重启后 /etc tmpfs 清空 → service inactive
-#   2) 第一次安装设备无 hashtab, 必须先装最小 drop-in (LD_PRELOAD=xovi.so 不带 ime_hook),
-#      然后 systemctl stop xochitl + QMLDIFF_HASHTAB_CREATE 跑临时 xochitl 生成 hashtab,
-#      kill 后再 systemctl start。这跟 fw-upgrade.sh 同款流程, 但避开了 race
-#   3) 用设备端 hashtab 在线编译 .qmd (而不是用本地 seed hashtab), 保证 hash 命中
-#   4) 最后写最终 drop-in (含 ime_hook + zh_CN.rcc) + restart xochitl, 让 LD_PRELOAD 生效
+# ─── 设备端: 6 阶段防砖部署 (2026-05-14 重写, 砖机预防) ───────────────
+# 设计原则: xochitl 保持出厂状态直到所有 hash 都验证命中, 任何中间步骤失败都不影响默认启动
+#
+# 阶段顺序:
+#   1) 装 systemd unit (rmkit-cn-upload/ime-http) — 不依赖 xochitl
+#   2) 清旧 .qmd → 生成 hashtab (强制版本匹配 /etc/version) → 写版本标记
+#   3) 用新 hashtab 编译 .qmd
+#   4) 验证: 所有 .qmd 编译成功 (hash 命中) — 否则 exit 1, 不写 drop-in
+#   5) 写最终 drop-in (含 ime_hook + zh_CN.rcc) — 必须在验证通过后!
+#   6) 启动 services + start xochitl (此时 drop-in 第一次生效, 安全)
+#
+# 历史砖机教训 (2026-05-13 rm2):
+#   - 旧 install.sh 在阶段 4b 装"最小 drop-in", 阶段 4c hashtab 跳过条件不查版本
+#   - OTA 后旧 hashtab 还在, install.sh 跳过 hashtab 重生, 用旧 hashtab 编译 .qmd
+#   - xochitl 加载新固件 + 旧 hashtab → qt-resource-rebuilder skip → Cached 0 entries → panic
+#   - 砖机.
 
 echo ""
 echo "正在配置系统服务 + 编译 + 启动..."
@@ -425,13 +437,30 @@ ssh "$DEVICE_USER@$DEVICE_IP" "FW_VERSION='$FW_VERSION' ZZ_HEADER_FLAT='$ZZ_HEAD
 set -e
 
 HASHTAB=/home/root/xovi/exthome/qt-resource-rebuilder/hashtab
+HASHTAB_FW=/home/root/xovi/exthome/qt-resource-rebuilder/hashtab.fw_version
 DEPLOY=/home/root/xovi/exthome/qt-resource-rebuilder
 QMD_TOOL=/home/root/rmkit-cn/bin/qmd-tool
 QMD_SRC=/home/root/rmkit-cn/qmd-src
 RMKIT_DIR=/home/root/rmkit-cn
+DROPIN=/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
 
-# ───── 阶段 4a: 装 systemd .service unit (双写 + wants symlink 双写) ─────
-echo "  → 装 systemd service units..."
+# 失败时回退: 删除任何已写入的 drop-in, 让 xochitl 走出厂默认启动
+abort_safe() {
+  local reason="$1"
+  echo "  ✗ $reason"
+  echo "  → 回退: 删除 drop-in (如有), 让 xochitl 走出厂默认"
+  rm -f $DROPIN
+  mkdir -p /tmp/lc && mount --bind / /tmp/lc 2>/dev/null || true
+  mount -o remount,rw /tmp/lc 2>/dev/null || true
+  rm -f /tmp/lc$DROPIN
+  sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl start xochitl.service 2>/dev/null || true  # 保证 xochitl 默认起来
+  exit 1
+}
+
+# ───── 阶段 1: 装 systemd .service unit (双写 + wants symlink 双写) ─────
+echo "  → 阶段 1/6: 装 systemd service units..."
 mkdir -p /tmp/lc && mount --bind / /tmp/lc 2>/dev/null || true
 mount -o remount,rw /tmp/lc 2>/dev/null || true
 mkdir -p /etc/systemd/system /tmp/lc/etc/systemd/system
@@ -441,7 +470,6 @@ for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*
   base=$(basename "$f")
   cp "$f" /etc/systemd/system/$base; chmod 644 /etc/systemd/system/$base
   cp "$f" /tmp/lc/etc/systemd/system/$base; chmod 644 /tmp/lc/etc/systemd/system/$base
-  # wants symlink 双写: /etc tmpfs (本次 boot) + ext4 lower (持久化)
   case "$base" in
     rmkit-cn-upload.service|rmkit-cn-ime-http.service|rmkit-cn-version.path)
       ln -sf /etc/systemd/system/$base /etc/systemd/system/multi-user.target.wants/$base
@@ -449,36 +477,40 @@ for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*
       ;;
   esac
 done
-
-# ───── 阶段 4b: 装最小 drop-in (xovi.so 单独 LD_PRELOAD, 无 ime_hook 避免连锁砖) ─────
-echo "  → 装最小 drop-in (xovi-only LD_PRELOAD)..."
-mkdir -p /etc/systemd/system/xochitl.service.d /tmp/lc/etc/systemd/system/xochitl.service.d
-cat > /tmp/zz-rmkit-cn-min.conf <<EOF
-$(printf '%b' "$ZZ_HEADER_FLAT")
-ConditionPathExists=/home/root/xovi/xovi.so
-
-[Service]
-WatchdogSec=0
-Environment="QML_DISABLE_DISK_CACHE=1"
-Environment="QML_XHR_ALLOW_FILE_WRITE=1"
-Environment="QML_XHR_ALLOW_FILE_READ=1"
-Environment="LD_PRELOAD=/home/root/xovi/xovi.so"
-EOF
-cp /tmp/zz-rmkit-cn-min.conf /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
-cp /tmp/zz-rmkit-cn-min.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
-chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
 sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
 systemctl daemon-reload
 
-# ───── 阶段 4c: 第一次生成 hashtab (xovi 自带的 rebuild_hashtable 流程) ─────
-if [ ! -f "$HASHTAB" ] || [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
-  echo "  → 生成 hashtab (停 xochitl, 跑临时 xochitl 写 hashtab, 重启)..."
+# ───── 阶段 2: 清旧 .qmd + 生成 hashtab (版本必须匹配 /etc/version) ─────
+echo "  → 阶段 2/6: hashtab (固件 $FW_VERSION)..."
+
+# 强制清空 $DEPLOY 旧 .qmd! 否则临时 xochitl 加载它们时,
+# 旧 .qmd hash 跟新 hashtab 不匹配 → qmldiff Rust panic → 临时 xochitl 死 → hashtab 没写出
+echo "    清空旧 .qmd (避免临时 xochitl 加载旧 hash 时 panic)..."
+mkdir -p $DEPLOY
+rm -f $DEPLOY/*.qmd $DEPLOY/*.rcc
+
+# 判断是否需要重生 hashtab
+NEEDS_REGEN=0
+REGEN_REASON=""
+if [ ! -f "$HASHTAB" ]; then
+  NEEDS_REGEN=1; REGEN_REASON="hashtab 不存在"
+elif [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
+  NEEDS_REGEN=1; REGEN_REASON="hashtab 损坏 (<100KB)"
+elif [ ! -f "$HASHTAB_FW" ]; then
+  NEEDS_REGEN=1; REGEN_REASON="hashtab 缺版本标记 (老版本残留)"
+elif [ "$(cat $HASHTAB_FW 2>/dev/null)" != "$FW_VERSION" ]; then
+  NEEDS_REGEN=1; REGEN_REASON="hashtab 版本 $(cat $HASHTAB_FW 2>/dev/null) ≠ 固件 $FW_VERSION (OTA 升级了)"
+fi
+
+if [ $NEEDS_REGEN -eq 1 ]; then
+  echo "    → 重生 hashtab (原因: $REGEN_REASON)"
   systemctl stop xochitl.service 2>/dev/null || true
   sleep 1
   pidof xochitl >/dev/null 2>&1 && kill -15 $(pidof xochitl) 2>/dev/null || true
   sleep 2
-  rm -f $HASHTAB
-  mkdir -p $DEPLOY
+  rm -f $HASHTAB $HASHTAB_FW
+  # 临时 xochitl 跑 LD_PRELOAD=xovi.so + QMLDIFF_HASHTAB_CREATE, qt-resource-rebuilder 会写 hashtab
+  # 此时 $DEPLOY 里已经没有 .qmd, 不会 panic
   QMLDIFF_HASHTAB_CREATE=$HASHTAB QML_DISABLE_DISK_CACHE=1 \
     LD_PRELOAD=/home/root/xovi/xovi.so /usr/bin/xochitl > /tmp/hashtab_gen.log 2>&1 &
   XPID=$!
@@ -490,44 +522,57 @@ if [ ! -f "$HASHTAB" ] || [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
   done
   kill -15 $XPID 2>/dev/null || true; sleep 3; kill -9 $XPID 2>/dev/null || true
   if [ ! -f "$HASHTAB" ] || [ "$(wc -c < $HASHTAB)" -lt 100000 ]; then
-    echo "  ✗ hashtab 生成失败! 看 /tmp/hashtab_gen.log"
-    systemctl start xochitl.service
-    exit 1
+    abort_safe "hashtab 生成失败! 看 /tmp/hashtab_gen.log"
   fi
-  echo "  ✓ hashtab ($(wc -c < $HASHTAB) bytes)"
+  # 写版本标记 — 关键! 这是下次跑 install.sh 判断 hashtab 是否过期的依据
+  echo "$FW_VERSION" > $HASHTAB_FW
+  echo "    ✓ hashtab ($(wc -c < $HASHTAB) bytes, 标记固件版本 $FW_VERSION)"
 else
-  echo "  → hashtab 已存在 ($(wc -c < $HASHTAB) bytes), 跳过生成"
+  echo "    → hashtab 已存在且版本匹配 ($(wc -c < $HASHTAB) bytes, 固件 $FW_VERSION)"
 fi
 
-# ───── 阶段 5/7: 用设备端 hashtab 在线编译 .qmd → inject 目录 + cache ─────
-echo "  → 编译 .qmd (用设备 hashtab)..."
+# ───── 阶段 3: 用新 hashtab 编译 .qmd → inject 目录 + cache ─────
+echo "  → 阶段 3/6: 编译 .qmd..."
 CACHE=$RMKIT_DIR/compiled-qmd/$FW_VERSION
 mkdir -p $CACHE
-# 清旧 .qmd (避免 stale hash 不命中)
-rm -f $DEPLOY/*.qmd
+COMPILE_FAILED=0
+COMPILED=0
 for src in $QMD_SRC/*.qmd; do
   [ -f "$src" ] || continue
   base=$(basename $src)
-  if $QMD_TOOL hash -hashtab $HASHTAB $src > $DEPLOY/$base 2>/dev/null; then
+  if $QMD_TOOL hash -hashtab $HASHTAB $src > $DEPLOY/$base 2>/tmp/qmd-$base.err; then
     cp $DEPLOY/$base $CACHE/$base
+    COMPILED=$((COMPILED+1))
     echo "    ✓ $base ($(wc -c < $DEPLOY/$base) bytes)"
   else
     rm -f $DEPLOY/$base
-    echo "    ✗ $base 编译失败"
+    COMPILE_FAILED=$((COMPILE_FAILED+1))
+    echo "    ✗ $base 编译失败:"
+    head -n 3 /tmp/qmd-$base.err 2>/dev/null | sed 's/^/        /'
   fi
 done
 # 静态资源
 [ -f $RMKIT_DIR/static/pinyin_interceptor.qmd ] && cp $RMKIT_DIR/static/pinyin_interceptor.qmd $DEPLOY/
 [ -f $RMKIT_DIR/static/zh_CN.rcc ] && cp $RMKIT_DIR/static/zh_CN.rcc $DEPLOY/
 
-# ───── 阶段 6: 升级到最终 drop-in (含 ime_hook + zh_CN.rcc) ─────
-echo "  → 升级 drop-in (加 ime_hook + zh_CN.rcc)..."
+# ───── 阶段 4: 验证 — 编译失败计数为 0 才能继续 ─────
+echo "  → 阶段 4/6: 验证 .qmd hash 命中..."
+if [ $COMPILE_FAILED -gt 0 ]; then
+  abort_safe "$COMPILE_FAILED 个 .qmd 编译失败 (hash 不命中), 拒绝写 drop-in"
+fi
+if [ $COMPILED -eq 0 ]; then
+  abort_safe "没有任何 .qmd 编译成功 ($QMD_SRC 是空的?)"
+fi
+echo "    ✓ $COMPILED 个 .qmd 全部 hash 命中"
+
+# ───── 阶段 5: 写最终 drop-in (验证通过后才写, 含 ime_hook + zh_CN.rcc) ─────
+echo "  → 阶段 5/6: 写最终 drop-in..."
+mkdir -p /etc/systemd/system/xochitl.service.d
 mkdir -p /tmp/lc && mount --bind / /tmp/lc
 mount -o remount,rw /tmp/lc
+mkdir -p /tmp/lc/etc/systemd/system/xochitl.service.d
 cat > /tmp/zz-rmkit-cn-final.conf <<EOF
 $(printf '%b' "$ZZ_HEADER_FLAT")
-ConditionPathExists=/home/root/xovi/xovi.so
-ConditionPathExists=/home/root/rmkit-cn/bin/ime_hook.so
 
 [Service]
 WatchdogSec=0
@@ -537,27 +582,47 @@ Environment="QML_XHR_ALLOW_FILE_READ=1"
 Environment="LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so"
 Environment="QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc"
 EOF
-cp /tmp/zz-rmkit-cn-final.conf /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
-cp /tmp/zz-rmkit-cn-final.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
-chmod 644 /etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf /tmp/lc/etc/systemd/system/xochitl.service.d/zz-rmkit-cn.conf
+cp /tmp/zz-rmkit-cn-final.conf $DROPIN
+cp /tmp/zz-rmkit-cn-final.conf /tmp/lc$DROPIN
+chmod 644 $DROPIN /tmp/lc$DROPIN
 sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
-rm -f /tmp/zz-rmkit-cn-min.conf /tmp/zz-rmkit-cn-final.conf
-
+rm -f /tmp/zz-rmkit-cn-final.conf
 systemctl daemon-reload
+echo "    ✓ drop-in 写入 (tmpfs + ext4 lower 双写持久化)"
 
-# ───── 阶段 9: 启动服务 + restart xochitl 让 LD_PRELOAD 生效 ─────
-echo "  → 启动 services..."
+# ───── 阶段 6: 启动 services + xochitl ─────
+echo "  → 阶段 6/6: 启动服务..."
 systemctl start rmkit-cn-upload.service rmkit-cn-ime-http.service 2>/dev/null || true
 [ -f /etc/systemd/system/rmkit-cn-version.path ] && systemctl start rmkit-cn-version.path 2>/dev/null || true
 
-# 此时 xochitl 可能在跑 (出厂版, 无 LD_PRELOAD), 也可能因为阶段 4c 还没启动
-# 不论哪种, restart 一次让最终 drop-in 生效。.last_fw_version 已写, fw-upgrade.sh 不会触发
-echo "  → restart xochitl (让 LD_PRELOAD 生效)..."
-systemctl restart xochitl.service
-sleep 4
-echo "  → 验证: $(grep -c xovi /proc/$(pidof xochitl)/maps 2>/dev/null) xovi mappings, $(grep -c ime_hook /proc/$(pidof xochitl)/maps 2>/dev/null) ime_hook mappings"
+# 阶段 2 stop 了 xochitl, 现在 start (drop-in 首次生效)
+# 如果阶段 2 没 stop (hashtab 跳过), xochitl 在跑出厂版本, 这里 restart 让 drop-in 生效
+echo "    → start xochitl (drop-in 首次生效)..."
+if pidof xochitl >/dev/null 2>&1; then
+  systemctl restart xochitl.service
+else
+  systemctl start xochitl.service
+fi
+sleep 5
+# 安全验证: xochitl 必须真的活着, 否则立即回退删 drop-in
+# (start-limit 锁死之前抓住 → 避免冷启动 ConditionPathExists 死锁)
+XPID=$(pidof xochitl 2>/dev/null)
+if [ -z "$XPID" ]; then
+  echo "    ✗ xochitl 没启动起来! 立即回退..."
+  echo "    journal 倒数 20 行:"
+  journalctl -u xochitl.service --no-pager -n 20 2>&1 | sed 's/^/      /' || true
+  abort_safe "xochitl 启动失败 (.qmd 验证通过但运行时 panic? 看 journal)"
+fi
+# 再等 5 秒确认稳定 (避免起来又 crash)
+sleep 5
+XPID2=$(pidof xochitl 2>/dev/null)
+if [ -z "$XPID2" ] || [ "$XPID" != "$XPID2" ]; then
+  echo "    ✗ xochitl 起来但很快 crash/重启 (PID $XPID → $XPID2)!"
+  journalctl -u xochitl.service --no-pager -n 30 2>&1 | sed 's/^/      /' || true
+  abort_safe "xochitl crash loop"
+fi
+echo "    ✓ xochitl (PID $XPID, 稳定 10 秒) — xovi: $(grep -c xovi /proc/$XPID/maps 2>/dev/null), ime_hook: $(grep -c ime_hook /proc/$XPID/maps 2>/dev/null)"
 
-# 清理 staging
 rm -rf /tmp/rmkit-cn-systemd-staging
 echo "  ✓ 部署完成"
 REMOTE_EOF
