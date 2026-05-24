@@ -34,40 +34,12 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
 
 ## 安装方式
 
-### 方式 A：远程一键安装（推荐普通用户）
-
 **前置条件**：
 1. reMarkable 设备已开启 Developer Mode（**注意：这会清空设备所有数据**）
    - Settings → General → About → Copyrights → 最底部记录 SSH 密码
    - Settings → General → Software → Enable Developer mode
-2. 设备已联网（WiFi 或 USB-C 网络）
-
-**步骤**：
-
-USB-C 连接电脑后，在电脑上运行：
-
-```bash
-ssh root@10.11.99.1
-# 输入 Settings 里看到的 SSH 密码
-
-# 设备上执行：
-wget -qO- https://boangs.com/rmkit-cn/install.sh | sh
-```
-
-安装完成后设备会自动重启 xochitl，几秒内可用：
-- 任意输入框点击 → 切换 "中文" 布局 → 拼音输入
-- 选中文字 → "AI" 按钮 → 选操作（润色/翻译/总结/问答）
-- 选中手写笔迹 → "AI" 按钮 → 同上
-- Settings 顶部多了 "高级" 入口（字体、壁纸、AI 配置）
-
-**OTA 升级后**：reMarkable 固件升级会重刷 rootfs，需要重跑一次 `wget | sh`。
-
-### 方式 B：开发者部署（macOS / Linux）
-
-**前置条件**：
-- macOS / Linux 开发机
-- Go ≥ 1.22（`brew install go`）
-- 设备已 USB-C 连接，能 `ssh root@10.11.99.1`
+2. 设备已 USB-C 连接电脑，能 `ssh root@10.11.99.1`
+3. 本地装好 Go ≥ 1.22（`brew install go` / `apt install golang`）
 
 **步骤**：
 
@@ -88,13 +60,17 @@ bash installer/install.sh
 
 整个过程 **0 砖机**（详见下文砖机修复历史）。
 
+安装完成后几秒内可用：
+- 任意输入框点击 → 切换 "中文" 布局 → 拼音输入
+- 选中文字 → "AI" 按钮 → 选操作（润色/翻译/总结/问答）
+- 选中手写笔迹 → "AI" 按钮 → 同上
+- Settings 顶部多了 "高级" 入口（字体、壁纸、AI 配置）
+
+**OTA 升级后**：reMarkable 固件升级会重刷 rootfs，需要重跑一次 `bash installer/install.sh`。
+
 ### 卸载
 
 ```bash
-# 设备端
-wget -qO- https://boangs.com/rmkit-cn/uninstall.sh | sh
-
-# 或开发者本地
 bash installer/install.sh --uninstall
 ```
 
