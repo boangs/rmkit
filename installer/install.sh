@@ -351,10 +351,16 @@ for qmd in "$QMD_SRC_DIR"/*.qmd; do
   cp "$qmd" "$PAYLOAD/home/root/rmkit-cn/qmd-src/"
 done
 
-# 版本缓存：当前固件版本编译产物，OTA 后首次启动可直接命中缓存
-for qmd in advanced_panel.qmd language_zh_cn.qmd ai_text_button.qmd; do
-  cp "$DIST_DIR/$qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
+# 版本缓存：当前固件版本编译产物。reenable.sh 的 ExecStartPre 每次启动会:
+#   rm -f $DEPLOY/*.qmd && cp $CACHE/*.qmd $DEPLOY/
+# 所以**所有**需要持久注入的 .qmd 都必须在 cache 里, 漏了会被 silent 删 (历史 bug:
+# 漏 pinyin_interceptor.qmd → 设备 restart 后没候选框)
+for qmd in advanced_panel.qmd language_zh_cn.qmd ai_text_button.qmd glyph_selection_ai.qmd; do
+  [ -f "$DIST_DIR/$qmd" ] && cp "$DIST_DIR/$qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
 done
+# pinyin_interceptor.qmd 不走 qmd-src 重编 (是预 hash 化的 qmd/ 成品), 但也必须进 cache
+[ -f "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" ] && \
+  cp "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
 
 # static/: fw-upgrade.sh 的 deploy_static() 读取这些静态资源
 [ -f "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" ] && \
