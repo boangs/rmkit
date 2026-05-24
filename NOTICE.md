@@ -71,21 +71,21 @@ MIT 要求保留 copyright notice — 我们在源代码注释中保留对 ghost
 
 ---
 
-## 5. boomker-zh/rime-frost — ⚠️ 无 LICENSE 文件
+## 5. gaboolic/rime-frost — GPL-3.0
 
-**用途**：拼音 IME 的中文词库（从中州韵 rime-frost 项目转换成 FST 格式）。
+**用途**：拼音 IME 的中文词库（基于中州韵 rime 生态的雾凇拼音方案，转换成 FST 格式）。
 
 **包含的文件**：
-- `ime-go/` 内 FST 词库的数据来源（不直接 commit FST 二进制，由构建时生成）
+- `ime-go/pinyin/dict/abbrev.fst` — 由 `gaboolic/rime-frost` cn_dicts 转换而来
+- `ime-go/pinyin/dict/phrases.fst` — 由 `gaboolic/rime-frost` cn_dicts 转换而来
+- `ime-go/tools/build_dict/main.go` — 词库转换工具，从 `gaboolic/rime-frost` cn_dicts 目录读取原始 rime 词典生成 FST
 
-⚠️ **法律风险**：rime-frost 仓库**没有 LICENSE 文件**。GitHub 默认 "All rights reserved"。
-理论上未经原作者授权我们无权 redistribute 这份词库。
+ime-server 二进制 (`dist/ime-server`) 通过 Go embed 内嵌上述 FST 文件。
 
-**建议**：
-- 联系 boomker-zh 确认 redistribution 权限
-- 或换用明确 license 的拼音词库（如 [rime/rime-essay](https://github.com/rime/rime-essay) 用 LGPL）
+**项目地址**：https://github.com/gaboolic/rime-frost
+**License 全文**：[`third-party-licenses/LICENSE.gaboolic_rime-frost`](third-party-licenses/LICENSE.gaboolic_rime-frost)
 
-**项目地址**：https://github.com/boomker-zh/rime-frost
+GPL-3.0 与本项目 LICENSE 兼容。
 
 ---
 
