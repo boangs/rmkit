@@ -443,6 +443,7 @@ tar -czf - --uid 0 --gid 0 -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
   chmod 755 /home/root
   [ -d /home/root/.ssh ] && chmod 700 /home/root/.ssh
   [ -f /home/root/.ssh/authorized_keys ] && chmod 600 /home/root/.ssh/authorized_keys
+  exit 0
 '
 ELAPSED=$(( $(date +%s) - START_TS ))
 echo "  传输完成 (${ELAPSED}s)"
