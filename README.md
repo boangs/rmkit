@@ -39,6 +39,7 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
    - Settings → General → About → Copyrights → 最底部记录 SSH 密码
    - Settings → General → Software → Enable Developer mode
 2. 设备已 USB-C 连接电脑，能 `ssh root@10.11.99.1`
+3. **建议先跑一次 `ssh-copy-id root@10.11.99.1`**（输入上一步看到的密码）。脚本内部会发起 10+ 次 ssh/scp 调用，没配公钥的话每次都要重新输密码，体验很糟
 
 ### 推荐：下载 Release 完整包（无需 git / Go 工具链）
 
