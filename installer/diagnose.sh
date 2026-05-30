@@ -126,7 +126,9 @@ fi
 
 # ─── 7. extensions.d 加载日志检查 ──────────────────────
 echo "[7] xochitl journal 关键报错"
-ERRORS=$($SSH "journalctl -u xochitl -b 0 2>/dev/null | grep -iE 'cannot open|preload|panic|qmldiff' | tail -n 5" || true)
+# "qmldiff" 关键字每条正常日志都带, 要求后面跟实际错误词才算; 同时补抓
+# "id is not unique" / "Type X unavailable" 这两类 QML load fatal.
+ERRORS=$($SSH "journalctl -u xochitl -b 0 2>/dev/null | grep -iE 'cannot open|LD_PRELOAD.*not found|panic|qmldiff.*(failed|error|panic|cannot)|id is not unique|Type .+ unavailable' | grep -v 'Failed to load.*\\._' | tail -n 5" || true)
 if [ -z "$ERRORS" ]; then
   ok "本次启动无 LD_PRELOAD / qmldiff 报错"
 else
