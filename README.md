@@ -44,9 +44,9 @@ reMarkable 平板的中文化、AI、IME 与扩展工具集。
 ### 推荐：下载 Release 完整包（无需 git / Go 工具链）
 
 ```bash
-curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.0.0.tar.gz
-tar -xzf rmkit-cn-v1.0.0.tar.gz
-cd rmkit-cn-v1.0.0
+curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.1.0.tar.gz
+tar -xzf rmkit-cn-v1.1.0.tar.gz
+cd rmkit-cn-v1.1.0
 bash installer/install.sh
 ```
 
