@@ -3,18 +3,30 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/rmkit-cn/ime/pinyin"
 )
 
-const charQueueFile = "/tmp/rmkit_char_queue"
+const (
+	charQueueFile   = "/tmp/rmkit_char_queue"
+	hookNotifySock  = "/tmp/rmkit_hook_notify.sock"
+	blockingTimeout = 5 * time.Second
+)
 
-var charQueueMu sync.Mutex
+var (
+	charQueueMu sync.Mutex
+	// hookNotify: ime_hook 写入字符后通过 unix datagram 通知, listener goroutine 把信号转入此 channel.
+	// blocking handler select 此 channel 实现 0-polling 字符上屏。
+	hookNotify = make(chan struct{}, 256)
+)
 
 var engine = pinyin.NewEngine()
 
@@ -76,30 +88,94 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 // popAllCharsHandler atomically reads and clears /tmp/rmkit_char_queue.
 // Returns all committed characters as a plain string (newlines stripped).
-func popAllCharsHandler(w http.ResponseWriter, r *http.Request) {
+// tryReadCharQueue atomically renames charQueueFile to a temp file and reads it.
+// Returns "" on any error / empty queue. Concurrency-safe via charQueueMu.
+func tryReadCharQueue() string {
 	charQueueMu.Lock()
 	defer charQueueMu.Unlock()
 
-	// Rename atomically so hook writes to a fresh file while we read the old one
 	tmpFile := charQueueFile + ".reading"
 	if err := os.Rename(charQueueFile, tmpFile); err != nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		fmt.Fprintf(w, "")
-		return
+		return ""
 	}
 	data, err := os.ReadFile(tmpFile)
 	os.Remove(tmpFile)
 	if err != nil {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		fmt.Fprintf(w, "")
-		return
+		return ""
 	}
-	result := strings.ReplaceAll(string(data), "\n", "")
+	return strings.ReplaceAll(string(data), "\n", "")
+}
+
+func writeTextPlain(w http.ResponseWriter, body string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	fmt.Fprintf(w, "%s", result)
+	fmt.Fprintf(w, "%s", body)
+}
+
+// popAllCharsHandler — non-blocking version, preserved for backward compat / fallback polling.
+func popAllCharsHandler(w http.ResponseWriter, r *http.Request) {
+	writeTextPlain(w, tryReadCharQueue())
+}
+
+// popAllCharsBlockingHandler — long-poll: returns immediately if queue has data,
+// otherwise blocks on hookNotify channel (signaled by ime_hook via unix socket)
+// or 5s timeout, then returns whatever is in queue.
+func popAllCharsBlockingHandler(w http.ResponseWriter, r *http.Request) {
+	if data := tryReadCharQueue(); data != "" {
+		writeTextPlain(w, data)
+		return
+	}
+	// drain stale signals so we react to fresh keystrokes only
+	for drained := false; !drained; {
+		select {
+		case <-hookNotify:
+		default:
+			drained = true
+		}
+	}
+	select {
+	case <-hookNotify:
+	case <-time.After(blockingTimeout):
+	case <-r.Context().Done():
+		return
+	}
+	writeTextPlain(w, tryReadCharQueue())
+}
+
+// startHookNotifyListener listens on a unix datagram socket. ime_hook sends
+// any byte after enqueue_char, which we translate into a non-blocking signal
+// on hookNotify. The actual character payload still flows through char_queue
+// file (kept for atomicity + simplicity); socket carries only "wake up" signal.
+func startHookNotifyListener() {
+	os.Remove(hookNotifySock)
+	addr, err := net.ResolveUnixAddr("unixgram", hookNotifySock)
+	if err != nil {
+		log.Printf("[hook-notify] resolve failed: %v", err)
+		return
+	}
+	conn, err := net.ListenUnixgram("unixgram", addr)
+	if err != nil {
+		log.Printf("[hook-notify] listen failed: %v", err)
+		return
+	}
+	if err := os.Chmod(hookNotifySock, 0666); err != nil {
+		log.Printf("[hook-notify] chmod failed: %v", err)
+	}
+	log.Printf("[hook-notify] listening on %s", hookNotifySock)
+	buf := make([]byte, 64)
+	for {
+		n, _, err := conn.ReadFromUnix(buf)
+		if err != nil {
+			continue
+		}
+		if n > 0 {
+			select {
+			case hookNotify <- struct{}{}:
+			default:
+				// channel full, signal already pending — fine
+			}
+		}
+	}
 }
 
 // setModeHandler creates or deletes mode flag files used by the LD_PRELOAD hook.
@@ -139,10 +215,14 @@ func main() {
 	os.Remove("/tmp/rmkit_pinyin_active")
 	os.Remove(charQueueFile)
 
+	// Start hook notification listener (unix socket) — enables 0-polling long-poll path.
+	go startHookNotifyListener()
+
 	http.HandleFunc("/candidates", candidatesHandler)
 	http.HandleFunc("/select", selectHandler)
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/pop-all-chars", popAllCharsHandler)
+	http.HandleFunc("/pop-all-chars-blocking", popAllCharsBlockingHandler)
 	http.HandleFunc("/set-mode", setModeHandler)
 
 	fmt.Printf("rmkit-cn-ime HTTP server listening on :%s\n", port)

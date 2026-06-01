@@ -22,6 +22,8 @@
 #endif
 #include <dlfcn.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
@@ -66,6 +68,22 @@ static inline bool file_exists(const char* path) {
     return ::stat(path, &st) == 0;
 }
 
+// ─── ime-server 唤醒通知 (long-poll 0-延迟路径) ────────────────
+// 仅发送 1 字节信号；字符内容仍走 char_queue 文件。如果 socket 不存在
+// (ime-server 旧版/未运行) 静默失败，QML 的 500ms 兜底 polling 会接住。
+// 设计上 fire-and-forget：非阻塞 + 不阻塞 hook 路径。
+static void notify_ime_server() {
+    int s = ::socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return;
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, "/tmp/rmkit_hook_notify.sock", sizeof(addr.sun_path) - 1);
+    const char wake = 1;
+    ::sendto(s, &wake, 1, MSG_DONTWAIT, (struct sockaddr*)&addr, sizeof(addr));
+    ::close(s);
+}
+
 // ─── 字符队列写入 ──────────────────────────────────────────
 // 只会用于 ASCII 字母/空格，但留 UTF-8 fallback 保险
 static void enqueue_char(uint16_t ch) {
@@ -88,6 +106,9 @@ static void enqueue_char(uint16_t ch) {
     buf[n++] = '\n';
     ::write(fd, buf, n);
     ::close(fd);
+
+    // 写完文件立刻通知 ime-server long-poll handler, 0 polling 路径关键步骤
+    notify_ime_server();
 }
 
 // ─── 原函数指针 ────────────────────────────────────────────
@@ -202,7 +223,14 @@ void _ZN17QInputMethodEvent15setCommitStringERK7QStringii(
                 bool pinyin = file_exists("/tmp/rmkit_pinyin_active");
                 bool is_space = (ch == ' ') && pinyin;
                 bool is_enter = (ch == '\r' || ch == '\n') && pinyin;
-                if (is_letter || is_space || is_enter) {
+                bool is_digit = (ch >= '1' && ch <= '9') && pinyin;  // 1-9 选候选
+                // 中文标点拦截 (无论 buffer 状态都拦, chinese_mode 下英文标点 → 中文标点):
+                //   QML 端: buffer 非空时 ,. 翻页, 其他标点 commit 第一候选+插中文标点
+                //           buffer 空时直接插中文标点
+                bool is_cn_punct = (ch == ',' || ch == '.' || ch == '?' || ch == '!' ||
+                                    ch == ':' || ch == ';' || ch == '(' || ch == ')' ||
+                                    ch == '<' || ch == '>' || ch == '\\');
+                if (is_letter || is_space || is_enter || is_digit || is_cn_punct) {
                     enqueue_char(ch);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] queue 0x%02x\n", ch);
                     return;
@@ -250,11 +278,16 @@ void _ZN22QGuiApplicationPrivate15processKeyEventEPN29QWindowSystemInterfacePriv
             bool is_space  = (ch == ' ') && pinyin;
             // 回车键的 unicode QString 在 Qt 6 KeyEvent 里可能是空的——按 Qt::Key 判断
             bool is_enter  = (key == QT_KEY_RETURN || key == QT_KEY_ENTER) && pinyin;
+            bool is_digit  = (ch >= '1' && ch <= '9') && pinyin;  // 1-9 选候选
+            // 中文标点拦截 (chinese_mode 下英文标点 → 中文标点, 同 setCommitString 分支)
+            bool is_cn_punct = (ch == ',' || ch == '.' || ch == '?' || ch == '!' ||
+                                ch == ':' || ch == ';' || ch == '(' || ch == ')' ||
+                                ch == '<' || ch == '>' || ch == '\\');
             if (g_debug) {
                 fprintf(stderr, "[rmkit-hook] keyev type=%d key=0x%x n=%lld ch=0x%x\n",
                         keyType, key, n, ch);
             }
-            if (is_letter || is_space || is_enter) {
+            if (is_letter || is_space || is_enter || is_digit || is_cn_punct) {
                 if (keyType == QEVENT_KEYPRESS) {
                     uint16_t out = is_enter ? '\r' : ch;
                     enqueue_char(out);
