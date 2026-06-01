@@ -24,6 +24,24 @@ AFFECT [[2328484894988065446]]
             property bool hasAnchor: false
             property int anchorIdx: 0
             property bool _kbdDumped: false
+            // long-poll 链状态: true 时表示 /pop-all-chars-blocking xhr 在挂,
+            // 阻止 charPoller fallback 重复发起。响应到达后 chain 立即重发。
+            property bool _charXhrActive: false
+            // 英文标点 → 中文标点映射 (chinese_mode 启用时生效)。
+            // ,. 在 buffer 非空时作翻页, buffer 空时按本表转换。其他标点直接转。
+            readonly property var _punctMap: ({
+                ",": "，",
+                ".": "。",
+                "?": "？",
+                "!": "！",
+                ":": "：",
+                ";": "；",
+                "(": "（",
+                ")": "）",
+                "<": "《",
+                ">": "》",
+                "\\": "、"
+            })
 
             function setMode(key, val) {
                 var xhr = new XMLHttpRequest()
@@ -178,31 +196,32 @@ AFFECT [[2328484894988065446]]
                 }
             }
 
-            Timer {
-                id: charPoller
-                interval: 50
-                running: pinyinIME.active && pinyinIME.isChineseMode && pinyinIME.useDirectCommit
-                repeat: true
+            // long-poll 字符处理 — 调用 ime-server /pop-all-chars-blocking
+            // 该 endpoint 通过 ime_hook 的 unix socket notify 实现 0-polling 唤醒,
+            // 字符到达立刻返回 (~5ms)。响应处理完后 chain 递归立刻发下一次 xhr,
+            // 形成持续 long-poll 链。charPoller Timer 仅作 500ms fallback (网络
+            // 错误 / 服务重启时把链拉回来)。
+            function _pollChars() {
+                if (pinyinIME._charXhrActive) return
+                if (pinyinIME.intercepting) return
+                if (!pinyinIME.active || !pinyinIME.useDirectCommit || !pinyinIME.isChineseMode) return
+                var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
+                if (!ctrl) return
 
-                onTriggered: {
-                    if (pinyinIME.intercepting) return
-                    var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
-                    if (!ctrl) { return }
-
-                    var xhr = new XMLHttpRequest()
-                    xhr.timeout = 200
-                    xhr.onreadystatechange = function() {
-                        if (xhr.readyState !== 4) return
-                        var chars = (xhr.status === 200) ? xhr.responseText : ""
-                        if (!chars) return
+                pinyinIME._charXhrActive = true
+                var xhr = new XMLHttpRequest()
+                xhr.timeout = 6000  // 略大于 ime-server blocking 5s timeout
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState !== 4) return
+                    pinyinIME._charXhrActive = false
+                    var chars = (xhr.status === 200) ? xhr.responseText : ""
+                    if (chars) {
                         pinyinIME.refreshCursorPosition()
-
                         pinyinIME.intercepting = true
                         var changed = false
                         for (var j = 0; j < chars.length; j++) {
                             var ch = chars[j]
                             if (ch === "\b") {
-                                // hook 拦截到的退格（backup，万一有的键盘走 setCommitString）
                                 if (pinyinIME.pinyinBuffer.length > 0) {
                                     pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
                                     changed = true
@@ -214,36 +233,71 @@ AFFECT [[2328484894988065446]]
                                 }
                             } else if (/[a-zA-Z]/.test(ch)) {
                                 var wasEmpty = pinyinIME.pinyinBuffer === ""
-                                pinyinIME.pinyinBuffer += ch  // 保留原始大小写
+                                pinyinIME.pinyinBuffer += ch
                                 changed = true
                                 if (wasEmpty) {
                                     pinyinIME.setMode("pinyin_active", true)
-                                    // 插入零宽空格占位符，退格将吃它而不是正文
                                     pinyinIME.placeAnchor(ctrl)
                                 }
                             } else if (ch === " " && pinyinIME.pinyinBuffer !== "") {
                                 pinyinIME.commitFirst(ctrl)
                                 changed = false
                             } else if ((ch === "\r" || ch === "\n") && pinyinIME.pinyinBuffer !== "") {
-                                // 回车：buffer 原文（保留大小写）以英文上屏
                                 pinyinIME.commitBufferRaw(ctrl)
                                 changed = false
+                            } else if (/[1-9]/.test(ch) && pinyinIME.pinyinBuffer !== "") {
+                                // 数字 1-9 直接选当前页第 N 个候选
+                                var pageStart = pinyinIME.pageIdx * pinyinIME.pageSize
+                                var selIdx = pageStart + (parseInt(ch) - 1)
+                                if (selIdx < pinyinIME.candidates.length) {
+                                    pinyinIME.selectCandidate(selIdx)
+                                }
+                                changed = false
+                            } else if (ch === "," && pinyinIME.pinyinBuffer !== "") {
+                                // buffer 非空: , 上一页
+                                if (pinyinIME.pageIdx > 0) pinyinIME.pageIdx -= 1
+                                changed = false
+                            } else if (ch === "." && pinyinIME.pinyinBuffer !== "") {
+                                // buffer 非空: . 下一页
+                                if (pinyinIME.pageIdx < pinyinIME.pageCount - 1) pinyinIME.pageIdx += 1
+                                changed = false
+                            } else if (pinyinIME._punctMap[ch] !== undefined) {
+                                // 中文模式 + 标点: buffer 非空时 commit 第一候选+插中文标点,
+                                // buffer 空时直接插中文标点。
+                                var cnP = pinyinIME._punctMap[ch]
+                                if (pinyinIME.pinyinBuffer !== "") {
+                                    var extra2 = cnP
+                                    pinyinIME.commitFirst(ctrl)
+                                    Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra2) })
+                                    changed = false
+                                } else {
+                                    pinyinIME.insertToDoc(ctrl, cnP)
+                                }
                             } else if (pinyinIME.pinyinBuffer !== "") {
                                 var extra = ch
                                 pinyinIME.commitFirst(ctrl)
                                 Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra) })
                                 changed = false
                             } else {
-                                // buffer 为空：空格/标点直接插入
                                 pinyinIME.insertToDoc(ctrl, ch)
                             }
                         }
                         pinyinIME.intercepting = false
                         if (changed && pinyinIME.pinyinBuffer !== "") pinyinIME.fetchCandidates()
                     }
-                    xhr.open("GET", "http://127.0.0.1:19876/pop-all-chars")
-                    xhr.send()
+                    // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
+                    Qt.callLater(pinyinIME._pollChars)
                 }
+                xhr.open("GET", "http://127.0.0.1:19876/pop-all-chars-blocking")
+                xhr.send()
+            }
+
+            Timer {
+                id: charPoller
+                interval: 500   // 仅作 fallback: xhr error/timeout 时把链拉回来
+                running: pinyinIME.active && pinyinIME.isChineseMode && pinyinIME.useDirectCommit
+                repeat: true
+                onTriggered: pinyinIME._pollChars()
             }
 
             // ── SceneView controller：检测退格（U+200B 占位符被删） ──────────
@@ -402,9 +456,40 @@ AFFECT [[2328484894988065446]]
                 }
             }
 
+            // Two-stage 候选框：物理键盘按键间隔 100-200ms, 200ms debounce 让连续按键
+            // 全程不刷候选词列表, 只在停手 200ms 后一次性显示。这是消除"e-ink 反复刷"
+            // 体感的核心 — 打字过程中 candidates 保持空, floatingPopup 的候选区域不渲染,
+            // 只有顶部 pinyinBox 跟着按键变。等同于虚拟键盘场景的 "按一下→画完→等下一次" 节奏。
+            Timer {
+                id: candidatesDebounce
+                interval: 200
+                repeat: false
+                onTriggered: pinyinIME._doFetchCandidates()
+            }
+
             function fetchCandidates() {
-                if (pinyinBuffer === "") return
+                if (pinyinBuffer === "") {
+                    candidates = []
+                    showBar = false
+                    candidatesDebounce.stop()
+                    return
+                }
                 showBar = true
+                // 关键 1: 不立刻清空 candidates。debounce 期间继续显示上一次的候选,
+                //         新查询返回后才替换。物理键盘连按 ni→nih→niha 时, 候选框
+                //         内容直接平滑过渡, 不会"满→空→满"的边界抖动。
+                // 关键 2: 候选为空时 (首次输入第 1 字母), 不走 debounce, 立刻查询,
+                //         避免首次显示一个"空小框"再变大。
+                candidatesDebounce.stop()
+                if (candidates.length === 0) {
+                    _doFetchCandidates()
+                } else {
+                    candidatesDebounce.start()
+                }
+            }
+
+            function _doFetchCandidates() {
+                if (pinyinBuffer === "") return
                 var xhr = new XMLHttpRequest()
                 xhr.timeout = 500
                 xhr.onreadystatechange = function() {
@@ -829,7 +914,13 @@ AFFECT [[2328484894988065446]]
 
                     Rectangle {
                         id: candidateBox
-                        color: "#222222"
+                        // 白底黑边黑字: e-ink 上像素变化最少, 大部分像素仍是背景白色,
+                        // 每次刷新只需重绘文字像素 + 边框 1px。
+                        // 没候选时整个框不显示, 避免变成"一条 16px 高的线"。
+                        visible: pinyinIME.candidates.length > 0
+                        color: "white"
+                        border.color: "black"
+                        border.width: 1
                         radius: 6
                         width: candRow.width + 24
                         height: candRow.height + 16
@@ -850,7 +941,7 @@ AFFECT [[2328484894988065446]]
                                         id: cText2
                                         anchors.centerIn: parent
                                         text: (index + 1) + "." + pinyinIME.candidates[parent.globalIdx]
-                                        color: cTap2.pressed ? "#aaaaaa" : "white"
+                                        color: cTap2.pressed ? "#666666" : "black"
                                         font.pixelSize: 28
                                     }
                                     MouseArea {
@@ -870,7 +961,7 @@ AFFECT [[2328484894988065446]]
                                     anchors.centerIn: parent
                                     text: "‹"
                                     font.pixelSize: 28
-                                    color: pinyinIME.pageIdx > 0 ? (prevTap2.pressed ? "#aaaaaa" : "white") : "#555555"
+                                    color: pinyinIME.pageIdx > 0 ? (prevTap2.pressed ? "#666666" : "black") : "#bbbbbb"
                                 }
                                 MouseArea {
                                     id: prevTap2
@@ -888,7 +979,7 @@ AFFECT [[2328484894988065446]]
                                     anchors.centerIn: parent
                                     text: "›"
                                     font.pixelSize: 28
-                                    color: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? (nextTap2.pressed ? "#aaaaaa" : "white") : "#555555"
+                                    color: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? (nextTap2.pressed ? "#666666" : "black") : "#bbbbbb"
                                 }
                                 MouseArea {
                                     id: nextTap2
