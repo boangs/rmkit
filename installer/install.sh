@@ -355,8 +355,10 @@ done
 #   rm -f $DEPLOY/*.qmd && cp $CACHE/*.qmd $DEPLOY/
 # 所以**所有**需要持久注入的 .qmd 都必须在 cache 里, 漏了会被 silent 删 (历史 bug:
 # 漏 pinyin_interceptor.qmd → 设备 restart 后没候选框)
-for qmd in advanced_panel.qmd language_zh_cn.qmd ai_text_button.qmd glyph_selection_ai.qmd; do
-  [ -f "$DIST_DIR/$qmd" ] && cp "$DIST_DIR/$qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
+# 用 glob 自动捡 dist/ 里所有编译产物, 避免硬编码白名单漏新 app
+# (历史踩坑: pinyin_interceptor 漏 → restart 后候选框消失; note_viewer 漏 → restart 后 app 消失)
+for qmd in "$DIST_DIR"/*.qmd; do
+  [ -f "$qmd" ] && cp "$qmd" "$PAYLOAD/home/root/rmkit-cn/compiled-qmd/$FW_VERSION/"
 done
 # pinyin_interceptor.qmd 不走 qmd-src 重编 (是预 hash 化的 qmd/ 成品), 但也必须进 cache
 [ -f "$SCRIPT_DIR/qmd/pinyin_interceptor.qmd" ] && \
