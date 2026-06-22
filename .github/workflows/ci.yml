@@ -69,12 +69,20 @@ jobs:
           go vet ./...
           go test ./...
 
-      - name: build host (用于 check) + cross-compile aarch64/armv7
+      - name: build host (用于 check) + cross-compile 全平台
         working-directory: tools/qmd-tool
         run: |
+          # host (CI runner = linux/amd64) — 给 check 步骤跑
           go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool .
-          GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-aarch64 .
-          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-armv7 .
+          # PC 平台预编译 (install.sh 按 uname 自动选)
+          GOOS=darwin  GOARCH=arm64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-darwin-arm64 .
+          GOOS=darwin  GOARCH=amd64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-darwin-amd64 .
+          GOOS=linux   GOARCH=amd64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-linux-amd64 .
+          GOOS=linux   GOARCH=arm64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-linux-arm64 .
+          GOOS=windows GOARCH=amd64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-windows-amd64.exe .
+          # 设备架构 (OTA 时设备端用)
+          GOOS=linux   GOARCH=arm64                go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-aarch64 .
+          GOOS=linux   GOARCH=arm   GOARM=7        go build -trimpath -ldflags='-s -w' -o /tmp/qmd-tool-armv7 .
 
       - name: validate qmd hashes against hashtabs (替代旧 python qmd_hash_check.py)
         run: /tmp/qmd-tool check

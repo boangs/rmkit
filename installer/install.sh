@@ -218,8 +218,39 @@ esac
 # 复用同一二进制, 0 Python 依赖.
 QMD_SRC_DIR="$SCRIPT_DIR/qmd-src"
 DIST_DIR="$SCRIPT_DIR/dist"
-HASH_TOOL="$SCRIPT_DIR/dist/qmd-tool"
 HASHTAB_LOCAL="$SCRIPT_DIR/tools/hashtab"
+
+# 按当前 PC 平台选 qmd-tool binary (Windows/WSL/Linux/Mac 各异, release 包都带):
+#   uname -s: Darwin / Linux / MINGW64_NT-... (Git Bash) / MSYS_NT-... / CYGWIN_NT-...
+#   uname -m: arm64 / aarch64 / x86_64
+HOST_OS=$(uname -s | tr A-Z a-z)
+HOST_ARCH=$(uname -m)
+case "$HOST_OS" in
+  darwin)
+    case "$HOST_ARCH" in
+      arm64)  HOST_KEY="darwin-arm64" ;;
+      x86_64) HOST_KEY="darwin-amd64" ;;
+    esac ;;
+  linux)
+    case "$HOST_ARCH" in
+      x86_64)         HOST_KEY="linux-amd64" ;;
+      aarch64|arm64)  HOST_KEY="linux-arm64" ;;
+    esac ;;
+  mingw*|msys*|cygwin*)
+    # Git Bash / MSYS2 / Cygwin 都是 Windows
+    HOST_KEY="windows-amd64" ;;
+esac
+HOST_SUFFIX=""
+[ "$HOST_KEY" = "windows-amd64" ] && HOST_SUFFIX=".exe"
+
+# 优先用带平台后缀的 (release 包里全平台都带), 兜底回退到老 dist/qmd-tool (开发者本地 make build 的 host 副本)
+if [ -n "${HOST_KEY:-}" ] && [ -x "$DIST_DIR/qmd-tool-${HOST_KEY}${HOST_SUFFIX}" ]; then
+  HASH_TOOL="$DIST_DIR/qmd-tool-${HOST_KEY}${HOST_SUFFIX}"
+elif [ -x "$DIST_DIR/qmd-tool" ]; then
+  HASH_TOOL="$DIST_DIR/qmd-tool"
+else
+  HASH_TOOL="$DIST_DIR/qmd-tool"  # 让下面 check 报错
+fi
 
 if [ -d "$QMD_SRC_DIR" ]; then
   if [ ! -x "$HASH_TOOL" ]; then
