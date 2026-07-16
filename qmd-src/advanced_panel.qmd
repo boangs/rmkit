@@ -8,28 +8,32 @@
 ;   + qrc:/ark/icons/* 图标 资源, 视觉对齐系统 (Settings → General → Account) 的返回位置.
 
 AFFECT /qml/device/view/navigator/Sidebar.qml
-    TRAVERSE DeviceKeyboardNavigationHandler#root
-        LOCATE BEFORE ALL
+    TRAVERSE ?#filterColumn
+        LOCATE AFTER ALL
         INSERT {
-            signal openAdvanced()
-        }
-    END TRAVERSE
-    TRAVERSE DeviceKeyboardNavigationHandler#root > ColumnLayout#filterColumn
-        LOCATE BEFORE IconButton#settingsButton
-        INSERT {
-            IconButton {
+            ArkControls.SidebarItem {
                 id: advancedButton
                 objectName: "advancedButton"
-                width: parent.width
                 iconSource: "qrc:/ark/icons/sliders_horizontal"
-                title: "\u9ad8\u7ea7"
-                font.weight: Font.Medium
-                Layout.preferredHeight: Values.navigatorSidebarItemHeight
-                Layout.preferredWidth: parent.width
-                navigationHandler: root
+                text: "\u9ad8\u7ea7"
                 onClicked: {
-                    root.openAdvanced()
-                    toggle()
+                    var w = advancedButton.Window.window
+                    if (!w) { console.warn("XOVI-ADVANCED: no window"); return }
+                    function find(item, name) {
+                        if (item.objectName === name) return item
+                        for (var i = 0; i < (item.children||[]).length; i++) {
+                            var f = find(item.children[i], name)
+                            if (f) return f
+                        }
+                        return null
+                    }
+                    var panel = find(w.contentItem, "_rmhAdvancedPanel")
+                    if (panel) {
+                        panel._rmhPage = 0
+                        panel.visible = true
+                    } else {
+                        console.warn("XOVI-ADVANCED: panel not found")
+                    }
                 }
             }
         }
@@ -37,20 +41,12 @@ AFFECT /qml/device/view/navigator/Sidebar.qml
 END AFFECT
 
 AFFECT /qml/device/view/navigator/Navigator.qml
-    TRAVERSE FocusScope#root > Sidebar#_sidebar
-        LOCATE AFTER ALL
-        INSERT {
-            onOpenAdvanced: {
-                _rmhAdvancedPanel._rmhPage = 0
-                _rmhAdvancedPanel.visible = true
-            }
-        }
-    END TRAVERSE
-    TRAVERSE FocusScope#root
+    TRAVERSE ?#root
         LOCATE AFTER ALL
         INSERT {
             Rectangle {
                 id: _rmhAdvancedPanel
+                objectName: "_rmhAdvancedPanel"
                 anchors.fill: parent
                 color: "white"
                 visible: false

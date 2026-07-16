@@ -5,6 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=root
+# fontconfig 按 $HOME/.local/share/fonts 找用户字体; systemd 默认给 root 的 HOME=/root,
+# 而设备用户数据全在 /home/root (xochitl 同款), 不设置的话 fc-match/fc-cache 看不到用户字体.
+Environment=HOME=/home/root
 WorkingDirectory=/home/root/rmkit-cn/upload-server
 ExecStart=/home/root/rmkit-cn/upload-server/upload-server \
   -listen 0.0.0.0:8080 \

@@ -96,7 +96,155 @@ func (s *Server) applyFontInternal(name string) (string, error) {
 	if err := linkOrCopyFile(src, dst); err != nil {
 		return "", fmt.Errorf("拷贝字体到激活目录失败: %w", err)
 	}
+
+	// 3.28 起 xochitl 不再走 fontconfig fallback: 系统预装 NotoSansSC 等 Variable Font,
+	// Qt 找中文字符直接命中系统内置字体, ~/.local/share/fonts/ 里的用户字体不生效.
+	// 通过写 fontconfig alias, 把 Noto Sans / Noto Sans SC / sans-serif 都 alias 到用户字体,
+	// Qt 请求这些家族名时 fontconfig 返回用户字体路径, 从根源上生效.
+	//
+	// 时序: 必须先删旧 alias + 刷一次 cache (让 fontconfig 在无 alias 干扰下认识新字体),
+	// pickMatchableFamily 的 fc-match 验证才准确; 选出 family 写 alias 后再刷一次让其生效.
+	removeUserFontAlias()
+	refreshFontCache()
+	if err := writeUserFontAlias(dst); err != nil {
+		log.Printf("write font alias failed: %v", err)
+	}
+	refreshFontCache()
 	return filepath.Base(src), nil
+}
+
+// fontAliasConfPath 是 fontconfig alias 配置文件, 决定 Noto Sans SC 等家族名映射到用户字体.
+const fontAliasConfPath = "/etc/fonts/conf.d/99-rmkit-cn-user-font.conf"
+
+// fontAliasTargets 3.28+ xochitl 请求的字体家族名, 需要全部 alias 到用户字体.
+// NotoSans/EBGaramond = 拉丁, NotoSansSC/NotoSansCJKSC = 中文, sans-serif = 兜底.
+var fontAliasTargets = []string{
+	"Noto Sans SC",
+	"Noto Sans",
+	"Noto Sans CJK SC",
+	"EB Garamond",
+	"sans-serif",
+	"serif",
+}
+
+// readFontFamilies 用 fc-query 读 .ttf/.otf 的全部 family 候选名.
+// 一个字体常有多个 family (英文名 + 中文本地化名), 解析 `family: "xxx"(s) "yyy"(s)` 行
+// 里所有引号内字符串. 不用 `-f %{family[0]}` — 老版本 fontconfig 不支持 array 索引,
+// 会把 N 个别名全拼在一起.
+func readFontFamilies(path string) ([]string, error) {
+	out, err := exec.Command("fc-query", path).Output()
+	if err != nil {
+		return nil, fmt.Errorf("fc-query 失败: %w", err)
+	}
+	seen := map[string]bool{}
+	var families []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "family:") {
+			continue
+		}
+		for rest := line; ; {
+			i := strings.Index(rest, "\"")
+			if i < 0 {
+				break
+			}
+			j := strings.Index(rest[i+1:], "\"")
+			if j < 0 {
+				break
+			}
+			// fc-query 会把 "-" 转义成 "\-", 还原
+			f := strings.ReplaceAll(rest[i+1:i+1+j], "\\", "")
+			if f != "" && !seen[f] {
+				seen[f] = true
+				families = append(families, f)
+			}
+			rest = rest[i+1+j+1:]
+		}
+	}
+	if len(families) == 0 {
+		return nil, fmt.Errorf("字体无 family name")
+	}
+	return families, nil
+}
+
+// pickMatchableFamily 从候选 family 里选出 fc-match 真正能命中 fontPath 的那个.
+// 带 "-" 的英文 family 名在部分 fontconfig 版本下匹配失败 (fallback 到别的字体),
+// 而中文本地化名反而可靠 — 所以不猜, 逐个实测: fc-match 返回的 file 与 fontPath
+// 是同一个文件 (硬链接 inode 相同也算) 才算命中.
+func pickMatchableFamily(fontPath string, families []string) (string, error) {
+	target, err := os.Stat(fontPath)
+	if err != nil {
+		return "", err
+	}
+	for _, f := range families {
+		out, err := exec.Command("fc-match", "-f", "%{file}", f).Output()
+		if err != nil {
+			continue
+		}
+		matched := strings.TrimSpace(string(out))
+		if matched == "" {
+			continue
+		}
+		if mi, err := os.Stat(matched); err == nil && os.SameFile(target, mi) {
+			return f, nil
+		}
+	}
+	return "", fmt.Errorf("没有 family 名能被 fc-match 命中 (候选: %s)", strings.Join(families, ", "))
+}
+
+// writeUserFontAlias 读 fontPath 的 family 候选并选出可匹配的那个, 写 fontconfig alias
+// 让所有系统字体家族名都指向它.
+func writeUserFontAlias(fontPath string) error {
+	families, err := readFontFamilies(fontPath)
+	if err != nil {
+		return err
+	}
+	family, err := pickMatchableFamily(fontPath, families)
+	if err != nil {
+		return err
+	}
+	var buf strings.Builder
+	buf.WriteString(`<?xml version="1.0"?>` + "\n")
+	buf.WriteString(`<!DOCTYPE fontconfig SYSTEM "fonts.dtd">` + "\n")
+	buf.WriteString(`<!-- rmkit-cn: 用户字体 alias, family = ` + family + ` -->` + "\n")
+	buf.WriteString(`<fontconfig>` + "\n")
+	for _, t := range fontAliasTargets {
+		buf.WriteString("  <alias binding=\"strong\">\n")
+		buf.WriteString("    <family>" + xmlEscape(t) + "</family>\n")
+		buf.WriteString("    <prefer><family>" + xmlEscape(family) + "</family></prefer>\n")
+		buf.WriteString("  </alias>\n")
+	}
+	buf.WriteString(`</fontconfig>` + "\n")
+	if err := os.MkdirAll(filepath.Dir(fontAliasConfPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(fontAliasConfPath, []byte(buf.String()), 0o644)
+}
+
+// removeUserFontAlias 卸载/切回默认时删掉 alias 配置, 让系统 fallback 到 Noto Sans SC.
+func removeUserFontAlias() {
+	_ = os.Remove(fontAliasConfPath)
+}
+
+// refreshFontCache 清 fontconfig 缓存并重建 (让 xochitl 下次拉字体读到新配置).
+func refreshFontCache() {
+	// cache-9 是 fontconfig 3.x 的 cache 版本, 直接删所有以 .cache-9 结尾的.
+	entries, err := os.ReadDir("/var/cache/fontconfig")
+	if err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".cache-9") {
+				_ = os.Remove("/var/cache/fontconfig/" + e.Name())
+			}
+		}
+	}
+	if path, err := exec.LookPath("fc-cache"); err == nil {
+		_ = exec.Command(path, "-f").Run()
+	}
+}
+
+func xmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
+	return r.Replace(s)
 }
 
 type applyErr struct {
