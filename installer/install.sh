@@ -301,6 +301,14 @@ if [ -d "$QMD_SRC_DIR" ]; then
     for src in "$QMD_SRC_DIR"/*.qmd; do
       [ -f "$src" ] || continue
       base=$(basename "$src")
+      # 3.28 (build 20260629+) 重构了 Sidebar QML (SidebarItem/? 通配语法老固件不认),
+      # 3.27 及以下改用 compat/ 里的旧语法源, 输出文件名不变
+      if [ "$base" = "advanced_panel.qmd" ] \
+         && [ "$FW_VERSION" -lt 20260629000000 ] 2>/dev/null \
+         && [ -f "$QMD_SRC_DIR/compat/advanced_panel@pre-3.28.qmd" ]; then
+        src="$QMD_SRC_DIR/compat/advanced_panel@pre-3.28.qmd"
+        echo "  (固件 $FW_VERSION < 3.28, advanced_panel 用 compat 源)"
+      fi
       out="$DIST_DIR/$base"
       if "$HASH_TOOL" hash -hashtab "$HASHTAB_LOCAL" "$src" > "$out.tmp"; then
         mv "$out.tmp" "$out"
@@ -376,11 +384,17 @@ cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
 chmod +x "$PAYLOAD/home/root/rmkit-cn/bin/"*
 
-# qmd-src/: fw-upgrade.sh 在 OTA 后从此重编
+# qmd-src/: fw-upgrade.sh 在 OTA 后从此重编 (compat/ 是老固件的 advanced_panel 兼容源)
 for qmd in "$QMD_SRC_DIR"/*.qmd; do
   [ -f "$qmd" ] || continue
   cp "$qmd" "$PAYLOAD/home/root/rmkit-cn/qmd-src/"
 done
+if [ -d "$QMD_SRC_DIR/compat" ]; then
+  mkdir -p "$PAYLOAD/home/root/rmkit-cn/qmd-src/compat"
+  for qmd in "$QMD_SRC_DIR"/compat/*.qmd; do
+    [ -f "$qmd" ] && cp "$qmd" "$PAYLOAD/home/root/rmkit-cn/qmd-src/compat/"
+  done
+fi
 
 # 版本缓存：当前固件版本编译产物。reenable.sh 的 ExecStartPre 每次启动会:
 #   rm -f $DEPLOY/*.qmd && cp $CACHE/*.qmd $DEPLOY/

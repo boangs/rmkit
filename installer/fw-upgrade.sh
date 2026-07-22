@@ -96,6 +96,13 @@ OK=true
 for src in "$QMD_SRC"/*.qmd; do
     [ -f "$src" ] || continue
     base=$(basename "$src")
+    # 3.28 (build 20260629+) 重构了 Sidebar QML, 老固件用 compat 旧语法源 (输出名不变)
+    if [ "$base" = "advanced_panel.qmd" ] \
+       && [ "$FW_NOW" -lt 20260629000000 ] 2>/dev/null \
+       && [ -f "$QMD_SRC/compat/advanced_panel@pre-3.28.qmd" ]; then
+        src="$QMD_SRC/compat/advanced_panel@pre-3.28.qmd"
+        echo "[fw-upgrade] (固件 $FW_NOW < 3.28, advanced_panel 用 compat 源)"
+    fi
     if "$QMD_TOOL" hash -hashtab "$HASHTAB" "$src" > "$CACHE_NEW/$base.tmp" 2>/dev/null; then
         mv "$CACHE_NEW/$base.tmp" "$CACHE_NEW/$base"
         echo "[fw-upgrade] ✓ $base"
