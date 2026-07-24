@@ -1,0 +1,7 @@
+[Unit]
+Description=rmkit-cn OTA hook (往新固件 slot 注入启动钩子)
+ConditionPathExists=/home/root/rmkit-cn/bin/ota-watch.sh
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /home/root/rmkit-cn/bin/ota-watch.sh

@@ -380,6 +380,7 @@ cp "$SCRIPT_DIR/scripts/version-switcher.sh" "$PAYLOAD/home/root/rmkit-cn/bin/"
 cp "$SCRIPT_DIR/installer/reenable.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
 cp "$SCRIPT_DIR/installer/fw-upgrade.sh"  "$PAYLOAD/home/root/rmkit-cn/bin/fw-upgrade.sh"
 cp "$SCRIPT_DIR/installer/precheck.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/precheck.sh"
+cp "$SCRIPT_DIR/installer/ota-watch.sh"   "$PAYLOAD/home/root/rmkit-cn/bin/ota-watch.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
@@ -461,7 +462,7 @@ chmod +x "$PAYLOAD/home/root/xovi/extensions.d/"*.so
 
 # /tmp/rmkit-cn-systemd-staging/  systemd unit + xochitl drop-in
 # (不直接放到 /etc, 因为 /etc 是 overlayfs, 必须设备端 bind-mount 双写)
-for f in "$SCRIPT_DIR"/systemd/*.service "$SCRIPT_DIR"/systemd/*.path; do
+for f in "$SCRIPT_DIR"/systemd/*.service "$SCRIPT_DIR"/systemd/*.path "$SCRIPT_DIR"/systemd/*.timer; do
   [ -f "$f" ] || continue
   cp "$f" "$PAYLOAD/tmp/rmkit-cn-systemd-staging/"
 done
@@ -556,13 +557,13 @@ mkdir -p /tmp/lc && mount --bind / /tmp/lc 2>/dev/null || true
 mount -o remount,rw /tmp/lc 2>/dev/null || true
 mkdir -p /etc/systemd/system /tmp/lc/etc/systemd/system
 mkdir -p /etc/systemd/system/multi-user.target.wants /tmp/lc/etc/systemd/system/multi-user.target.wants
-for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*.path; do
+for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*.path /tmp/rmkit-cn-systemd-staging/*.timer; do
   [ -f "$f" ] || continue
   base=$(basename "$f")
   cp "$f" /etc/systemd/system/$base; chmod 644 /etc/systemd/system/$base
   cp "$f" /tmp/lc/etc/systemd/system/$base; chmod 644 /tmp/lc/etc/systemd/system/$base
   case "$base" in
-    rmkit-cn-upload.service|rmkit-cn-ime-http.service|rmkit-cn-version.path)
+    rmkit-cn-upload.service|rmkit-cn-ime-http.service|rmkit-cn-version.path|rmkit-cn-ota.timer)
       ln -sf /etc/systemd/system/$base /etc/systemd/system/multi-user.target.wants/$base
       ln -sf /etc/systemd/system/$base /tmp/lc/etc/systemd/system/multi-user.target.wants/$base
       ;;
@@ -693,6 +694,7 @@ echo "    ✓ drop-in 写入 (tmpfs + ext4 lower 双写持久化)"
 # ───── 阶段 6: 启动 services + xochitl ─────
 echo "  → 阶段 6/6: 启动服务..."
 systemctl start rmkit-cn-upload.service rmkit-cn-ime-http.service 2>/dev/null || true
+systemctl start rmkit-cn-ota.timer 2>/dev/null || true
 [ -f /etc/systemd/system/rmkit-cn-version.path ] && systemctl start rmkit-cn-version.path 2>/dev/null || true
 
 # 阶段 2 stop 了 xochitl, 现在 start (drop-in 首次生效)
