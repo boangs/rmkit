@@ -72,11 +72,21 @@ if [ -d "$CACHE" ] && ls "$CACHE"/*.qmd >/dev/null 2>&1; then
     cp "$CACHE"/*.qmd "$DEPLOY/" 2>/dev/null
 fi
 
-# ── 2. 固件变化 → 后台触发重编 (原逻辑保留) ─────────────────────
+# ── 2. 固件变化 → 后台触发重编 ──────────────────────────────────
+# 不能直接 nohup fork: precheck 跑在 xochitl.service 的 cgroup 里, fw-upgrade
+# 中途会 systemctl stop xochitl → systemd 按 cgroup 杀进程 → fw-upgrade 自杀,
+# hashtab 永远生成不了 (2026-07-24 首次真实 OTA 实战踩坑)。
+# 用 systemd-run 创建独立 transient unit (顺带隔离 LD_PRELOAD 环境不刷 ld.so 报错)。
 LAST=$(cat "$RMKIT/.last_fw_version" 2>/dev/null)
 if [ -n "$FW" ] && [ "$FW" != "$LAST" ] && [ -x "$RMKIT/bin/fw-upgrade.sh" ]; then
     if ! pgrep -f fw-upgrade.sh >/dev/null 2>&1; then
-        nohup bash "$RMKIT/bin/fw-upgrade.sh" >/tmp/fw-upgrade.log 2>&1 &
+        if command -v systemd-run >/dev/null 2>&1; then
+            systemd-run --unit=rmkit-cn-fwupgrade --collect \
+                /bin/sh -c "exec bash $RMKIT/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1" \
+                >/dev/null 2>&1 || true
+        else
+            nohup bash "$RMKIT/bin/fw-upgrade.sh" >/tmp/fw-upgrade.log 2>&1 &
+        fi
     fi
 fi
 
