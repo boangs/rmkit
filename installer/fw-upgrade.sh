@@ -43,10 +43,17 @@ deploy_static() {
     fi
 }
 
-# 有缓存直接用
-if switch_qmd "$FW_NOW"; then
+# 有缓存且 hashtab 版本也匹配 → 直接用
+# (hashtab 版本不匹配时不能走捷径: A/B 来回切固件时缓存 qmd 在但 hashtab 是另一版的,
+#  qmldiff 会 Cached 0 entries → 孤儿 hash panic。此时落到下面完整流程重生成 hashtab)
+if switch_qmd "$FW_NOW" && [ "$(cat "$HASHTAB.fw_version" 2>/dev/null)" = "$FW_NOW" ]; then
     deploy_static
     echo "$FW_NOW" > /home/root/rmkit-cn/.last_fw_version
+    # 复位熔断 + 重建 symlink (同成功分支)
+    rm -f /home/root/rmkit-cn/.fuse_tripped /home/root/rmkit-cn/.starts
+    mkdir -p /home/root/rmkit-cn/active
+    ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
+    ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
     systemctl start xochitl.service
     echo "[fw-upgrade] ✓ 完成 (命中缓存)"
     exit 0
@@ -88,6 +95,9 @@ if [ "$HASHTAB_FOUND" = "false" ]; then
     exit 1
 fi
 
+# 标记 hashtab 对应的固件版本 (precheck.sh 启动前校验此标记 == /etc/version 才放行注入)
+echo "$FW_NOW" > "$HASHTAB.fw_version"
+
 # 编译到版本缓存
 CACHE_NEW="$QMD_CACHE/$FW_NOW"
 mkdir -p "$CACHE_NEW"
@@ -125,5 +135,13 @@ fi
 switch_qmd "$FW_NOW"
 deploy_static
 echo "$FW_NOW" > /home/root/rmkit-cn/.last_fw_version
+
+# 重编成功 = 新固件已适配: 复位熔断 + 重建 active symlink, 让 precheck 重新放行注入
+# (这是 "OTA 后 precheck 摘除注入 → fw-upgrade 自动重编 → 自动恢复" 闭环的最后一环)
+rm -f /home/root/rmkit-cn/.fuse_tripped /home/root/rmkit-cn/.starts
+mkdir -p /home/root/rmkit-cn/active
+ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
+ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
+
 systemctl start xochitl.service
 echo "[fw-upgrade] ✓ 全部完成"

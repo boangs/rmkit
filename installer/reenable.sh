@@ -15,13 +15,15 @@ After=home.mount
 
 " || UNIT_HEADER=""
 
+# fail-open: LD_PRELOAD 走 active/ symlink, precheck.sh 每次启动前预检并管理 symlink
+# (cache 重建 + fw 变化触发重编的逻辑已并入 precheck.sh, 不再内联)
 ZZ_CONF="${UNIT_HEADER}[Service]
-ExecStartPre=/bin/sh -c 'FW=\$(cat /etc/version 2>/dev/null); CACHE=$RMKIT_DIR/compiled-qmd/\$FW; DEPLOY=$XOVI_DIR/exthome/qt-resource-rebuilder; rm -f \"\$DEPLOY\"/*.qmd; [ -d \"\$CACHE\" ] && ls \"\$CACHE\"/*.qmd >/dev/null 2>&1 && cp \"\$CACHE\"/*.qmd \"\$DEPLOY/\"; LAST=\$(cat $RMKIT_DIR/.last_fw_version 2>/dev/null); if [ \"\$FW\" != \"\$LAST\" ]; then nohup bash $RMKIT_DIR/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1 & fi; exit 0'
 WatchdogSec=0
+ExecStartPre=-/bin/sh $RMKIT_DIR/bin/precheck.sh
 Environment=\"QML_DISABLE_DISK_CACHE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_READ=1\"
-Environment=\"LD_PRELOAD=$XOVI_DIR/xovi.so:$RMKIT_DIR/bin/ime_hook.so\"
+Environment=\"LD_PRELOAD=$RMKIT_DIR/active/xovi.so:$RMKIT_DIR/active/ime_hook.so\"
 Environment=\"QT_RESOURCE_REBUILDER_PATH=$XOVI_DIR/exthome/qt-resource-rebuilder/zh_CN.rcc\""
 
 UPLOAD_SVC="[Unit]
@@ -109,6 +111,14 @@ if [ "$ARCH" = "aarch64" ]; then
     rmdir /tmp/rmkit_lower 2>/dev/null || true
 fi
 echo "[reenable] ✓ 配置文件写入完成"
+
+# active symlink + 熔断复位 (reenable = 用户明确要求恢复, 给注入一次干净的机会;
+# 若固件仍不兼容, precheck 会在下次启动时再次安全摘除)
+mkdir -p "$RMKIT_DIR/active" "$RMKIT_DIR/quarantine"
+ln -sf "$XOVI_DIR/xovi.so" "$RMKIT_DIR/active/xovi.so"
+ln -sf "$RMKIT_DIR/bin/ime_hook.so" "$RMKIT_DIR/active/ime_hook.so"
+rm -f "$RMKIT_DIR/.fuse_tripped" "$RMKIT_DIR/.starts"
+echo "[reenable] ✓ active symlink 建立, 熔断计数复位"
 
 systemctl daemon-reload
 systemctl enable rmkit-cn-upload.service rmkit-cn-ime-http.service \

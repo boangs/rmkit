@@ -379,6 +379,7 @@ mkdir -p \
 cp "$SCRIPT_DIR/scripts/version-switcher.sh" "$PAYLOAD/home/root/rmkit-cn/bin/"
 cp "$SCRIPT_DIR/installer/reenable.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
 cp "$SCRIPT_DIR/installer/fw-upgrade.sh"  "$PAYLOAD/home/root/rmkit-cn/bin/fw-upgrade.sh"
+cp "$SCRIPT_DIR/installer/precheck.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/precheck.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
@@ -661,17 +662,26 @@ mkdir -p /etc/systemd/system/xochitl.service.d
 mkdir -p /tmp/lc && mount --bind / /tmp/lc
 mount -o remount,rw /tmp/lc
 mkdir -p /tmp/lc/etc/systemd/system/xochitl.service.d
+# fail-open: LD_PRELOAD 指向 active/ symlink, precheck.sh 每次启动前决定挂/摘
+# ([Service] 段与 systemd/zz-rmkit-cn.conf 保持一致, [Unit] 头按架构注入)
 cat > /tmp/zz-rmkit-cn-final.conf <<EOF
 $(printf '%b' "$ZZ_HEADER_FLAT")
 
 [Service]
 WatchdogSec=0
+ExecStartPre=-/bin/sh /home/root/rmkit-cn/bin/precheck.sh
 Environment="QML_DISABLE_DISK_CACHE=1"
 Environment="QML_XHR_ALLOW_FILE_WRITE=1"
 Environment="QML_XHR_ALLOW_FILE_READ=1"
-Environment="LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so"
+Environment="LD_PRELOAD=/home/root/rmkit-cn/active/xovi.so:/home/root/rmkit-cn/active/ime_hook.so"
 Environment="QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc"
 EOF
+# 首次建 active symlink + 清熔断残留 (阶段 4 已验证 qmd 全部命中, 初始注入是安全的;
+# 之后每次启动由 precheck.sh 接管 symlink 生死)
+mkdir -p /home/root/rmkit-cn/active /home/root/rmkit-cn/quarantine
+ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
+ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
+rm -f /home/root/rmkit-cn/.fuse_tripped /home/root/rmkit-cn/.starts
 cp /tmp/zz-rmkit-cn-final.conf $DROPIN
 cp /tmp/zz-rmkit-cn-final.conf /tmp/lc$DROPIN
 chmod 644 $DROPIN /tmp/lc$DROPIN
