@@ -1,0 +1,9 @@
+[Unit]
+Description=rmkit-cn OTA 监控定时器 (检测官方更新写入 inactive slot)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=multi-user.target

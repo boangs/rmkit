@@ -73,6 +73,24 @@ PathChanged=/etc/version
 [Install]
 WantedBy=multi-user.target"
 
+OTA_SVC="[Unit]
+Description=rmkit-cn OTA hook (往新固件 slot 注入启动钩子)
+ConditionPathExists=$RMKIT_DIR/bin/ota-watch.sh
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh $RMKIT_DIR/bin/ota-watch.sh"
+
+OTA_TIMER="[Unit]
+Description=rmkit-cn OTA 监控定时器 (检测官方更新写入 inactive slot)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=multi-user.target"
+
 # ─── 写入配置文件 (按架构选择方式) ──────────────────────────────
 mount -o remount,rw / 2>/dev/null || true
 
@@ -104,6 +122,8 @@ install_both "$UPLOAD_SVC"   "/etc/systemd/system/rmkit-cn-upload.service"
 install_both "$IME_SVC"      "/etc/systemd/system/rmkit-cn-ime-http.service"
 install_both "$VERSION_SVC"  "/etc/systemd/system/rmkit-cn-version.service"
 install_both "$VERSION_PATH" "/etc/systemd/system/rmkit-cn-version.path"
+install_both "$OTA_SVC"      "/etc/systemd/system/rmkit-cn-ota.service"
+install_both "$OTA_TIMER"    "/etc/systemd/system/rmkit-cn-ota.timer"
 
 if [ "$ARCH" = "aarch64" ]; then
     sync
@@ -122,9 +142,10 @@ echo "[reenable] ✓ active symlink 建立, 熔断计数复位"
 
 systemctl daemon-reload
 systemctl enable rmkit-cn-upload.service rmkit-cn-ime-http.service \
-                 rmkit-cn-version.path rmkit-cn-version.service 2>/dev/null || true
+                 rmkit-cn-version.path rmkit-cn-version.service \
+                 rmkit-cn-ota.timer 2>/dev/null || true
 systemctl start rmkit-cn-upload.service rmkit-cn-ime-http.service \
-                rmkit-cn-version.path 2>/dev/null || true
+                rmkit-cn-version.path rmkit-cn-ota.timer 2>/dev/null || true
 echo "[reenable] ✓ 服务已启用并启动"
 
 # fw-upgrade.sh 后台运行 (SSH 断也不中止)
