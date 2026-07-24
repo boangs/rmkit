@@ -13,6 +13,11 @@
 //	    -hashtabs 默认 ./tools/hashtabs, -qmd 默认 ./qmd.
 //	    退出码: 0 全部命中; 1 有孤儿 hash; 2 环境/路径问题.
 //
+//	qmd-tool verify -hashtab <file> <qmd>...
+//	    设备端 precheck 用: 逐个校验已编译 .qmd 对单个 hashtab 是否安全
+//	    (非空 / 无 stderr 污染 / 无孤儿 hash). 每行输出 "OK <file>" 或
+//	    "FAIL <file>: <原因>". 退出码: 0 全过; 1 有失败; 2 环境问题.
+//
 // 此二进制无外部依赖 (纯标准库), 跨平台 cross-compile, 同时给 PC install.sh
 // 和设备端 OTA 客户端使用. 替代了原来的 Python 脚本, 设备从此 0 Python 依赖.
 package main
@@ -27,6 +32,36 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "用法 (flag 必须在 positional 之前):")
 	fmt.Fprintln(os.Stderr, "  qmd-tool hash  [-hashtab <path>] <src.qmd>")
 	fmt.Fprintln(os.Stderr, "  qmd-tool check [-hashtabs <dir>] [-qmd <dir>]")
+	fmt.Fprintln(os.Stderr, "  qmd-tool verify -hashtab <file> <qmd>...")
+}
+
+func runVerify(args []string) {
+	fs := flag.NewFlagSet("verify", flag.ExitOnError)
+	hashtab := fs.String("hashtab", "", "hashtab 文件路径 (必填)")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if *hashtab == "" || fs.NArg() == 0 {
+		fmt.Fprintln(os.Stderr, "用法: qmd-tool verify -hashtab <file> <qmd>...")
+		os.Exit(2)
+	}
+	hashes, err := loadHashSet(*hashtab)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	failed := 0
+	for _, qmd := range fs.Args() {
+		if err := verifyQMDAgainst(hashes, qmd); err != nil {
+			fmt.Printf("FAIL %s: %v\n", qmd, err)
+			failed++
+		} else {
+			fmt.Printf("OK %s\n", qmd)
+		}
+	}
+	if failed > 0 {
+		os.Exit(1)
+	}
 }
 
 func main() {
@@ -39,6 +74,8 @@ func main() {
 		runHash(os.Args[2:])
 	case "check":
 		runCheck(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
 	case "-h", "--help":
 		usage()
 		os.Exit(0)
