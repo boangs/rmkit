@@ -1,0 +1,5 @@
+SDK_ENV := /opt/codex/chiappa/3.27.0.97/environment-setup-cortexa55-remarkable-linux
+all:
+	bash -c 'source $(SDK_ENV) && $$CXX -shared -fPIC -O2 -fvisibility=hidden \
+	  -Wl,--version-script=exports-noqt.version -ldl -o noqt_probe.so noqt_probe.cpp'
+	bash -c 'source $(SDK_ENV) && $$NM -D --defined-only noqt_probe.so | grep rootContext'

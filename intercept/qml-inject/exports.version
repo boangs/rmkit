@@ -1,0 +1,7 @@
+{
+  global:
+    /* 只导出这一个插桩符号 QQmlEngine::rootContext() const, 抢占真 Qt。
+       其余我们用到的 Qt 符号都是 import(未定义, 运行时解析), 不受影响。 */
+    _ZNK10QQmlEngine11rootContextEv;
+  local: *;
+};
