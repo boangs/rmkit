@@ -9,6 +9,7 @@
 #   ime-go build → dist/ime-server{,-armv7}
 #   upload-server-go build → dist/upload-server-{aarch64,armv7}
 #   intercept build → dist/ime_hook{,-armv7}.so
+#   intercept/qml-inject make (远程 Linux 编译机) → dist/qml_inject{,_impl}-aarch64.so
 #   tools/create_rcc → dist/zh_CN.rcc
 #   .ts → dist/reMarkable_zh_CN.qm
 dist/

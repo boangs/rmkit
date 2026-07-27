@@ -40,10 +40,16 @@ xochitl (ROM, ro)
 After=home.mount
 
 [Service]
-Environment="LD_PRELOAD=/home/root/xovi/xovi.so:/home/root/rmkit-cn/bin/ime_hook.so"
+ExecStartPre=-/bin/sh /home/root/rmkit-cn/bin/precheck.sh
+Environment="LD_PRELOAD=/home/root/rmkit-cn/active/xovi.so:/home/root/rmkit-cn/active/ime_hook.so:/home/root/rmkit-cn/active/qml_inject.so"
 ```
 
-xochitl 启动时 ld.so 处理 LD_PRELOAD, 把这两个 .so 提前加载. xovi 扫描 `extensions.d/` 加载所有扩展, ime_hook 通过 `dlsym` 拦截 Qt 输入法相关函数.
+xochitl 启动时 ld.so 处理 LD_PRELOAD, 把这几个 .so 提前加载. xovi 扫描 `extensions.d/` 加载所有扩展, ime_hook 通过 `dlsym` 拦截 Qt 输入法相关函数, qml_inject 插桩 `QQmlEngine::rootContext()` 做运行时 QML 注入 (见 `intercept/qml-inject/README.md`).
+
+注意路径是 `active/` 下的 **symlink**, 不是真实 .so —— 这是 fail-open 的关键: 每次启动
+前 `precheck.sh` 预检, 不通过就删对应 symlink, glibc 对不存在的 LD_PRELOAD 条目
+warn+skip, xochitl 以原生状态启动 (功能暂时缺失但绝不砖). 第三条 `qml_inject.so`
+只在装了 aarch64 运行时注入产物时才写进来, rm2 (armv7) 上没有这一条.
 
 ### 失败模式
 
@@ -149,6 +155,9 @@ AI 配置写到 `/home/root/.local/share/rmkit-cn/ai_config.json`, advanced_pane
 |---|---|
 | `dist/ime-server` (cross-built) | `/home/root/rmkit-cn/bin/ime-server` |
 | `dist/ime_hook.so` | `/home/root/rmkit-cn/bin/ime_hook.so` |
+| `dist/qml_inject-aarch64.so` (可选, 仅 aarch64) | `/home/root/rmkit-cn/bin/qml_inject.so` |
+| `dist/qml_inject_impl-aarch64.so` (同上) | `/home/root/rmkit-cn/bin/qml_inject_impl.so` |
+| `intercept/qml-inject/{adv_panel,glyph_ai_button,text_ai_button}.qml` + `icon_ai.svg` | `/home/root/rmkit-cn/bin/` (胖库按 `file://` 绝对路径加载) |
 | `dist/upload-server-aarch64` | `/home/root/rmkit-cn/bin/upload-server` |
 | `dist/*.qmd` (qmd-src 编译产物) | `/home/root/xovi/exthome/qt-resource-rebuilder/` |
 | `qmd/pinyin_interceptor.qmd` (无需编译) | 同上 |

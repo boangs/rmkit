@@ -17,13 +17,18 @@ After=home.mount
 
 # fail-open: LD_PRELOAD 走 active/ symlink, precheck.sh 每次启动前预检并管理 symlink
 # (cache 重建 + fw 变化触发重编的逻辑已并入 precheck.sh, 不再内联)
+# 运行时 QML 注入只在本机装了胖库时才进 LD_PRELOAD (armv7 无此产物; 写进去只会让
+# ld.so 每次启动刷 cannot be preloaded 警告)。symlink 生死仍归 precheck 管。
+PRELOAD="$RMKIT_DIR/active/xovi.so:$RMKIT_DIR/active/ime_hook.so"
+[ -f "$RMKIT_DIR/bin/qml_inject_impl.so" ] && PRELOAD="$PRELOAD:$RMKIT_DIR/active/qml_inject.so"
+
 ZZ_CONF="${UNIT_HEADER}[Service]
 WatchdogSec=0
 ExecStartPre=-/bin/sh $RMKIT_DIR/bin/precheck.sh
 Environment=\"QML_DISABLE_DISK_CACHE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_WRITE=1\"
 Environment=\"QML_XHR_ALLOW_FILE_READ=1\"
-Environment=\"LD_PRELOAD=$RMKIT_DIR/active/xovi.so:$RMKIT_DIR/active/ime_hook.so\"
+Environment=\"LD_PRELOAD=$PRELOAD\"
 Environment=\"QT_RESOURCE_REBUILDER_PATH=$XOVI_DIR/exthome/qt-resource-rebuilder/zh_CN.rcc\""
 
 UPLOAD_SVC="[Unit]

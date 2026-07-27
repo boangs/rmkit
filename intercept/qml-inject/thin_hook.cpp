@@ -29,7 +29,7 @@ __attribute__((constructor)) static void thin_init() {
 
 // worker 线程: 等 UI 起来, 再 dlopen 胖库注入
 static void *worker(void *) {
-    sleep(15); // 等 xochitl UI 构建完成 (rootContext 在启动早期就被调)
+    sleep(2); // 等 app 事件循环起来即可, UI 等待交给重复定时器
     fprintf(stderr, "[thin] worker: dlopen %s\n", IMPL_SO);
     void *h = dlopen(IMPL_SO, RTLD_NOW | RTLD_GLOBAL);
     if (!h) {

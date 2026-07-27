@@ -10,6 +10,14 @@ QMD_SRC=/home/root/rmkit-cn/qmd-src
 QMD_CACHE=/home/root/rmkit-cn/compiled-qmd
 STATIC=/home/root/rmkit-cn/static
 
+# 已由运行时 QML 注入接管的 qmd 判据 (与 precheck.sh 共享真相源)。
+# lib 缺失时 qmd_is_migrated 退化为恒假 = 老行为 (全部 qmd 都参与编译判定)。
+RMKIT_LIB_BASE=/home/root/rmkit-cn
+if [ -f "$RMKIT_LIB_BASE/bin/qml-inject-lib.sh" ]; then
+    . "$RMKIT_LIB_BASE/bin/qml-inject-lib.sh" 2>/dev/null
+fi
+command -v qmd_is_migrated >/dev/null 2>&1 || qmd_is_migrated() { return 1; }
+
 echo "[fw-upgrade] 当前版本: $FW_NOW / 上次版本: $FW_LAST"
 [ "$FW_NOW" = "$FW_LAST" ] && echo "[fw-upgrade] 版本未变化，跳过" && exit 0
 
@@ -54,6 +62,8 @@ if switch_qmd "$FW_NOW" && [ "$(cat "$HASHTAB.fw_version" 2>/dev/null)" = "$FW_N
     mkdir -p /home/root/rmkit-cn/active
     ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
     ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
+    qml_inject_ready 2>/dev/null &&
+        ln -sf /home/root/rmkit-cn/bin/qml_inject.so /home/root/rmkit-cn/active/qml_inject.so
     systemctl start xochitl.service
     echo "[fw-upgrade] ✓ 完成 (命中缓存)"
     exit 0
@@ -106,6 +116,14 @@ OK=true
 for src in "$QMD_SRC"/*.qmd; do
     [ -f "$src" ] || continue
     base=$(basename "$src")
+    # 已迁到运行时注入的功能: 跳过编译。它们的 qmd 就算编出来也会被 precheck 摘掉,
+    # 而这几个恰恰是最容易在新固件上 hash 不命中的 (advanced_panel 在 3.28 就挂过)。
+    # 让它们的失败去否决整个 OTA 恢复, 会连带拖掉唯一还依赖 qmd 的拼音候选框, 且
+    # .last_fw_version 不更新 → 每次启动重跑 fw-upgrade, 永远恢复不了。
+    if qmd_is_migrated "$base"; then
+        echo "[fw-upgrade] − $base 跳过 (已由运行时 QML 注入接管)"
+        continue
+    fi
     # 3.28 (build 20260629+) 重构了 Sidebar QML, 老固件用 compat 旧语法源 (输出名不变)
     if [ "$base" = "advanced_panel.qmd" ] \
        && [ "$FW_NOW" -lt 20260629000000 ] 2>/dev/null \
@@ -122,6 +140,12 @@ for src in "$QMD_SRC"/*.qmd; do
         OK=false
     fi
 done
+
+# 全部 qmd 都已迁到运行时注入时 CACHE_NEW 会是空目录, switch_qmd 会静默返回 1 ——
+# 这不是错误, 但日志里没痕迹会让人以为缓存坏了, 所以显式说一句。
+if [ "$OK" = "true" ] && ! ls "$CACHE_NEW"/*.qmd >/dev/null 2>&1; then
+    echo "[fw-upgrade] 本机无需编译任何 qmd (相关功能已由运行时注入接管)"
+fi
 
 if [ "$OK" = "false" ]; then
     rm -rf "$CACHE_NEW"
@@ -142,6 +166,8 @@ rm -f /home/root/rmkit-cn/.fuse_tripped /home/root/rmkit-cn/.starts
 mkdir -p /home/root/rmkit-cn/active
 ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
 ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
+qml_inject_ready 2>/dev/null &&
+    ln -sf /home/root/rmkit-cn/bin/qml_inject.so /home/root/rmkit-cn/active/qml_inject.so
 
 systemctl start xochitl.service
 echo "[fw-upgrade] ✓ 全部完成"

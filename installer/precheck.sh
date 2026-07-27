@@ -39,12 +39,67 @@ write_status() { # $1=mode $2=reason $3=quarantined(逗号分隔)
         "$NOW" "$FW" "$1" "$2" "$3" > "$STATUS" 2>/dev/null
 }
 
-# 摘除全部注入, 本次原生启动
+# 摘除全部注入, 本次完全原生启动。
+# 只用于 crashloop 熔断 —— 崩的原因可能就是运行时注入自己, 熔断必须一视同仁。
 disable_all() { # $1=reason
     rm -f "$ACTIVE"/*.so 2>/dev/null
     rm -f "$DEPLOY"/*.qmd 2>/dev/null
     write_status disabled "$1" ""
     echo "[precheck] DISABLED: $1 — xochitl 将以原生状态启动" >&2
+    exit 0
+}
+
+# ── 运行时 QML 注入 (qml_inject): 与 qmldiff 链完全解耦 ──────────
+# 瘦 hook 不链 Qt、不读 hashtab、不经 qmldiff、不扫 extensions.d —— 它往活的
+# QML 场景树插节点。所以 qmldiff 侧任何不健康 (hashtab 不匹配 / qmd 坏 / xovi
+# 没装) 都不该连坐它: 旧行为是 disable_all 一起摘, OTA 后等 fw-upgrade 重编
+# hashtab 的窗口期里所有功能一起消失 ("暂时英文"); 现在这几项能继续用。
+# 只有 armv7 (rm2) 没有这个产物 → 下面全部静默跳过, 那些功能继续走 qmd。
+#
+# MIGRATED_QMDS / qml_inject_ready 与 fw-upgrade.sh 共享同一真相源。lib 缺失
+# (老版本升上来 / 部署残缺) 时用内联 fallback —— 本脚本契约是永远 exit 0。
+RMKIT_LIB_BASE=$RMKIT
+if [ -f "$RMKIT/bin/qml-inject-lib.sh" ]; then
+    . "$RMKIT/bin/qml-inject-lib.sh" 2>/dev/null
+fi
+if [ -z "${MIGRATED_QMDS:-}" ]; then
+    MIGRATED_QMDS="advanced_panel.qmd ai_text_button.qmd glyph_selection_ai.qmd language_zh_cn.qmd"
+    qml_inject_ready() {
+        [ -f "$RMKIT/bin/qml_inject.so" ] && [ -f "$RMKIT/bin/qml_inject_impl.so" ] &&
+            [ -f "$RMKIT/bin/adv_panel.qml" ]
+    }
+fi
+
+# 摘掉运行时注入已接管功能对应的 qmd (否则同一功能双注入)。幂等。
+# 必须在步 6 逐个 verify 之前跑一次: 否则这些 qmd 在 hash 不命中时会被"隔离"进
+# quarantine 并计入告警, 而它们其实早已无用 — 白报警 + 堆垃圾文件。
+prune_migrated_qmds() {
+    for q in $MIGRATED_QMDS; do
+        rm -f "$DEPLOY/$q" 2>/dev/null
+    done
+}
+
+# 挂运行时注入 + 摘已迁移 qmd
+enable_qml_inject() {
+    qml_inject_ready || return 1
+    ln -sf "$RMKIT/bin/qml_inject.so" "$ACTIVE/qml_inject.so" 2>/dev/null
+    prune_migrated_qmds
+    return 0
+}
+
+# 摘除 qmldiff 注入链 (xovi + ime_hook + 全部 qmd), 但保留运行时注入。
+# 取代原先这些场景下的 disable_all。ime_hook 一起摘是故意的: 拼音候选框 UI 还
+# 靠 pinyin_interceptor.qmd(未迁移), 只留 hook 会变成"能拦按键但没候选框"的半残。
+disable_qmldiff() { # $1=reason
+    rm -f "$ACTIVE"/*.so 2>/dev/null
+    rm -f "$DEPLOY"/*.qmd 2>/dev/null
+    if enable_qml_inject; then
+        write_status degraded "$1" "(qmd: all)"
+        echo "[precheck] DEGRADED: $1 — qmldiff 注入已摘, 运行时 QML 注入保留" >&2
+    else
+        write_status disabled "$1" ""
+        echo "[precheck] DISABLED: $1 — xochitl 将以原生状态启动" >&2
+    fi
     exit 0
 }
 
@@ -71,6 +126,9 @@ rm -f "$DEPLOY"/*.qmd 2>/dev/null
 if [ -d "$CACHE" ] && ls "$CACHE"/*.qmd >/dev/null 2>&1; then
     cp "$CACHE"/*.qmd "$DEPLOY/" 2>/dev/null
 fi
+# cache 里仍带着已迁移功能的 qmd (老版本装的 / OTA 重编产出), 运行时注入可用时
+# 立刻摘掉, 别让它们走到步 6 的 verify 去白白隔离报警。
+qml_inject_ready && prune_migrated_qmds
 
 # ── 2. 固件变化 → 后台触发重编 ──────────────────────────────────
 # 不能直接 nohup fork: precheck 跑在 xochitl.service 的 cgroup 里, fw-upgrade
@@ -91,13 +149,13 @@ if [ -n "$FW" ] && [ "$FW" != "$LAST" ] && [ -x "$RMKIT/bin/fw-upgrade.sh" ]; th
 fi
 
 # ── 3. hashtab 必须匹配当前固件 (防: 旧 hashtab + 新固件 → qmldiff panic) ──
-[ -f "$HASHTAB" ] || disable_all "hashtab-missing"
+[ -f "$HASHTAB" ] || disable_qmldiff "hashtab-missing"
 HTFW=$(cat "$HASHTAB_FW" 2>/dev/null)
-[ "$HTFW" = "$FW" ] || disable_all "hashtab-mismatch (hashtab=$HTFW fw=$FW, 等 fw-upgrade 重编)"
+[ "$HTFW" = "$FW" ] || disable_qmldiff "hashtab-mismatch (hashtab=$HTFW fw=$FW, 等 fw-upgrade 重编)"
 
 # ── 4. 依赖 .so 齐全 (防: LD_PRELOAD 半残 / xovi 没装) ──────────
 for so in "$XOVI/xovi.so" "$RMKIT/bin/ime_hook.so"; do
-    [ -f "$so" ] || disable_all "missing-so ($so)"
+    [ -f "$so" ] || disable_qmldiff "missing-so ($so)"
 done
 
 # ── 5. extensions.d 干净 (防: 同名 .bak → xovi 重名 fatal → 回滚) ──
@@ -106,7 +164,7 @@ if [ -d "$XOVI/extensions.d" ]; then
         [ -e "$f" ] || continue
         case "$f" in
             *.so|*.so.conf) ;;
-            *) disable_all "extensions-dirty ($(basename "$f") 不是 .so/.so.conf, 会触发 xovi 重名 fatal)" ;;
+            *) disable_qmldiff "extensions-dirty ($(basename "$f") 不是 .so/.so.conf, 会触发 xovi 重名 fatal)" ;;
         esac
     done
 fi
@@ -132,6 +190,13 @@ fi
 # ── 7. 全部通过 → 建 symlink, 注入生效 ──────────────────────────
 ln -sf "$XOVI/xovi.so" "$ACTIVE/xovi.so" 2>/dev/null
 ln -sf "$RMKIT/bin/ime_hook.so" "$ACTIVE/ime_hook.so" 2>/dev/null
+# 运行时注入: 产物齐了才挂 (瘦 hook 找不到胖库不会崩, 但没意义), 顺带摘掉
+# 它已接管功能的 qmd。armv7 无产物 → 返回非 0, 那些 qmd 原样保留继续生效。
+if enable_qml_inject; then
+    RT_NOTE="runtime-qml=on (已摘 qmd: $MIGRATED_QMDS)"
+else
+    RT_NOTE="runtime-qml=off (无产物, qmd 路径生效)"
+fi
 write_status ok "" "$QUAR_LIST"
-echo "[precheck] OK fw=$FW quarantined=[${QUAR_LIST:-无}]" >&2
+echo "[precheck] OK fw=$FW quarantined=[${QUAR_LIST:-无}] $RT_NOTE" >&2
 exit 0

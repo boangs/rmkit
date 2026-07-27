@@ -32,11 +32,10 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     done
     if mountpoint -q \$MNT 2>/dev/null; then sync; umount -l \$MNT 2>/dev/null || true; rmdir \$MNT 2>/dev/null || true; fi
     rm -f /etc/udev/rules.d/99-rmkit-cn-ime.rules
-    # 清理 XOVI QMD 文件
-    rm -f /home/root/xovi/exthome/qt-resource-rebuilder/pinyin_input.qmd
-    rm -f /home/root/xovi/exthome/qt-resource-rebuilder/advanced_panel.qmd
-    rm -f /home/root/xovi/exthome/qt-resource-rebuilder/language_zh_cn.qmd
-    rm -f /home/root/xovi/exthome/qt-resource-rebuilder/ai_text_button.qmd
+    # 清理 XOVI QMD 文件 (通配: 顶层 *.qmd 全部由 rmkit-cn 投放, 同 precheck.sh 的
+    # rm -f \$DEPLOY/*.qmd; 逐个列名历史上漏过 glyph_selection_ai / pinyin_interceptor,
+    # 残留 qmd 配上新固件 hashtab 会让 qmldiff panic。别的扩展用子目录如 chess/, 不受影响)
+    rm -f /home/root/xovi/exthome/qt-resource-rebuilder/*.qmd
     rm -f /home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc
     rm -rf /home/root/xovi/exthome/qt-resource-rebuilder/zh_CN
     # 清理 xovi 扩展
@@ -103,6 +102,10 @@ case "$ARCH" in
     EXT_ARCH="aarch64"             # vendor/extensions/*-aarch64.so
     XOVI_ARCH="aarch64"            # vendor/xovi/xovi-aarch64.tar.gz
     QMD_TOOL_NAME="qmd-tool-aarch64"
+    # 运行时 QML 注入 (瘦 hook + 胖库): 只有 aarch64 版 (chiappa SDK cortexa55 交叉编译)。
+    # armv7 (rm2) 留空 → 不部署、不进 LD_PRELOAD, 那些功能继续走 qmd 注入路径。
+    QML_INJECT_NAME="qml_inject-aarch64.so"
+    QML_INJECT_IMPL_NAME="qml_inject_impl-aarch64.so"
     ;;
   armv7l)
     UPLOAD_BIN_NAME="upload-server-armv7"
@@ -111,6 +114,8 @@ case "$ARCH" in
     EXT_ARCH="armv7"               # vendor/extensions/*-armv7.so
     XOVI_ARCH="arm32"              # vendor/xovi/xovi-arm32.tar.gz (xovi 上游用 arm32 命名)
     QMD_TOOL_NAME="qmd-tool-armv7"
+    QML_INJECT_NAME=""
+    QML_INJECT_IMPL_NAME=""
     ;;
   *)
     echo "✗ 不支持的架构: $ARCH (本项目仅支持 aarch64 / armv7l)" >&2
@@ -380,10 +385,31 @@ cp "$SCRIPT_DIR/scripts/version-switcher.sh" "$PAYLOAD/home/root/rmkit-cn/bin/"
 cp "$SCRIPT_DIR/installer/reenable.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/reenable.sh"
 cp "$SCRIPT_DIR/installer/fw-upgrade.sh"  "$PAYLOAD/home/root/rmkit-cn/bin/fw-upgrade.sh"
 cp "$SCRIPT_DIR/installer/precheck.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/precheck.sh"
+# precheck.sh 与 fw-upgrade.sh 共享的运行时注入判据 (两者都有 fallback, 缺了不致命)
+cp "$SCRIPT_DIR/installer/qml-inject-lib.sh" "$PAYLOAD/home/root/rmkit-cn/bin/qml-inject-lib.sh"
 cp "$SCRIPT_DIR/installer/ota-watch.sh"   "$PAYLOAD/home/root/rmkit-cn/bin/ota-watch.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
+
+# 运行时 QML 注入 (可选): 瘦 hook + 胖库 + 它们 file:// 加载的 QML/图标资源。
+# 可选 = dist 里没有就跳过 (Release 包尚未带 aarch64 .so; armv7 无此产物),
+# precheck 见不到 bin/qml_inject_impl.so 就不建 active symlink → 自动回落 qmd 注入。
+# 胖库里 hardcode 了 file:///home/root/rmkit-cn/bin/<name>.qml, 故资源必须落 bin/。
+QML_INJECT_DEPLOYED=0
+if [ -n "$QML_INJECT_NAME" ] \
+   && [ -f "$DIST_DIR/$QML_INJECT_NAME" ] && [ -f "$DIST_DIR/$QML_INJECT_IMPL_NAME" ]; then
+  cp "$DIST_DIR/$QML_INJECT_NAME"      "$PAYLOAD/home/root/rmkit-cn/bin/qml_inject.so"
+  cp "$DIST_DIR/$QML_INJECT_IMPL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qml_inject_impl.so"
+  for res in adv_panel.qml glyph_ai_button.qml text_ai_button.qml icon_ai.svg; do
+    [ -f "$SCRIPT_DIR/intercept/qml-inject/$res" ] \
+      && cp "$SCRIPT_DIR/intercept/qml-inject/$res" "$PAYLOAD/home/root/rmkit-cn/bin/$res"
+  done
+  QML_INJECT_DEPLOYED=1
+  echo "  ✓ 运行时 QML 注入产物已加入 payload"
+else
+  echo "  · 跳过运行时 QML 注入 (dist 无 $ARCH 产物) — 相关功能走 qmd 注入"
+fi
 chmod +x "$PAYLOAD/home/root/rmkit-cn/bin/"*
 
 # qmd-src/: fw-upgrade.sh 在 OTA 后从此重编 (compat/ 是老固件的 advanced_panel 兼容源)
@@ -525,7 +551,7 @@ echo ""
 echo "正在配置系统服务 + 编译 + 启动..."
 # 把 ZZ_UNIT_HEADER 展平到单一字符串 (用 \n 字面表示换行), 设备端 printf %b 还原
 ZZ_HEADER_FLAT="$(printf '%s' "$ZZ_UNIT_HEADER" | awk 'BEGIN{ORS="\\n"} {print}' | sed 's/\\n$//')"
-ssh "$DEVICE_USER@$DEVICE_IP" "FW_VERSION='$FW_VERSION' ZZ_HEADER_FLAT='$ZZ_HEADER_FLAT' bash -s" <<'REMOTE_EOF'
+ssh "$DEVICE_USER@$DEVICE_IP" "FW_VERSION='$FW_VERSION' ZZ_HEADER_FLAT='$ZZ_HEADER_FLAT' QML_INJECT_DEPLOYED='$QML_INJECT_DEPLOYED' bash -s" <<'REMOTE_EOF'
 set -e
 
 HASHTAB=/home/root/xovi/exthome/qt-resource-rebuilder/hashtab
@@ -665,6 +691,12 @@ mount -o remount,rw /tmp/lc
 mkdir -p /tmp/lc/etc/systemd/system/xochitl.service.d
 # fail-open: LD_PRELOAD 指向 active/ symlink, precheck.sh 每次启动前决定挂/摘
 # ([Service] 段与 systemd/zz-rmkit-cn.conf 保持一致, [Unit] 头按架构注入)
+# qml_inject.so 只在本次真的部署了产物时才进 LD_PRELOAD — armv7 无此产物, 写进去
+# 只会让 ld.so 每次启动刷一条 cannot be preloaded 警告 (无害但污染日志/误导诊断)。
+PRELOAD="/home/root/rmkit-cn/active/xovi.so:/home/root/rmkit-cn/active/ime_hook.so"
+if [ "$QML_INJECT_DEPLOYED" = "1" ]; then
+  PRELOAD="$PRELOAD:/home/root/rmkit-cn/active/qml_inject.so"
+fi
 cat > /tmp/zz-rmkit-cn-final.conf <<EOF
 $(printf '%b' "$ZZ_HEADER_FLAT")
 
@@ -674,7 +706,7 @@ ExecStartPre=-/bin/sh /home/root/rmkit-cn/bin/precheck.sh
 Environment="QML_DISABLE_DISK_CACHE=1"
 Environment="QML_XHR_ALLOW_FILE_WRITE=1"
 Environment="QML_XHR_ALLOW_FILE_READ=1"
-Environment="LD_PRELOAD=/home/root/rmkit-cn/active/xovi.so:/home/root/rmkit-cn/active/ime_hook.so"
+Environment="LD_PRELOAD=$PRELOAD"
 Environment="QT_RESOURCE_REBUILDER_PATH=/home/root/xovi/exthome/qt-resource-rebuilder/zh_CN.rcc"
 EOF
 # 首次建 active symlink + 清熔断残留 (阶段 4 已验证 qmd 全部命中, 初始注入是安全的;
@@ -682,6 +714,9 @@ EOF
 mkdir -p /home/root/rmkit-cn/active /home/root/rmkit-cn/quarantine
 ln -sf /home/root/xovi/xovi.so /home/root/rmkit-cn/active/xovi.so
 ln -sf /home/root/rmkit-cn/bin/ime_hook.so /home/root/rmkit-cn/active/ime_hook.so
+if [ "$QML_INJECT_DEPLOYED" = "1" ] && [ -f /home/root/rmkit-cn/bin/qml_inject_impl.so ]; then
+  ln -sf /home/root/rmkit-cn/bin/qml_inject.so /home/root/rmkit-cn/active/qml_inject.so
+fi
 rm -f /home/root/rmkit-cn/.fuse_tripped /home/root/rmkit-cn/.starts
 cp /tmp/zz-rmkit-cn-final.conf $DROPIN
 cp /tmp/zz-rmkit-cn-final.conf /tmp/lc$DROPIN

@@ -631,7 +631,7 @@ import QtQuick.Layouts
                             Layout.alignment: Qt.AlignHCenter
                             cache: false
                             fillMode: Image.PreserveAspectFit
-                            visible: true
+                            visible: false
                         }
                         Text {
                             id: _rmhQrUrl
@@ -2213,7 +2213,7 @@ import QtQuick.Layouts
                     id: _rmhConfirmApply
                     anchors.fill: parent
                     color: "#80000000"
-                    visible: true
+                    visible: false
                     z: 1
                     MouseArea { anchors.fill: parent }
 
@@ -4172,7 +4172,7 @@ import QtQuick.Layouts
                                 Layout.alignment: Qt.AlignHCenter
                                 cache: false
                                 fillMode: Image.PreserveAspectFit
-                                visible: true
+                                visible: false
                             }
                             Text {
                                 id: _rmhAiQrUrl
