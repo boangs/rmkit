@@ -11,16 +11,22 @@
 # chiappa = Paper Pro Move (rmppm) 官方最新 SDK 3.27.0.97 (codex 5.7.119), Qt 6.8.2, cortexa55
 # (设备固件 3.28 是 Qt 6.10.3, 但 6.8.2 向前兼容, ime_hook 与本注入均已实测能跑)
 SDK_ENV := /opt/codex/chiappa/3.27.0.97/environment-setup-cortexa55-remarkable-linux
+# rm2 (armv7hf): 用最老的 3.26.0.68 SDK 编, 向前兼容 3.26+ 全部 rm2 固件
+SDK_ENV_A7 := /opt/codex/rm2/3.26.0.68/environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi
 
 # Qt6 模块: Qml/Quick(QML引擎+场景) Gui(QGuiApplication/QWindow) Core(QTimer/QUrl)
 QT_MODULES := Qt6Quick Qt6Qml Qt6Gui Qt6Core
 
 THIN := qml_inject-aarch64.so
 IMPL := qml_inject_impl-aarch64.so
+THIN7 := qml_inject-armv7.so
+IMPL7 := qml_inject_impl-armv7.so
 
-.PHONY: all clean probe
+.PHONY: all aarch64 armv7 clean probe
 
-all: $(THIN) $(IMPL)
+all: aarch64 armv7
+aarch64: $(THIN) $(IMPL)
+armv7: $(THIN7) $(IMPL7)
 
 # ── 瘦 hook: 进 LD_PRELOAD, 绝不链接 Qt ──────────────────────────
 # 为什么必须不链 Qt: 链 Qt 的 .so 一旦进 LD_PRELOAD, Qt 库会在 xochitl 自己的
@@ -54,6 +60,26 @@ $(IMPL): qml_inject_impl.cpp exports-impl.version
 	  || { echo "✗ pw_inject 没导出"; exit 1; }
 	@echo "✓ 胖库: $@"
 
+# ── armv7 (rm2) 版: 同源码, 换 SDK ─────────────────────────────
+$(THIN7): thin_hook.cpp exports.version
+	@test -f $(SDK_ENV_A7) || { echo "缺 rm2 SDK: $(SDK_ENV_A7) (要在编译机上 make)"; exit 1; }
+	bash -c 'source $(SDK_ENV_A7) && $$CXX -shared -fPIC -O2 -fvisibility=hidden \
+	  -Wl,--version-script=exports.version -o $@ thin_hook.cpp -lpthread -ldl'
+	@bash -c 'source $(SDK_ENV_A7) && $$NM -D --defined-only $@ | grep rootContext' \
+	  || { echo "✗ rootContext 没进动态符号表, LD_PRELOAD 会抢不到"; exit 1; }
+	@echo "✓ 瘦 hook: $@"
+
+$(IMPL7): qml_inject_impl.cpp exports-impl.version
+	@test -f $(SDK_ENV_A7) || { echo "缺 rm2 SDK: $(SDK_ENV_A7) (要在编译机上 make)"; exit 1; }
+	bash -c 'source $(SDK_ENV_A7) && $$CXX -shared -fPIC -O2 -std=c++17 -fvisibility=hidden \
+	  -Wl,--version-script=exports-impl.version \
+	  $$(pkg-config --cflags $(QT_MODULES)) \
+	  -o $@ qml_inject_impl.cpp \
+	  $$(pkg-config --libs $(QT_MODULES))'
+	@bash -c 'source $(SDK_ENV_A7) && $$NM -D --defined-only $@ | grep pw_inject' \
+	  || { echo "✗ pw_inject 没导出"; exit 1; }
+	@echo "✓ 胖库: $@"
+
 # 历史探针 (noqt_probe.cpp): 验证"不链 Qt 也能插桩到 Qt 符号"的最小实验,
 # 已被瘦 hook 取代, 保留供排查插桩本身是否生效。
 probe: noqt_probe.cpp exports-noqt.version
@@ -61,4 +87,4 @@ probe: noqt_probe.cpp exports-noqt.version
 	  -Wl,--version-script=exports-noqt.version -o noqt_probe.so noqt_probe.cpp -ldl'
 
 clean:
-	rm -f $(THIN) $(IMPL) noqt_probe.so
+	rm -f $(THIN) $(IMPL) $(THIN7) $(IMPL7) noqt_probe.so

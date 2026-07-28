@@ -102,8 +102,7 @@ case "$ARCH" in
     EXT_ARCH="aarch64"             # vendor/extensions/*-aarch64.so
     XOVI_ARCH="aarch64"            # vendor/xovi/xovi-aarch64.tar.gz
     QMD_TOOL_NAME="qmd-tool-aarch64"
-    # 运行时 QML 注入 (瘦 hook + 胖库): 只有 aarch64 版 (chiappa SDK cortexa55 交叉编译)。
-    # armv7 (rm2) 留空 → 不部署、不进 LD_PRELOAD, 那些功能继续走 qmd 注入路径。
+    # 运行时 QML 注入 (瘦 hook + 胖库), chiappa SDK cortexa55 交叉编译
     QML_INJECT_NAME="qml_inject-aarch64.so"
     QML_INJECT_IMPL_NAME="qml_inject_impl-aarch64.so"
     ;;
@@ -114,8 +113,10 @@ case "$ARCH" in
     EXT_ARCH="armv7"               # vendor/extensions/*-armv7.so
     XOVI_ARCH="arm32"              # vendor/xovi/xovi-arm32.tar.gz (xovi 上游用 arm32 命名)
     QMD_TOOL_NAME="qmd-tool-armv7"
-    QML_INJECT_NAME=""
-    QML_INJECT_IMPL_NAME=""
+    # 运行时 QML 注入, rm2 SDK 3.26.0.68 交叉编译 (向前兼容 3.26+ 固件)。
+    # dist 缺产物时自动跳过 → 那些功能回落 qmd 注入路径 (fail-open 不变)。
+    QML_INJECT_NAME="qml_inject-armv7.so"
+    QML_INJECT_IMPL_NAME="qml_inject_impl-armv7.so"
     ;;
   *)
     echo "✗ 不支持的架构: $ARCH (本项目仅支持 aarch64 / armv7l)" >&2
