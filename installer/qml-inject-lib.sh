@@ -13,15 +13,17 @@
 RMKIT_LIB_BASE=${RMKIT_LIB_BASE:-/home/root/rmkit-cn}
 
 # 已从 qmd 迁到运行时 QML 注入的功能, 对应的 qmd 文件名。
-# pinyin_interceptor.qmd 不在此列 —— 拼音候选框仍走 qmldiff。
-MIGRATED_QMDS="advanced_panel.qmd ai_text_button.qmd glyph_selection_ai.qmd language_zh_cn.qmd"
+# pinyin_interceptor.qmd 于 2026-07-28 迁移完成 (bin/pinyin_ime.qml), 至此
+# 全部功能脱离 qmldiff/hashtab。
+MIGRATED_QMDS="advanced_panel.qmd ai_text_button.qmd glyph_selection_ai.qmd language_zh_cn.qmd pinyin_interceptor.qmd"
 
 # 运行时注入产物是否齐全。缺任一项都当没有 —— 瘦 hook 找不到胖库不会崩, 但
 # 功能不会生效, 此时必须让 qmd 路径继续负责 (rm2/armv7 永远走这条)。
 qml_inject_ready() {
     [ -f "$RMKIT_LIB_BASE/bin/qml_inject.so" ] &&
         [ -f "$RMKIT_LIB_BASE/bin/qml_inject_impl.so" ] &&
-        [ -f "$RMKIT_LIB_BASE/bin/adv_panel.qml" ]
+        [ -f "$RMKIT_LIB_BASE/bin/adv_panel.qml" ] &&
+        [ -f "$RMKIT_LIB_BASE/bin/pinyin_ime.qml" ]
 }
 
 # 某个 qmd 是否已被运行时注入接管 (仅在产物齐全时成立)

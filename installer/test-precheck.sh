@@ -42,7 +42,8 @@ setup() { # $1=sandbox名 $2=有无qml_inject产物(yes/no) $3=hashtab固件版�
     # qmd-tool: 假的, 一律 verify 成功
     printf '#!/bin/sh\nexit 0\n' > "$R/bin/qmd-tool"; chmod +x "$R/bin/qmd-tool"
     if [ "$2" = yes ]; then
-        : > "$R/bin/qml_inject.so"; : > "$R/bin/qml_inject_impl.so"; : > "$R/bin/adv_panel.qml"
+        : > "$R/bin/qml_inject.so"; : > "$R/bin/qml_inject_impl.so"
+        : > "$R/bin/adv_panel.qml"; : > "$R/bin/pinyin_ime.qml"
     fi
     # 共享判据 lib: 默认装 (真实部署形态); 传 no 则不装, 走 precheck 内联 fallback
     if [ "${4:-yes}" = yes ]; then
@@ -74,7 +75,7 @@ setup s1 yes FW1
 sh "$ROOT/s1/precheck.sh" 2>/dev/null
 R="$ROOT/s1/home/root/rmkit-cn"; D="$ROOT/s1/home/root/xovi/exthome/qt-resource-rebuilder"
 chk "mode=ok" "ok" "$(mode "$R/inject-status.json")"
-chk "已迁移 qmd 摘除, 只留 pinyin" "pinyin_interceptor.qmd" "$(qmds "$D")"
+chk "已迁移 qmd 全部摘除 (含 pinyin, 5/5 迁移完)" "" "$(qmds "$D")"
 chk "三个 .so 全挂" "ime_hook.so qml_inject.so xovi.so" "$(sos "$R/active")"
 chk "无 qmd 被隔离" "" "$(sos "$R/quarantine")"
 
@@ -84,7 +85,8 @@ sh "$ROOT/s2/precheck.sh" 2>/dev/null
 R="$ROOT/s2/home/root/rmkit-cn"; D="$ROOT/s2/home/root/xovi/exthome/qt-resource-rebuilder"
 chk "mode=degraded (不是 disabled)" "degraded" "$(mode "$R/inject-status.json")"
 chk "qmd 全摘" "" "$(qmds "$D")"
-chk "只保留 qml_inject.so" "qml_inject.so" "$(sos "$R/active")"
+chk "保留 qml_inject + ime_hook (hook 不依赖 hashtab, 候选框已迁运行时)" \
+    "ime_hook.so qml_inject.so" "$(sos "$R/active")"
 
 echo "=== 场景 3: hashtab 不匹配 + 无产物 (rm2/armv7) ==="
 setup s3 no FW_OLD
@@ -118,7 +120,7 @@ setup s6 yes FW1 no
 sh "$ROOT/s6/precheck.sh" 2>/dev/null
 R="$ROOT/s6/home/root/rmkit-cn"; D="$ROOT/s6/home/root/xovi/exthome/qt-resource-rebuilder"
 chk "mode=ok (lib 缺失不致命)" "ok" "$(mode "$R/inject-status.json")"
-chk "fallback 同样摘掉已迁移 qmd" "pinyin_interceptor.qmd" "$(qmds "$D")"
+chk "fallback 同样摘掉已迁移 qmd (5/5)" "" "$(qmds "$D")"
 chk "fallback 同样挂上 qml_inject" "ime_hook.so qml_inject.so xovi.so" "$(sos "$R/active")"
 
 echo

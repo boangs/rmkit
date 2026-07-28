@@ -10,7 +10,7 @@
 
 ## 已迁移的功能
 
-四项已从 qmd 迁到运行时注入，真机验证通过（RMPP 3.28 / Qt 6.10.3）：
+全部五项已从 qmd 迁到运行时注入，真机验证通过（RMPPM 3.28 / Qt 6.10.3）：
 
 | 功能 | 注入点 | 对应旧 qmd |
 | --- | --- | --- |
@@ -18,8 +18,11 @@
 | 系统语言列表加「中文（简体）」 | `SelectionComponent`（`objectName=SystemLanguageDialog`） | `language_zh_cn.qmd` |
 | 手写选区工具栏 AI 按钮 | `SceneSelectionHandler` 下的 `SelectionContextualMenu` | `glyph_selection_ai.qmd` |
 | 文本选择菜单 AI 按钮 | `TextSelectionMenu` 下的 `SelectionContextualMenu` | `ai_text_button.qmd` |
+| 拼音候选框（`pinyin_ime.qml`） | 主窗口 `contentItem`（等价原 MainView `FocusScope#rootItem`） | `pinyin_interceptor.qmd` |
 
-拼音候选框（`pinyin_interceptor.qmd`）**还没迁**，仍走 qmldiff。
+至此 qmldiff 链路上没有任何在用功能（zh_CN.rcc 键盘布局走 qt-resource-rebuilder
+的 rcc 替换，与 qmd/hashtab 无关）。拼音迁移的 Timer 替代方案见 `pinyin_ime.qml`
+文件头注释（C++ 250ms `imeTick` 心跳 + `onTextChanged` 信号）。
 
 ## 架构：瘦 hook + 胖库
 

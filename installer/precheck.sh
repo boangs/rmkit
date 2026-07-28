@@ -63,10 +63,10 @@ if [ -f "$RMKIT/bin/qml-inject-lib.sh" ]; then
     . "$RMKIT/bin/qml-inject-lib.sh" 2>/dev/null
 fi
 if [ -z "${MIGRATED_QMDS:-}" ]; then
-    MIGRATED_QMDS="advanced_panel.qmd ai_text_button.qmd glyph_selection_ai.qmd language_zh_cn.qmd"
+    MIGRATED_QMDS="advanced_panel.qmd ai_text_button.qmd glyph_selection_ai.qmd language_zh_cn.qmd pinyin_interceptor.qmd"
     qml_inject_ready() {
         [ -f "$RMKIT/bin/qml_inject.so" ] && [ -f "$RMKIT/bin/qml_inject_impl.so" ] &&
-            [ -f "$RMKIT/bin/adv_panel.qml" ]
+            [ -f "$RMKIT/bin/adv_panel.qml" ] && [ -f "$RMKIT/bin/pinyin_ime.qml" ]
     }
 fi
 
@@ -87,13 +87,20 @@ enable_qml_inject() {
     return 0
 }
 
-# 摘除 qmldiff 注入链 (xovi + ime_hook + 全部 qmd), 但保留运行时注入。
-# 取代原先这些场景下的 disable_all。ime_hook 一起摘是故意的: 拼音候选框 UI 还
-# 靠 pinyin_interceptor.qmd(未迁移), 只留 hook 会变成"能拦按键但没候选框"的半残。
+# 摘除 qmldiff 注入链 (xovi + 全部 qmd), 但保留运行时注入。
+# 取代原先这些场景下的 disable_all。
+# ime_hook 的取舍: 它是纯 LD_PRELOAD hook, 不读 hashtab、与 qmldiff 无关。
+#   - 运行时注入可用 (含已迁移的拼音候选框 pinyin_ime.qml) → 保留 ime_hook,
+#     IME 在降级窗口尽可能继续可用 (zh 键盘布局若因 xovi 摘除而缺失, IME 只是
+#     不激活, 无害)。
+#   - 运行时注入不可用 (rm2 未部署产物) → 一起摘: 候选框 UI 还靠 qmd, 只留
+#     hook 会变成"能拦按键但没候选框"的半残。
 disable_qmldiff() { # $1=reason
     rm -f "$ACTIVE"/*.so 2>/dev/null
     rm -f "$DEPLOY"/*.qmd 2>/dev/null
     if enable_qml_inject; then
+        [ -f "$RMKIT/bin/ime_hook.so" ] &&
+            ln -sf "$RMKIT/bin/ime_hook.so" "$ACTIVE/ime_hook.so" 2>/dev/null
         write_status degraded "$1" "(qmd: all)"
         echo "[precheck] DEGRADED: $1 — qmldiff 注入已摘, 运行时 QML 注入保留" >&2
     else

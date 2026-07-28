@@ -401,7 +401,7 @@ if [ -n "$QML_INJECT_NAME" ] \
    && [ -f "$DIST_DIR/$QML_INJECT_NAME" ] && [ -f "$DIST_DIR/$QML_INJECT_IMPL_NAME" ]; then
   cp "$DIST_DIR/$QML_INJECT_NAME"      "$PAYLOAD/home/root/rmkit-cn/bin/qml_inject.so"
   cp "$DIST_DIR/$QML_INJECT_IMPL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qml_inject_impl.so"
-  for res in adv_panel.qml glyph_ai_button.qml text_ai_button.qml icon_ai.svg; do
+  for res in adv_panel.qml glyph_ai_button.qml text_ai_button.qml pinyin_ime.qml icon_ai.svg; do
     [ -f "$SCRIPT_DIR/intercept/qml-inject/$res" ] \
       && cp "$SCRIPT_DIR/intercept/qml-inject/$res" "$PAYLOAD/home/root/rmkit-cn/bin/$res"
   done
