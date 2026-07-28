@@ -20,11 +20,30 @@ Item {
     // 白底实底: 选区菜单浮在文档页面上, 无背景会透出页面墨迹显得像黑块 (原生按钮也是白底)
     Rectangle {
         anchors.fill: parent
+        // 分隔竖线画在格子交界处、位于本按钮之下, 白底右侧留 2px 露出它
+        // (3px 会显得比原生分隔线粗)
+        anchors.rightMargin: 2
         color: btnMa.pressed ? "#dddddd" : "white"
-        radius: 8
+        // 原生格子是直角, 整体 radius 会让按钮像独立浮块; 本按钮在最左端,
+        // 只给左侧两角圆角以贴合容器外框弧度 (Qt 6.7+ 支持逐角 radius, 设备 6.10)
+        radius: 0
+        topLeftRadius: 8
+        bottomLeftRadius: 8
     }
-    // "AI" 文字图标: 图标资源在此 e-ink Qt 上无法加载, 用粗体文字模拟原生图标按钮
+    // 图标: 旧 qmd 版同款 notebook_sparkles (已确认存在于 3.28 固件 QRC,
+    // adv_panel 里同集合的 cog/cloud_upload 等运行时注入下能正常显示)
+    Image {
+        id: aiIcon
+        anchors.centerIn: parent
+        source: "qrc:/ark/icons/notebook_sparkles"
+        width: 44; height: 44
+        sourceSize.width: 44; sourceSize.height: 44
+        fillMode: Image.PreserveAspectFit
+        asynchronous: false
+    }
+    // 兜底: 图标没加载出来时显示 "AI" 文字, 避免空白按钮
     Text {
+        visible: aiIcon.status !== Image.Ready
         anchors.centerIn: parent
         text: "AI"
         font.pixelSize: 30

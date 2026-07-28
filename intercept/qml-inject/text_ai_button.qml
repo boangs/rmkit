@@ -13,6 +13,9 @@ Item {
 
     property var tools: null
     property var menuRoot: null
+    property string clipText: ""  // C++ 写入当前选中文字 (最可靠的传递路径)
+    property int clipSeq: 0       // C++ 捕获到 textCopied 时 +1, 标记 clipText 是"新一次复制"
+    property int clipTick: 0      // C++ 每秒 +1 的心跳, 面板用来做等待超时 (Timer 不可用)
 
     // 只在"选区态"显示 (选中文字), 光标态隐藏 —— 对齐 qmd 版 visible: controller.hasTextSelection。
     // menuRoot 由 C++ 在 create() 后 setProperty, 故爬链在 onMenuRootChanged 里做 (onCompleted 时还是 null)。
@@ -37,11 +40,30 @@ Item {
     // 不要黑边框 (用户反馈边框太重), 白底 + 圆角即可, 按下给浅灰反馈。
     Rectangle {
         anchors.fill: parent
+        // 分隔竖线画在格子交界处、位于本按钮之下, 白底右侧留 2px 露出它
+        // (3px 会显得比原生分隔线粗)
+        anchors.rightMargin: 2
         color: btnMa.pressed ? "#dddddd" : "white"
-        radius: 8
+        // 原生格子是直角, 整体 radius 会让按钮像独立浮块; 本按钮在最左端,
+        // 只给左侧两角圆角以贴合容器外框弧度 (Qt 6.7+ 支持逐角 radius, 设备 6.10)
+        radius: 0
+        topLeftRadius: 8
+        bottomLeftRadius: 8
     }
-    // "AI" 文字图标: 图标资源在此 e-ink Qt 上无法加载, 用粗体文字模拟原生图标按钮
+    // 图标: 旧 qmd 版同款 notebook_sparkles (已确认存在于 3.28 固件 QRC,
+    // adv_panel 里同集合的 cog/cloud_upload 等运行时注入下能正常显示)
+    Image {
+        id: aiIcon
+        anchors.centerIn: parent
+        source: "qrc:/ark/icons/notebook_sparkles"
+        width: 44; height: 44
+        sourceSize.width: 44; sourceSize.height: 44
+        fillMode: Image.PreserveAspectFit
+        asynchronous: false
+    }
+    // 兜底: 图标没加载出来时显示 "AI" 文字, 避免空白按钮
     Text {
+        visible: aiIcon.status !== Image.Ready
         anchors.centerIn: parent
         text: "AI"
         font.pixelSize: 30
@@ -60,7 +82,8 @@ Item {
                 selX: btnPos.x,
                 selY: btnPos.y + aiTextButton.height / 2,
                 tools: aiTextButton.tools,
-                menuRoot: aiTextButton.menuRoot
+                menuRoot: aiTextButton.menuRoot,
+                srcBtn: aiTextButton
             })
         }
     }
@@ -74,6 +97,7 @@ Item {
             property real selY: 0
             property var tools: null
             property var menuRoot: null
+            property var srcBtn: null
             z: 99999
             color: "#ffffff"
             radius: 8
@@ -106,12 +130,6 @@ Item {
                             // 箭头写法 (Qt6 弃用隐式 mouse 注入) + 裸调 _aiRun (不加 aiMenu. 前缀,
                             // 运行时 createObject 的组件里 id 限定调用可能解析失败)
                             onClicked: (mouse) => {
-                                // 直接写文件确认点击触发 (不依赖任何函数解析)
-                                try {
-                                    var dx = new XMLHttpRequest()
-                                    dx.open("PUT", "file:///tmp/textai.log", false)
-                                    dx.send("delegate clicked index=" + index + " modelData=" + modelData + "\n")
-                                } catch (e) {}
                                 var ps = [
                                     "请润色以下文字，保持原意让表达更自然流畅。直接输出润色后的文字，不要任何解释、前缀、后缀、引号、Markdown。",
                                     "以下文字如果是中文请翻译为英文，如果是其他语言请翻译为中文。直接输出译文，不要任何解释、前缀、后缀、引号、Markdown。",
@@ -140,15 +158,6 @@ Item {
                 return out.join("\n")
             }
 
-            // 文件诊断: 绕过 journal 限流 (librarian 每 200ms 刷屏会丢弃 console.warn)
-            function _writeLog(s) {
-                try {
-                    var x = new XMLHttpRequest()
-                    x.open("PUT", "file:///tmp/textai.log", false)
-                    x.send(s)
-                } catch (e) {}
-            }
-
             function _aiRun(promptPrefix, actionLabel) {
                 // 爬 menuRoot parent 链找 controller / tileManager
                 var ctrlRef = null, tmRef = null
@@ -173,51 +182,119 @@ Item {
                     }
                 } catch (ec) {}
 
-                var fmt = _formatParagraphs
-                // ── 对齐 glyph: 点击立即建面板 (不等异步剪贴板), 面板必现 ──
+                // ── 对齐 glyph: 点击立即建面板, 所有工作在面板内部 Timer 里做 ──
+                // (外部赋值函数 + Qt.createQmlObject 的 Timer 在运行时注入场景下回调不触发)
                 var panel = aiPanelComp.createObject(host, {
                     cursorTopY: topHost.y,
                     cursorBottomY: bottomHost.y,
                     isStreaming: true,
                     actionLabel: actionLabel,
-                    bodyText: "",
                     ctrl: ctrlRef,
                     tileManager: tmRef,
-                    fmtFn: fmt
+                    promptPrefix: promptPrefix,
+                    srcBtn: aiMenu.srcBtn,
+                    // 记住"复制前"的 seq/tick: 面板只认 seq 变化后的文本, 杜绝残留旧文本
+                    startSeq: aiMenu.srcBtn ? aiMenu.srcBtn.clipSeq : 0,
+                    startTick: aiMenu.srcBtn ? aiMenu.srcBtn.clipTick : 0
                 })
                 if (!panel) { aiMenu.destroy(); return }
 
-                // 复制选中文字 (Clipboard 写入异步, 200ms 后再读)
-                ctrlRef.copySelectedText()
-                ctrlRef.clearSelectedText()
+                // 复制选中文字 (异步写剪贴板)。把每步结果写到面板上, 便于定位。
+                var copyLog = "hasSel=" + ctrlRef.hasTextSelection
+                try {
+                    ctrlRef.copySelectedText()
+                    copyLog += " copy=OK"
+                } catch (e1) { copyLog += " copy失败:" + e1 }
+                try {
+                    ctrlRef.clearSelectedText()
+                    copyLog += " clear=OK"
+                } catch (e2) { copyLog += " clear失败:" + e2 }
+                panel.copyLog = copyLog
                 if (Qt.inputMethod.visible) {
                     try { Qt.inputMethod.hide() } catch (ek) {}
                 }
+                aiMenu.destroy()
+            }
+        }
+    }
 
-                var capturedPrefix = promptPrefix
-                // 200ms 后读剪贴板 + 发 XHR。面板已显示; 读空则在面板上提示 (兼作诊断)。
-                var clipTimer = Qt.createQmlObject(
-                    'import QtQuick; Timer { interval: 200; running: true; repeat: false }', host)
-                clipTimer.triggered.connect(function() {
-                    clipTimer.destroy()
-                    var selectedText = ""
-                    var clipInfo = "typeof=" + (typeof Clipboard)
-                    try {
-                        if (typeof Clipboard !== "undefined" && Clipboard.textString) {
-                            selectedText = "" + (Clipboard.textString() || "")
-                            clipInfo += " len=" + selectedText.length
-                        } else {
-                            clipInfo += " textString 不可用"
-                        }
-                    } catch (ets) { clipInfo += " err=" + ets }
+    // ─── 预览面板 ───
+    Component {
+        id: aiPanelComp
+        Rectangle {
+            id: gp
+            property string promptPrefix: ""
+            property var srcBtn: null
+            property string copyLog: ""
+            property int startSeq: 0   // 创建时 (复制前) srcBtn.clipSeq 的快照
+            property int startTick: 0  // 创建时 srcBtn.clipTick 的快照, 超时基准
+            // 段落格式化 (自包含, 不依赖外部传入的函数引用)
+            function _fmt(s) {
+                if (!s) return ""
+                var lines = s.replace(/^[\s\n]+/, "").replace(/\n+/g, "\n").split("\n")
+                var out = []
+                for (var i = 0; i < lines.length; i++)
+                    out.push(lines[i].length > 0 ? "　　" + lines[i] : lines[i])
+                return out.join("\n")
+            }
+            property string bodyText: ""
+            property string rawText: ""       // 未格式化原文, 插入时用格式化版
+            property string actionLabel: ""
+            property bool isStreaming: true
+            property real cursorTopY: 0
+            property real cursorBottomY: 0
+            property var ctrl: null
+            property var tileManager: null
+            property var _xhrRef: null
+            signal closeClicked()
+            signal cancelClicked()
+            // 面板自己处理关闭 (外部 connect 在运行时注入场景下易丢, 之前取消按钮失效就是这个原因)
+            function _selfDestroy() {
+                if (gp._xhrRef) { try { gp._xhrRef.abort() } catch (e) {} gp._xhrRef = null }
+                try { gp.destroy() } catch (e2) {}
+            }
+            onCancelClicked: gp._selfDestroy()
+            onCloseClicked: gp._selfDestroy()
+
+            property int pageIdx: 0
+            property bool _focusGuardReady: false
+            Timer { interval: 400; running: true; repeat: false; onTriggered: gp._focusGuardReady = true }
+            // ── 事件驱动取选中文字 ──
+            // copySelectedText() 是异步的: 结果经 textCopied 信号到 C++, C++ 捕获后立即
+            // 写 srcBtn.clipText 并把 srcBtn.clipSeq +1。面板记住创建时 (复制前) 的
+            // startSeq, 只有 seq 变化 (= 本次复制真正到达) 才发 AI 请求。
+            // 之前的同步重试循环等不到事件循环 → 第一次必失败, 且旧文本残留在 bridge,
+            // 第二次点击答的是上一次选中的内容 —— 这个 seq 门就是修这个的。
+            property bool _ready: false
+            property bool _started: false
+            property int seqWatch: srcBtn ? srcBtn.clipSeq : -1
+            onSeqWatchChanged: gp._tryStart()
+            // C++ 1s 心跳做超时 (运行时注入组件里 Timer 不触发): ~8s 没等到复制结果就报错
+            property int tickWatch: srcBtn ? srcBtn.clipTick : -1
+            onTickWatchChanged: {
+                if (!gp._ready || gp._started) return
+                if (gp.srcBtn && gp.srcBtn.clipTick - gp.startTick >= 8) {
+                    gp._started = true
+                    gp.bodyText = "读取选中文字超时, 请重新选中后再试。(" + gp.copyLog + ")"
+                    gp.isStreaming = false
+                }
+            }
+            Component.onCompleted: { gp._ready = true; gp._tryStart() }
+            function _tryStart() {
+                {
+                    if (!gp._ready || gp._started) return
+                    if (!gp.srcBtn) return
+                    if (gp.srcBtn.clipSeq === gp.startSeq) return // 本次复制还没到达, 等 seq 变化
+                    gp._started = true
+                    var selectedText = "" + (gp.srcBtn.clipText || "")
                     if (selectedText.length === 0) {
-                        panel.bodyText = "[剪贴板为空] " + clipInfo
-                        panel.isStreaming = false
+                        gp.bodyText = "读取选中文字失败, 请重新选中后再试。(seq 已更新但文本为空)"
+                        gp.isStreaming = false
                         return
                     }
                     var fullText = ""
                     var xhr = new XMLHttpRequest()
-                    panel._xhrRef = xhr
+                    gp._xhrRef = xhr
                     xhr.open("POST", "http://127.0.0.1:8080/ai-page-chat")
                     xhr.setRequestHeader("Content-Type", "application/json")
                     var lastLen = 0, tail = ""
@@ -235,51 +312,26 @@ Item {
                             if (d.meta) continue
                             if (typeof d.text === "string" && d.text.length > 0) {
                                 fullText += d.text
-                                panel.bodyText = fmt(fullText)
-                                panel.rawText = fullText
+                                gp.rawText = fullText
+                                gp.bodyText = gp._fmt(fullText)
                             } else if (d.error) {
-                                panel.bodyText = "[错误] " + d.error
+                                gp.bodyText = "[错误] " + d.error
                             }
                         }
                         if (rs === XMLHttpRequest.DONE) {
-                            if (xhr.status !== 200 && fullText.length === 0) {
-                                panel.bodyText = "[HTTP " + xhr.status + "] " + xhr.responseText
-                            }
-                            panel.isStreaming = false
+                            if (xhr.status !== 200 && fullText.length === 0)
+                                gp.bodyText = "[HTTP " + xhr.status + "] " + xhr.responseText
+                            gp.isStreaming = false
                         }
                     }
                     xhr.onerror = function() {
-                        if (panel.bodyText.length === 0) panel.bodyText = "[网络错误] upload-server 未运行？请点取消"
-                        panel.isStreaming = false
+                        if (gp.bodyText.length === 0)
+                            gp.bodyText = "[网络错误] upload-server 未运行？请点取消"
+                        gp.isStreaming = false
                     }
-                    xhr.send(JSON.stringify({ prompt: capturedPrefix + "\n\n" + selectedText }))
-                })
-                aiMenu.destroy()
+                    xhr.send(JSON.stringify({ prompt: gp.promptPrefix + "\n\n" + selectedText }))
+                }
             }
-        }
-    }
-
-    // ─── 预览面板 ───
-    Component {
-        id: aiPanelComp
-        Rectangle {
-            id: gp
-            property string bodyText: ""
-            property string rawText: ""       // 未格式化原文, 插入时用格式化版
-            property string actionLabel: ""
-            property bool isStreaming: true
-            property real cursorTopY: 0
-            property real cursorBottomY: 0
-            property var ctrl: null
-            property var tileManager: null
-            property var fmtFn: null
-            property var _xhrRef: null
-            signal closeClicked()
-            signal cancelClicked()
-
-            property int pageIdx: 0
-            property bool _focusGuardReady: false
-            Timer { interval: 400; running: true; repeat: false; onTriggered: gp._focusGuardReady = true }
             Connections {
                 target: gp.Window.window; ignoreUnknownSignals: true
                 function onActiveFocusItemChanged() {
@@ -402,7 +454,7 @@ Item {
                         onClicked: {
                             var raw = gp.rawText
                             if (!raw || raw.length === 0) { gp.closeClicked(); return }
-                            var formatted = gp.fmtFn ? gp.fmtFn(raw) : raw
+                            var formatted = gp._fmt(raw)
                             if (gp.ctrl) {
                                 try {
                                     gp.ctrl.beginInputMethodTransaction()
