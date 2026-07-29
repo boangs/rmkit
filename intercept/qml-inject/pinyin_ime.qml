@@ -1,13 +1,14 @@
-// pinyin_ime.qml — 拼音候选框 (pinyin_interceptor.qmd 的运行时注入版, v60-runtime)
+// pinyin_ime.qml — 拼音候选框 (pinyin_interceptor.qmd 的运行时注入版, v61-runtime)
 // 由 qml_inject_impl.so 在启动后创建, parent = 主窗口 contentItem (等价于原 qmd
 // 注入点 MainView.qml 的 FocusScope#rootItem, 都是全屏根节点)。
 //
-// 与 qmd 版的差异 (只有 Timer 替换, 其余逐行一致):
-//   运行时注入的组件里 Timer 不触发 (实测, 见 memory feedback_runtime_qml_no_timer),
-//   三个 Timer 分别替换为:
-//   1. charPoller (500ms, long-poll 链兜底) → C++ 每 250ms 写 imeTick 属性驱动
-//   2. textWatcher (80ms 轮询 TextInput.text) → Connections onTextChanged 事件驱动
-//   3. candidatesDebounce (200ms 防抖)      → imeTick 计数 (_debounceTicks)
+// 与 qmd 版的差异:
+// A) Timer 替换 (运行时注入组件里 Timer 不触发, 见 memory feedback_runtime_qml_no_timer):
+//    1. charPoller (500ms, long-poll 链兜底) → C++ 每 250ms 写 imeTick 属性驱动
+//    2. textWatcher (80ms 轮询 TextInput.text) → Connections onTextChanged 事件驱动
+//    3. candidatesDebounce (200ms 防抖)      → imeTick 计数 (_debounceTicks)
+// B) e-ink 快刷: 中文输入时整屏走 Animation 波形 (fastZone), 消除打字卡顿+闪屏,
+//    汉字上屏更快更清晰 (见下方 _markFastRefresh / fastZone 注释)。
 import QtQuick
 
 Item {
@@ -75,6 +76,34 @@ Item {
         xhr.open("GET", "http://127.0.0.1:19876/set-mode?" + key + "=" + (val ? "1" : "0"))
         xhr.send()
     }
+
+    // ── e-ink 快速刷新 (打字流畅 + 上屏快的关键) ─────────────────────
+    // xochitl 注册了 xofm.libs.epaper.ScreenModeItem (来自原厂 libqsgepaper.so),
+    // 它给自己覆盖的矩形区域指定墨水屏刷新波形:
+    //   Pen(笔迹最快) / Mono(纯黑白) / Animation(快, 本项目所用) / Content(灰阶全刷, 慢且闪) / Sleep
+    // 不做标记时走默认 Content —— 每次更新灰阶重刷, 又慢又闪, 就是"打字卡"的根源。
+    // Animation 波形快且不闪, 汉字上屏也不再卡在全刷上。(直接 dlopen libqsgepaper 拿
+    // EPFramebuffer 也能做到同样效果; 我们跑在 xochitl 引擎内直接用 QML 类型更省事)
+    //
+    // 关键教训: 屏幕模式图 (EPScreenModeMap) 每变一次就整屏重新合成一次, 所以要紧的
+    // 不是"标记的区域多小", 而是"几何变了多少次"。曾试过只标候选框那一小条, 反而更糟——
+    // 候选框随每个词伸缩/显隐, 模式区进出模式图, 每次都触发一次整屏 content 全刷。
+    // 最终方案: 整屏常驻 Animation (见 fastZone), 会话内几何零变化 → 零抖动。
+    //
+    // 动态创建 + try/catch: 固件若无此类型则静默降级, 不能让候选框本身加载失败。
+    function _markFastRefresh(target) {
+        if (!target) return null
+        try {
+            return Qt.createQmlObject(
+                'import QtQuick; import xofm.libs.epaper; ' +
+                'ScreenModeItem { anchors.fill: parent; mode: ScreenModeItem.Animation }',
+                target, "rmkitFastRefresh")
+        } catch (e) {
+            console.warn("XOVI-PINYIN: ScreenModeItem 不可用, 沿用默认刷新: " + e)
+            return null
+        }
+    }
+
 
     // 物理键盘回落：虚拟键盘不 visible 时，若当前焦点是 SceneView
     // （记事本编辑器：无 text 属性、有 controller），且 locale 为 zh，
@@ -773,12 +802,23 @@ Item {
     }
 
     Component.onCompleted: {
-        console.warn("XOVI-PINYIN: IME ready v60-runtime")
+        console.warn("XOVI-PINYIN: IME ready v61-runtime (fast-refresh)")
         setMode("chinese", false)
         setMode("pinyin_active", false)
+        // 快刷标记打在常驻整屏 fastZone 上 —— 会话期间几何零变化, 零抖动。
+        var z = _markFastRefresh(fastZone)
+        // 候选框自己再各标一层: 它俩是 fastZone 的兄弟节点, 谁的屏幕模式盖住候选框
+        // 那块区域取决于场景图绘制顺序 —— 候选框可能没吃到 fastZone 的模式 (或被
+        // 键盘/原生 ScreenModeItem 盖了), 于是候选框文字质感和正文不一致。
+        // 显式给候选框自己标一层, 与 fastZone 同为 Animation, 区域重叠模式一致,
+        // 不会引入模式图抖动。
+        var z2 = _markFastRefresh(popupBox)
+        var z3 = _markFastRefresh(candidateBar)
+        console.warn("XOVI-PINYIN: fastZone=" + (z ? "ok" : "n/a")
+                     + " popup=" + (z2 ? "ok" : "n/a") + " bar=" + (z3 ? "ok" : "n/a"))
     }
 
-    // 候选栏：黑底白字，无边框，融入键盘界面
+    // 候选栏（虚拟键盘用）：白底黑字，融入键盘界面，与浮动候选框 floatingPopup 统一。
     // 初始 parent=pinyinIME，位置浮动（光标附近 / 屏幕底部 fallback）；
     // 当虚拟键盘可见时由 nudgeToolbar reparent 到键盘 overlay 并硬设 x/y/width（原逻辑不变）。
     Rectangle {
@@ -789,7 +829,9 @@ Item {
         y: parent ? parent.height - height - 40 : 0
         width: pinyinIME.floatingBarWidth
         height: 80
-        color: "black"
+        color: "white"
+        border.color: "#888888"
+        border.width: 1
 
         Row {
             anchors.left: parent.left
@@ -814,12 +856,12 @@ Item {
             Rectangle {
                 width: 1
                 height: 52
-                color: "#444444"
+                color: "#bbbbbb"
                 anchors.verticalCenter: parent.verticalCenter
                 visible: pinyinIME.candidates.length > 0
             }
 
-            // 候选词列表（白色，点击选词）
+            // 候选词列表（黑字，点击选词）
             Repeater {
                 model: Math.min(pinyinIME.pageSize, pinyinIME.candidates.length - pinyinIME.pageIdx * pinyinIME.pageSize)
                 delegate: Item {
@@ -832,7 +874,7 @@ Item {
                         anchors.centerIn: parent
                         text: (index + 1) + ". " + pinyinIME.candidates[parent.globalIdx]
                         font.pixelSize: 30
-                        color: cTap.pressed ? "#aaaaaa" : "white"
+                        color: cTap.pressed ? "#666666" : "black"
                     }
                     MouseArea {
                         id: cTap
@@ -856,7 +898,7 @@ Item {
                 anchors.centerIn: parent
                 text: "◀"
                 font.pixelSize: 30
-                color: prevTap.pressed ? "#aaaaaa" : "white"
+                color: prevTap.pressed ? "#666666" : "black"
             }
             MouseArea {
                 id: prevTap
@@ -880,7 +922,7 @@ Item {
                 anchors.centerIn: parent
                 text: "▶"
                 font.pixelSize: 30
-                color: nextTap.pressed ? "#aaaaaa" : "white"
+                color: nextTap.pressed ? "#666666" : "black"
             }
             MouseArea {
                 id: nextTap
@@ -891,13 +933,24 @@ Item {
         }
     }
 
+    // 常驻整屏 Animation 快刷区。
+    // 模式图 (EPScreenModeMap) 每变一次就要整屏重新合成一次 (日志实证), 所以关键
+    // 不是"区域多小", 而是"变得多少次"。整屏覆盖 → 几何永不变, 只在中文输入会话
+    // 开始/结束各变一次; 会话中无论候选框怎么伸缩移动、词怎么上屏, 都零抖动。
+    // 代价: 输入期间全屏走 Animation 波形, 退出中文输入即恢复正常灰阶。
+    Item {
+        id: fastZone
+        visible: pinyinIME.active && pinyinIME.isChineseMode
+        anchors.fill: parent
+    }
+
     // 物理键盘 direct mode 浮窗：紧凑型，宽度自适应内容，跟随光标。
     // 上面白底拼音框、下面深色圆角候选框（含翻页箭头）。
     Item {
         id: floatingPopup
         visible: pinyinIME.useDirectCommit && pinyinIME.pinyinBuffer !== "" && pinyinIME.active
-        width: popupCol.width
-        height: popupCol.height
+        width: popupBox.width
+        height: popupBox.height
         x: {
             if (pinyinIME.cursorLocalX < 0) return 20
             var parentW = parent ? parent.width : 1404
@@ -914,101 +967,94 @@ Item {
             return Math.max(10, pinyinIME.cursorLocalY - height - 10)
         }
 
-        Column {
-            id: popupCol
-            spacing: 4
+        // 单框: 左边拼音字母, 竖线分隔, 右边候选汉字。宽度随内容自适应。
+        // (整屏走 Animation 快刷后, 框尺寸/位置变化不再触发全屏重刷, 无需固定尺寸。)
+        Rectangle {
+            id: popupBox
+            color: "white"
+            border.color: "black"
+            border.width: 1
+            radius: 6
+            width: candRow.width + 24
+            height: candRow.height + 16
 
-            Rectangle {
-                id: pinyinBox
-                color: "white"
-                border.color: "black"
-                border.width: 1
-                width: pinyinText.implicitWidth + 24
-                height: pinyinText.implicitHeight + 14
+            Row {
+                id: candRow
+                x: 12
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 14
+
+                // 已输入的拼音串
                 Text {
-                    id: pinyinText
-                    anchors.centerIn: parent
+                    anchors.verticalCenter: parent.verticalCenter
                     text: pinyinIME.pinyinBuffer
                     color: "black"
                     font.pixelSize: 28
                 }
-            }
-
-            Rectangle {
-                id: candidateBox
-                // 白底黑边黑字: e-ink 上像素变化最少, 大部分像素仍是背景白色,
-                // 每次刷新只需重绘文字像素 + 边框 1px。
-                // 没候选时整个框不显示, 避免变成"一条 16px 高的线"。
-                visible: pinyinIME.candidates.length > 0
-                color: "white"
-                border.color: "black"
-                border.width: 1
-                radius: 6
-                width: candRow.width + 24
-                height: candRow.height + 16
-
-                Row {
-                    id: candRow
-                    x: 12
+                // 分隔线 (有候选时才显示)
+                Rectangle {
+                    visible: pinyinIME.candidates.length > 0
+                    width: 1
+                    height: 34
+                    color: "#bbbbbb"
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 14
+                }
 
-                    Repeater {
-                        model: Math.min(pinyinIME.pageSize, pinyinIME.candidates.length - pinyinIME.pageIdx * pinyinIME.pageSize)
-                        delegate: Item {
-                            property int globalIdx: pinyinIME.pageIdx * pinyinIME.pageSize + index
-                            width: cText2.implicitWidth + 6
-                            height: cText2.implicitHeight + 14
-                            Text {
-                                id: cText2
-                                anchors.centerIn: parent
-                                text: (index + 1) + "." + pinyinIME.candidates[parent.globalIdx]
-                                color: cTap2.pressed ? "#666666" : "black"
-                                font.pixelSize: 28
-                            }
-                            MouseArea {
-                                id: cTap2
-                                anchors.fill: parent
-                                onClicked: pinyinIME.selectCandidate(parent.globalIdx)
-                            }
-                        }
-                    }
-
-                    Item {
-                        width: 32
-                        height: 38
-                        visible: pinyinIME.candidates.length > pinyinIME.pageSize
-                        anchors.verticalCenter: parent.verticalCenter
+                Repeater {
+                    model: Math.min(pinyinIME.pageSize, pinyinIME.candidates.length - pinyinIME.pageIdx * pinyinIME.pageSize)
+                    delegate: Item {
+                        property int globalIdx: pinyinIME.pageIdx * pinyinIME.pageSize + index
+                        width: cText2.implicitWidth + 6
+                        height: cText2.implicitHeight + 14
                         Text {
+                            id: cText2
                             anchors.centerIn: parent
-                            text: "‹"
+                            text: (index + 1) + "." + pinyinIME.candidates[parent.globalIdx]
+                            color: cTap2.pressed ? "#666666" : "black"
                             font.pixelSize: 28
-                            color: pinyinIME.pageIdx > 0 ? (prevTap2.pressed ? "#666666" : "black") : "#bbbbbb"
                         }
                         MouseArea {
-                            id: prevTap2
+                            id: cTap2
                             anchors.fill: parent
-                            enabled: pinyinIME.pageIdx > 0
-                            onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx - 1
+                            onClicked: pinyinIME.selectCandidate(parent.globalIdx)
                         }
                     }
-                    Item {
-                        width: 32
-                        height: 38
-                        visible: pinyinIME.candidates.length > pinyinIME.pageSize
-                        anchors.verticalCenter: parent.verticalCenter
-                        Text {
-                            anchors.centerIn: parent
-                            text: "›"
-                            font.pixelSize: 28
-                            color: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? (nextTap2.pressed ? "#666666" : "black") : "#bbbbbb"
-                        }
-                        MouseArea {
-                            id: nextTap2
-                            anchors.fill: parent
-                            enabled: pinyinIME.pageIdx < pinyinIME.pageCount - 1
-                            onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx + 1
-                        }
+                }
+
+                Item {
+                    width: 32
+                    height: 38
+                    visible: pinyinIME.candidates.length > pinyinIME.pageSize
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        anchors.centerIn: parent
+                        text: "‹"
+                        font.pixelSize: 28
+                        color: pinyinIME.pageIdx > 0 ? (prevTap2.pressed ? "#666666" : "black") : "#bbbbbb"
+                    }
+                    MouseArea {
+                        id: prevTap2
+                        anchors.fill: parent
+                        enabled: pinyinIME.pageIdx > 0
+                        onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx - 1
+                    }
+                }
+                Item {
+                    width: 32
+                    height: 38
+                    visible: pinyinIME.candidates.length > pinyinIME.pageSize
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        anchors.centerIn: parent
+                        text: "›"
+                        font.pixelSize: 28
+                        color: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? (nextTap2.pressed ? "#666666" : "black") : "#bbbbbb"
+                    }
+                    MouseArea {
+                        id: nextTap2
+                        anchors.fill: parent
+                        enabled: pinyinIME.pageIdx < pinyinIME.pageCount - 1
+                        onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx + 1
                     }
                 }
             }
