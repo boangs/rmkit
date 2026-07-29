@@ -6,7 +6,8 @@
 // A) Timer 替换 (运行时注入组件里 Timer 不触发, 见 memory feedback_runtime_qml_no_timer):
 //    1. charPoller (500ms, long-poll 链兜底) → C++ 每 250ms 写 imeTick 属性驱动
 //    2. textWatcher (80ms 轮询 TextInput.text) → Connections onTextChanged 事件驱动
-//    3. candidatesDebounce (200ms 防抖)      → imeTick 计数 (_debounceTicks)
+//    (原 candidatesDebounce 250ms 防抖已移除 —— 整屏 Animation 快刷后刷新代价低,
+//     候选框实时跟手)
 // B) e-ink 快刷: 中文输入时整屏走 Animation 波形 (fastZone), 消除打字卡顿+闪屏,
 //    汉字上屏更快更清晰 (见下方 _markFastRefresh / fastZone 注释)。
 import QtQuick
@@ -20,8 +21,10 @@ Item {
     property string pinyinBuffer: ""
     property var candidates: []
     property int pageIdx: 0
+    // librime 返回的分页信息 (它自己管分页, QML 不再本地切片)
+    property bool _isLastPage: true
+    property int _highlighted: 0
     readonly property int pageSize: 5
-    readonly property int pageCount: Math.max(1, Math.ceil(candidates.length / pageSize))
     property bool showBar: false
     property var focusTarget: null
     property bool intercepting: false
@@ -37,38 +40,16 @@ Item {
     // long-poll 链状态: true 时表示 /pop-all-chars-blocking xhr 在挂,
     // 阻止 fallback 重复发起。响应到达后 chain 立即重发。
     property bool _charXhrActive: false
-    // 英文标点 → 中文标点映射 (chinese_mode 启用时生效)。
-    // ,. 在 buffer 非空时作翻页, buffer 空时按本表转换。其他标点直接转。
-    readonly property var _punctMap: ({
-        ",": "，",
-        ".": "。",
-        "?": "？",
-        "!": "！",
-        ":": "：",
-        ";": "；",
-        "(": "（",
-        ")": "）",
-        "<": "《",
-        ">": "》",
-        "\\": "、"
-    })
 
     // ── Timer 替代机制 ──────────────────────────────────────────────
     // C++ (qml_inject_impl) 每 250ms 自增写入 imeTick。
     property int imeTick: 0
-    // 候选防抖计数: >0 表示等待中, 每 tick 减 1, 到 0 触发查询 (原 200ms debounce)
-    property int _debounceTicks: 0
     // text 模式上一次的文本快照 (原 textWatcher.lastText)
     property string _lastText: ""
     onImeTickChanged: {
         // 原 charPoller Timer (500ms) 职责: long-poll 链兜底重启
         // (_pollChars 内部有 _charXhrActive / intercepting / mode 守卫, 幂等)
         if (active && isChineseMode && useDirectCommit) _pollChars()
-        // 原 candidatesDebounce Timer (200ms) 职责
-        if (_debounceTicks > 0) {
-            _debounceTicks--
-            if (_debounceTicks === 0) _doFetchCandidates()
-        }
     }
 
     function setMode(key, val) {
@@ -248,9 +229,10 @@ Item {
         context: Qt.ApplicationShortcut
         enabled: pinyinIME.useDirectCommit && pinyinIME.pinyinBuffer !== ""
         onActivated: {
-            console.warn("XOVI-PINYIN: Shortcut Enter captured, buffer=" + pinyinIME.pinyinBuffer)
-            var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
-            if (ctrl) pinyinIME.commitBufferRaw(ctrl)
+            console.warn("XOVI-PINYIN: Shortcut Enter captured, preedit=" + pinyinIME.pinyinBuffer)
+            // 把回车按键送给 librime 由它决定上屏内容 (整句成型 / 上原拼音),
+            // 不再由 QML 自行拼装 —— 服务端 /rime/input 已按 keysym 处理 \\r。
+            pinyinIME._rimeCall("/rime/key?code=13")
         }
     }
 
@@ -272,81 +254,66 @@ Item {
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== 4) return
             pinyinIME._charXhrActive = false
-            var chars = (xhr.status === 200) ? xhr.responseText : ""
-            if (chars) {
-                pinyinIME.refreshCursorPosition()
-                pinyinIME.intercepting = true
-                var changed = false
-                for (var j = 0; j < chars.length; j++) {
-                    var ch = chars[j]
-                    if (ch === "\b") {
-                        if (pinyinIME.pinyinBuffer.length > 0) {
-                            pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
-                            changed = true
-                            if (pinyinIME.pinyinBuffer === "") {
-                                pinyinIME.hasAnchor = false
-                                pinyinIME.clearState()
-                                changed = false
-                            }
-                        }
-                    } else if (/[a-zA-Z]/.test(ch)) {
-                        var wasEmpty = pinyinIME.pinyinBuffer === ""
-                        pinyinIME.pinyinBuffer += ch
-                        changed = true
-                        if (wasEmpty) {
-                            pinyinIME.setMode("pinyin_active", true)
-                            pinyinIME.placeAnchor(ctrl)
-                        }
-                    } else if (ch === " " && pinyinIME.pinyinBuffer !== "") {
-                        pinyinIME.commitFirst(ctrl)
-                        changed = false
-                    } else if ((ch === "\r" || ch === "\n") && pinyinIME.pinyinBuffer !== "") {
-                        pinyinIME.commitBufferRaw(ctrl)
-                        changed = false
-                    } else if (/[1-9]/.test(ch) && pinyinIME.pinyinBuffer !== "") {
-                        // 数字 1-9 直接选当前页第 N 个候选
-                        var pageStart = pinyinIME.pageIdx * pinyinIME.pageSize
-                        var selIdx = pageStart + (parseInt(ch) - 1)
-                        if (selIdx < pinyinIME.candidates.length) {
-                            pinyinIME.selectCandidate(selIdx)
-                        }
-                        changed = false
-                    } else if (ch === "," && pinyinIME.pinyinBuffer !== "") {
-                        // buffer 非空: , 上一页
-                        if (pinyinIME.pageIdx > 0) pinyinIME.pageIdx -= 1
-                        changed = false
-                    } else if (ch === "." && pinyinIME.pinyinBuffer !== "") {
-                        // buffer 非空: . 下一页
-                        if (pinyinIME.pageIdx < pinyinIME.pageCount - 1) pinyinIME.pageIdx += 1
-                        changed = false
-                    } else if (pinyinIME._punctMap[ch] !== undefined) {
-                        // 中文模式 + 标点: buffer 非空时 commit 第一候选+插中文标点,
-                        // buffer 空时直接插中文标点。
-                        var cnP = pinyinIME._punctMap[ch]
-                        if (pinyinIME.pinyinBuffer !== "") {
-                            var extra2 = cnP
-                            pinyinIME.commitFirst(ctrl)
-                            Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra2) })
-                            changed = false
-                        } else {
-                            pinyinIME.insertToDoc(ctrl, cnP)
-                        }
-                    } else if (pinyinIME.pinyinBuffer !== "") {
-                        var extra = ch
-                        pinyinIME.commitFirst(ctrl)
-                        Qt.callLater(function() { pinyinIME.insertToDoc(ctrl, extra) })
-                        changed = false
-                    } else {
-                        pinyinIME.insertToDoc(ctrl, ch)
-                    }
-                }
-                pinyinIME.intercepting = false
-                if (changed && pinyinIME.pinyinBuffer !== "") pinyinIME.fetchCandidates()
+            if (xhr.status === 200 && xhr.responseText) {
+                var st = null
+                try { st = JSON.parse(xhr.responseText) } catch (e) {}
+                if (st) pinyinIME._applyState(st, ctrl)
             }
             // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
             Qt.callLater(pinyinIME._pollChars)
         }
-        xhr.open("GET", "http://127.0.0.1:19876/pop-all-chars-blocking")
+        xhr.open("GET", "http://127.0.0.1:19876/rime/input")
+        xhr.send()
+    }
+
+    // 把 ime-server 返回的输入状态应用到界面 + 文档。
+    // librime 已在服务端完成全部输入逻辑 (音节切分、整句、选词、翻页、标点、
+    // 退格、userdb 调频), QML 只做两件事: 显示 preedit/候选, 把 commit 上屏。
+    function _applyState(st, ctrl) {
+        pinyinIME.refreshCursorPosition()
+        var newPreedit = st.preedit || ""
+        var hadPreedit = pinyinIME.pinyinBuffer !== ""
+
+        // 上屏文本 (librime 在选词/整句成型/回车时产生)
+        if (st.commit && st.commit.length > 0) {
+            pinyinIME.intercepting = true
+            pinyinIME.removeAnchor(ctrl)          // 先撤零宽空格占位符
+            pinyinIME.insertToDoc(ctrl, st.commit)
+            pinyinIME.intercepting = false
+        }
+
+        // 编辑区文本: 非空时需要占位符吸收退格; 空了就撤掉
+        if (newPreedit !== "" && !hadPreedit) {
+            pinyinIME.setMode("pinyin_active", true)
+            pinyinIME.placeAnchor(ctrl)
+        } else if (newPreedit === "" && hadPreedit) {
+            pinyinIME.removeAnchor(ctrl)
+            pinyinIME.setMode("pinyin_active", false)
+        }
+
+        pinyinIME.pinyinBuffer = newPreedit
+        pinyinIME.candidates = st.candidates || []
+        pinyinIME.showBar = newPreedit !== ""
+        // 分页由 librime 管, 它返回的就是当前页; pageIdx 仅供 UI 显示页码
+        pinyinIME.pageIdx = st.pageNo || 0
+        pinyinIME._isLastPage = !!st.isLastPage
+        pinyinIME._highlighted = st.highlighted || 0
+    }
+
+    // 通用: 请求 ime-server 的某个 rime 端点并应用返回状态 (选词/翻页/清空)
+    function _rimeCall(path) {
+        var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
+        if (!ctrl) return
+        var xhr = new XMLHttpRequest()
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 4) return
+            if (xhr.status === 200 && xhr.responseText) {
+                var st = null
+                try { st = JSON.parse(xhr.responseText) } catch (e) {}
+                if (st) pinyinIME._applyState(st, ctrl)
+            }
+        }
+        xhr.open("GET", "http://127.0.0.1:19876" + path)
         xhr.send()
     }
 
@@ -511,30 +478,17 @@ Item {
         }
     }
 
-    // Two-stage 候选框：物理键盘按键间隔 100-200ms, ~250ms debounce 让连续按键
-    // 全程不刷候选词列表, 只在停手后一次性显示。这是消除"e-ink 反复刷"
-    // 体感的核心 — 打字过程中 candidates 保持空, floatingPopup 的候选区域不渲染,
-    // 只有顶部 pinyinBox 跟着按键变。(原 candidatesDebounce Timer → _debounceTicks)
-
+    // 候选查询: 每次拼音串变化立即查询, 无防抖。
+    // (原 candidatesDebounce 250ms 防抖是为省墨水屏刷新 —— qmd 时代候选框每变一次
+    // 就一次慢刷; 现在整屏走 Animation 快刷, 刷新代价低, 去掉防抖让候选框实时跟手。)
     function fetchCandidates() {
         if (pinyinBuffer === "") {
             candidates = []
             showBar = false
-            _debounceTicks = 0
             return
         }
         showBar = true
-        // 关键 1: 不立刻清空 candidates。debounce 期间继续显示上一次的候选,
-        //         新查询返回后才替换。物理键盘连按 ni→nih→niha 时, 候选框
-        //         内容直接平滑过渡, 不会"满→空→满"的边界抖动。
-        // 关键 2: 候选为空时 (首次输入第 1 字母), 不走 debounce, 立刻查询,
-        //         避免首次显示一个"空小框"再变大。
-        if (candidates.length === 0) {
-            _debounceTicks = 0
-            _doFetchCandidates()
-        } else {
-            _debounceTicks = 1  // 下一个 imeTick (≤250ms) 触发, 连按会不断重置
-        }
+        _doFetchCandidates()
     }
 
     function _doFetchCandidates() {
@@ -588,16 +542,10 @@ Item {
         console.warn("XOVI-PINYIN: committed: " + chosen)
     }
 
-    function commitFirst(ctrl) {
-        if (candidates.length > 0) commitDirect(ctrl, candidates[0])
-        else clearState()
-    }
-
-    // 回车：buffer 原文（保留大小写）以英文上屏，不查候选词
-    function commitBufferRaw(ctrl) {
-        var raw = pinyinBuffer
-        if (!raw) { clearState(); return }
-        commitDirect(ctrl, raw)
+    // 空格/回车的上屏行为已交给 librime (按键随字符流送到服务端, 由它决定
+    // 上首选还是上原拼音)。这里只保留清空入口给焦点切换等场景。
+    function abandonInput() {
+        pinyinIME._rimeCall("/rime/clear")
     }
 
     // PPM 虚拟 Enter 键走不到 setCommitString / processKeyEvent，只能靠
@@ -637,25 +585,10 @@ Item {
         console.warn("XOVI-PINYIN: commit after enter: " + raw)
     }
 
+    // 选词交给 librime: 整句输入下选一个候选是"把它并入已选、继续等后续音节",
+    // 不是简单地把字符串上屏 —— 本地无法模拟, 必须走服务端。
     function selectCandidate(idx) {
-        if (idx >= candidates.length) return
-        var chosen = candidates[idx]
-        var ctrl = focusTarget ? focusTarget.controller : null
-        console.warn("XOVI-PINYIN: selectCandidate " + idx + "=" + chosen)
-        if (useDirectCommit && ctrl) {
-            commitDirect(ctrl, chosen)
-            return
-        }
-        intercepting = true
-        var t = focusTarget.text
-        var pos = focusTarget.cursorPosition
-        var before = t.substring(0, pos - pinyinBuffer.length)
-        var after = t.substring(pos)
-        focusTarget.text = before + chosen + after
-        focusTarget.cursorPosition = before.length + chosen.length
-        pinyinIME._lastText = focusTarget.text
-        intercepting = false
-        clearState()
+        pinyinIME._rimeCall("/rime/select?index=" + idx)
     }
 
     function commitTextMode(extraLen) {
@@ -863,23 +796,22 @@ Item {
 
             // 候选词列表（黑字，点击选词）
             Repeater {
-                model: Math.min(pinyinIME.pageSize, pinyinIME.candidates.length - pinyinIME.pageIdx * pinyinIME.pageSize)
+                model: pinyinIME.candidates.length
                 delegate: Item {
-                    property int globalIdx: pinyinIME.pageIdx * pinyinIME.pageSize + index
                     width: cText.implicitWidth + 28
                     height: candidateBar.height
 
                     Text {
                         id: cText
                         anchors.centerIn: parent
-                        text: (index + 1) + ". " + pinyinIME.candidates[parent.globalIdx]
+                        text: (index + 1) + ". " + pinyinIME.candidates[index]
                         font.pixelSize: 30
                         color: cTap.pressed ? "#666666" : "black"
                     }
                     MouseArea {
                         id: cTap
                         anchors.fill: parent
-                        onClicked: pinyinIME.selectCandidate(parent.globalIdx)
+                        onClicked: pinyinIME.selectCandidate(index)
                     }
                 }
             }
@@ -892,7 +824,7 @@ Item {
             height: parent.height
             anchors.right: nextArrow.left
             anchors.top: parent.top
-            visible: pinyinIME.candidates.length > pinyinIME.pageSize
+            visible: !pinyinIME._isLastPage || pinyinIME.pageIdx > 0
             opacity: pinyinIME.pageIdx > 0 ? 1.0 : 0.3
             Text {
                 anchors.centerIn: parent
@@ -904,7 +836,7 @@ Item {
                 id: prevTap
                 anchors.fill: parent
                 enabled: pinyinIME.pageIdx > 0
-                onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx - 1
+                onClicked: pinyinIME._rimeCall("/rime/page?backward=1")
             }
         }
 
@@ -916,8 +848,8 @@ Item {
             anchors.right: parent.right
             anchors.rightMargin: 20
             anchors.top: parent.top
-            visible: pinyinIME.candidates.length > pinyinIME.pageSize
-            opacity: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? 1.0 : 0.3
+            visible: !pinyinIME._isLastPage || pinyinIME.pageIdx > 0
+            opacity: !pinyinIME._isLastPage ? 1.0 : 0.3
             Text {
                 anchors.centerIn: parent
                 text: "▶"
@@ -927,8 +859,8 @@ Item {
             MouseArea {
                 id: nextTap
                 anchors.fill: parent
-                enabled: pinyinIME.pageIdx < pinyinIME.pageCount - 1
-                onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx + 1
+                enabled: !pinyinIME._isLastPage
+                onClicked: pinyinIME._rimeCall("/rime/page")
             }
         }
     }
@@ -1001,22 +933,21 @@ Item {
                 }
 
                 Repeater {
-                    model: Math.min(pinyinIME.pageSize, pinyinIME.candidates.length - pinyinIME.pageIdx * pinyinIME.pageSize)
+                    model: pinyinIME.candidates.length
                     delegate: Item {
-                        property int globalIdx: pinyinIME.pageIdx * pinyinIME.pageSize + index
-                        width: cText2.implicitWidth + 6
+                            width: cText2.implicitWidth + 6
                         height: cText2.implicitHeight + 14
                         Text {
                             id: cText2
                             anchors.centerIn: parent
-                            text: (index + 1) + "." + pinyinIME.candidates[parent.globalIdx]
+                            text: (index + 1) + "." + pinyinIME.candidates[index]
                             color: cTap2.pressed ? "#666666" : "black"
                             font.pixelSize: 28
                         }
                         MouseArea {
                             id: cTap2
                             anchors.fill: parent
-                            onClicked: pinyinIME.selectCandidate(parent.globalIdx)
+                            onClicked: pinyinIME.selectCandidate(index)
                         }
                     }
                 }
@@ -1024,7 +955,7 @@ Item {
                 Item {
                     width: 32
                     height: 38
-                    visible: pinyinIME.candidates.length > pinyinIME.pageSize
+                    visible: !pinyinIME._isLastPage || pinyinIME.pageIdx > 0
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
                         anchors.centerIn: parent
@@ -1036,25 +967,25 @@ Item {
                         id: prevTap2
                         anchors.fill: parent
                         enabled: pinyinIME.pageIdx > 0
-                        onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx - 1
+                        onClicked: pinyinIME._rimeCall("/rime/page?backward=1")
                     }
                 }
                 Item {
                     width: 32
                     height: 38
-                    visible: pinyinIME.candidates.length > pinyinIME.pageSize
+                    visible: !pinyinIME._isLastPage || pinyinIME.pageIdx > 0
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
                         anchors.centerIn: parent
                         text: "›"
                         font.pixelSize: 28
-                        color: pinyinIME.pageIdx < pinyinIME.pageCount - 1 ? (nextTap2.pressed ? "#666666" : "black") : "#bbbbbb"
+                        color: !pinyinIME._isLastPage ? (nextTap2.pressed ? "#666666" : "black") : "#bbbbbb"
                     }
                     MouseArea {
                         id: nextTap2
                         anchors.fill: parent
-                        enabled: pinyinIME.pageIdx < pinyinIME.pageCount - 1
-                        onClicked: pinyinIME.pageIdx = pinyinIME.pageIdx + 1
+                        enabled: !pinyinIME._isLastPage
+                        onClicked: pinyinIME._rimeCall("/rime/page")
                     }
                 }
             }

@@ -73,3 +73,19 @@ func clearHandler(w http.ResponseWriter, r *http.Request) {
 	ime.Clear()
 	writeState(w, inputState{})
 }
+
+// keyHandler — 直接送一个按键 (GET /rime/key?code=13)。
+// 给那些拦不到、进不了字符队列的按键用: PPM 虚拟键盘的 Enter 既不走
+// setCommitString 也不走 processKeyEvent, QML 侧靠全局 Shortcut 捕获后
+// 转发到这里, 由 librime 决定上屏内容 (整句成型 / 上原拼音)。
+func keyHandler(w http.ResponseWriter, r *http.Request) {
+	code := 0
+	if v := r.URL.Query().Get("code"); v != "" {
+		json.Unmarshal([]byte(v), &code)
+	}
+	if code <= 0 {
+		writeState(w, inputState{})
+		return
+	}
+	writeState(w, ime.Feed(string(rune(code))))
+}

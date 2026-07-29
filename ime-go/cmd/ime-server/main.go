@@ -259,6 +259,7 @@ func main() {
 	http.HandleFunc("/rime/select", selectCandidateHandler)
 	http.HandleFunc("/rime/page", changePageHandler)
 	http.HandleFunc("/rime/clear", clearHandler)
+	http.HandleFunc("/rime/key", keyHandler)
 
 	// 旧接口: 保留供灰度回滚 / 外部调试
 	http.HandleFunc("/candidates", candidatesHandler)
