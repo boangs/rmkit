@@ -21,9 +21,16 @@ package rime
 #cgo CFLAGS: -I${SRCDIR}/../../third_party/librime/include
 // cgo 指令只展开 ${SRCDIR}, 不认 ${GOARCH} —— 按架构分别用 arm64/arm 的 cgo 行,
 // 由 GOARCH 自动选中对应那条 (文件级 build tag 无法区分, 用 cgo 的架构后缀指令)。
+// Boost 静态库在 SDK sysroot 里, 由构建脚本导出 RIME_SYSROOT_LIB 传入
+// (cgo 指令不能用环境变量, 故构建时以 CGO_LDFLAGS 追加 -L, 见 Makefile)。
 #cgo arm64 LDFLAGS: -L${SRCDIR}/../../third_party/librime/lib-arm64
 #cgo arm   LDFLAGS: -L${SRCDIR}/../../third_party/librime/lib-arm
-#cgo LDFLAGS: -lrime -lyaml-cpp -lleveldb -lmarisa -lopencc -lboost_regex -lglog -lstdc++ -lm -lpthread
+// 全静态链接: 设备固件不带 Boost/glog 等库, 动态链接会在设备上报
+// "libboost_regex.so.1.84.0: cannot open shared object file" 起不来。
+// -Wl,-Bstatic 段内强制取 .a; Boost 用 sysroot 里的 libboost_regex.a;
+// glog 不链 (librime 以 -DENABLE_LOGGING=OFF 编译, 不需要)。
+// 最后 -Bdynamic 段留给 libc/libm/pthread 这些设备必然有的系统库。
+#cgo LDFLAGS: -Wl,-Bstatic -lrime -lyaml-cpp -lleveldb -lmarisa -lopencc -lboost_regex -lstdc++ -Wl,-Bdynamic -lm -lpthread
 #include <rime_api.h>
 #include <stdlib.h>
 #include <string.h>

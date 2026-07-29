@@ -117,9 +117,42 @@ func popAllCharsHandler(w http.ResponseWriter, r *http.Request) {
 	writeTextPlain(w, tryReadCharQueue())
 }
 
+// rimeInputHandler — long-poll + 引擎处理合一 (GET /rime/input)。
+//
+// 取到字符后**在本进程内**直接喂给引擎 (librime 是 cgo 函数调用, 零往返),
+// 把 preedit + 候选 + 上屏文本一次性返回。QML 因此每次输入只需这一个请求,
+// 不再"先取字符、再查候选"两次往返 —— 后者的回调要排 xochitl 主线程队列,
+// 正是之前"打字有时候慢、空格上屏卡一下"的根因。
+func rimeInputHandler(w http.ResponseWriter, r *http.Request) {
+	chars := tryReadCharQueue()
+	if chars == "" {
+		// 无字符: 阻塞等 hook 通知 (0-polling), 超时返回空状态
+		for drained := false; !drained; {
+			select {
+			case <-hookNotify:
+			default:
+				drained = true
+			}
+		}
+		select {
+		case <-hookNotify:
+		case <-time.After(blockingTimeout):
+		case <-r.Context().Done():
+			return
+		}
+		chars = tryReadCharQueue()
+	}
+	if chars == "" {
+		writeState(w, inputState{}) // 超时空转, QML 侧重新挂起
+		return
+	}
+	writeState(w, ime.Feed(chars))
+}
+
 // popAllCharsBlockingHandler — long-poll: returns immediately if queue has data,
 // otherwise blocks on hookNotify channel (signaled by ime_hook via unix socket)
 // or 5s timeout, then returns whatever is in queue.
+// 保留: 旧版 QML (自己攒拼音串那套) 仍用它, 便于灰度回滚。
 func popAllCharsBlockingHandler(w http.ResponseWriter, r *http.Request) {
 	if data := tryReadCharQueue(); data != "" {
 		writeTextPlain(w, data)
@@ -218,6 +251,16 @@ func main() {
 	// Start hook notification listener (unix socket) — enables 0-polling long-poll path.
 	go startHookNotifyListener()
 
+	// 输入引擎 (librime 或回退的自研引擎, 由 build tag 决定)
+	initBackend()
+
+	// 新接口: long-poll + 引擎处理合一, QML 每次输入只需这一个请求
+	http.HandleFunc("/rime/input", rimeInputHandler)
+	http.HandleFunc("/rime/select", selectCandidateHandler)
+	http.HandleFunc("/rime/page", changePageHandler)
+	http.HandleFunc("/rime/clear", clearHandler)
+
+	// 旧接口: 保留供灰度回滚 / 外部调试
 	http.HandleFunc("/candidates", candidatesHandler)
 	http.HandleFunc("/select", selectHandler)
 	http.HandleFunc("/health", healthHandler)
