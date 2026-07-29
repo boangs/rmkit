@@ -72,6 +72,15 @@ stage_source() {
 patch:
   schema_list:
     - schema: rime_frost
+  # 每页 5 个候选 (上游默认 8)。reMarkable 屏幕窄, 候选栏是一条横向单行,
+  # 8 个会挤满甚至溢出; 5 个正好, 多的翻页。
+  menu/page_size: 5
+YAML
+  # schema 自己的 menu/page_size 会覆盖 default 的, 所以也要 patch 方案级配置。
+  cat > "$ST/rime_frost.custom.yaml" <<'YAML'
+# rmkit-cn: 候选每页 5 个 (方案级, 覆盖 schema 里的 page_size: 8)
+patch:
+  menu/page_size: 5
 YAML
   # 不带的东西, 都是实测确认无效的:
   #   essay.txt          已无引用
