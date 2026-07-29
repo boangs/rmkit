@@ -76,3 +76,7 @@ Thumbs.db
 *.log
 journal-*.txt
 qml-dump/output/
+
+# librime 交叉编译产物 (244MB, 由 tools/build-librime/build.sh 在构建机重建)
+third_party/librime/lib-*/
+third_party/librime/include/
