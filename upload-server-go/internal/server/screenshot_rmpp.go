@@ -71,12 +71,16 @@ func rmppScreenshot() (image.Image, error) {
 		}
 		s, _ := strconv.ParseUint(rng[0], 16, 64)
 		e, _ := strconv.ParseUint(rng[1], 16, 64)
-		if sz := e - s; sz > 6000000 && sz < 8000000 {
+		// 尺寸窗口原本写死 6MB~8MB, 实测某次固件/旋转后这块映射变成 8,146,944
+		// 字节, 刚好卡在窗口外 → 找不到帧缓冲 → 截图降级成纯文字 prompt, 于是
+		// AI 一本正经地解释起帧缓冲报错。定位真正靠的是"紧邻 card0 的匿名映射"
+		// (实测全局唯一), 尺寸只需保证放得下一帧, 上界放宽即可。
+		if sz := e - s; sz >= frameSize && sz < 64<<20 {
 			anonStart = s
 		}
 	}
 	if anonStart == 0 {
-		return nil, fmt.Errorf("no framebuffer anonymous mapping found after card0")
+		return nil, fmt.Errorf("no framebuffer anonymous mapping found after card0 (需 >= %d 字节)", frameSize)
 	}
 
 	// Ghostwriter 帧指针搜索算法
