@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -57,10 +58,11 @@ func (s *Server) applyFont(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		if path, err := exec.LookPath("fc-cache"); err == nil {
-			_ = exec.Command(path, "-f").Run()
+			_ = s.fontCmd(path, "-f").Run()
 		}
 		time.Sleep(500 * time.Millisecond)
 		if path, err := exec.LookPath("systemctl"); err == nil {
+			markIntentionalRestart()
 			_ = exec.Command(path, "restart", "xochitl").Run()
 		}
 	}()
@@ -105,12 +107,49 @@ func (s *Server) applyFontInternal(name string) (string, error) {
 	// 时序: 必须先删旧 alias + 刷一次 cache (让 fontconfig 在无 alias 干扰下认识新字体),
 	// pickMatchableFamily 的 fc-match 验证才准确; 选出 family 写 alias 后再刷一次让其生效.
 	removeUserFontAlias()
-	refreshFontCache()
-	if err := writeUserFontAlias(dst); err != nil {
+	s.refreshFontCache()
+	if err := s.writeUserFontAlias(dst); err != nil {
 		log.Printf("write font alias failed: %v", err)
 	}
-	refreshFontCache()
+	s.refreshFontCache()
 	return filepath.Base(src), nil
+}
+
+// markIntentionalRestart 在主动重启 xochitl 前打时间戳, 让 precheck.sh 的
+// crashloop 熔断不把这次启动算成崩溃。
+//
+// 坑: 熔断规则是"600 秒内第 3 次启动 = crashloop", 但它只数次数, 分不清崩溃
+// 和用户操作。实测开机 1 次 + 连续应用两次字体 = 3 次 → 误熔断 → 注入全摘 →
+// 高级面板凭空消失, 用户完全不知道发生了什么。
+const intentionalRestartMark = "/home/root/rmkit-cn/.intentional_restart"
+
+func markIntentionalRestart() {
+	_ = os.WriteFile(intentionalRestartMark,
+		[]byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o644)
+}
+
+// fontHome 是执行 fc-* 命令时要用的 HOME。
+//
+// 坑: upload-server 由 systemd 拉起, 环境里 HOME=/root。fontconfig 的用户字体
+// 目录是 $HOME/.local/share/fonts —— HOME=/root 时它根本不扫 /home/root 下的
+// 激活目录, fc-match 于是回退到系统 Noto, pickMatchableFamily 判定"没有 family
+// 能命中"→ alias 永远写不出来 → 用户字体一直不生效。
+// 实测: HOME=/root 时 fc-match "LXGW WenKai GB Screen" 返回 NotoSans-VariableFont,
+//
+//	HOME=/home/root 时才返回 /home/root/.local/share/fonts/霞露文楷.ttf。
+func (s *Server) fontHome() string {
+	// FontsActiveDir 形如 /home/root/.local/share/fonts, 回推两层得到 HOME
+	if d := strings.TrimSuffix(s.cfg.FontsActiveDir, "/.local/share/fonts"); d != s.cfg.FontsActiveDir && d != "" {
+		return d
+	}
+	return "/home/root"
+}
+
+// fontCmd 构造带正确 HOME 的 fc-* 命令。
+func (s *Server) fontCmd(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), "HOME="+s.fontHome())
+	return cmd
 }
 
 // fontAliasConfPath 是 fontconfig alias 配置文件, 决定 Noto Sans SC 等家族名映射到用户字体.
@@ -138,8 +177,8 @@ var fontAliasTargets = []string{
 // 一个字体常有多个 family (英文名 + 中文本地化名), 解析 `family: "xxx"(s) "yyy"(s)` 行
 // 里所有引号内字符串. 不用 `-f %{family[0]}` — 老版本 fontconfig 不支持 array 索引,
 // 会把 N 个别名全拼在一起.
-func readFontFamilies(path string) ([]string, error) {
-	out, err := exec.Command("fc-query", path).Output()
+func (s *Server) readFontFamilies(path string) ([]string, error) {
+	out, err := s.fontCmd("fc-query", path).Output()
 	if err != nil {
 		return nil, fmt.Errorf("fc-query 失败: %w", err)
 	}
@@ -178,13 +217,13 @@ func readFontFamilies(path string) ([]string, error) {
 // 带 "-" 的英文 family 名在部分 fontconfig 版本下匹配失败 (fallback 到别的字体),
 // 而中文本地化名反而可靠 — 所以不猜, 逐个实测: fc-match 返回的 file 与 fontPath
 // 是同一个文件 (硬链接 inode 相同也算) 才算命中.
-func pickMatchableFamily(fontPath string, families []string) (string, error) {
+func (s *Server) pickMatchableFamily(fontPath string, families []string) (string, error) {
 	target, err := os.Stat(fontPath)
 	if err != nil {
 		return "", err
 	}
 	for _, f := range families {
-		out, err := exec.Command("fc-match", "-f", "%{file}", f).Output()
+		out, err := s.fontCmd("fc-match", "-f", "%{file}", f).Output()
 		if err != nil {
 			continue
 		}
@@ -201,12 +240,12 @@ func pickMatchableFamily(fontPath string, families []string) (string, error) {
 
 // writeUserFontAlias 读 fontPath 的 family 候选并选出可匹配的那个, 写 fontconfig alias
 // 让所有系统字体家族名都指向它.
-func writeUserFontAlias(fontPath string) error {
-	families, err := readFontFamilies(fontPath)
+func (s *Server) writeUserFontAlias(fontPath string) error {
+	families, err := s.readFontFamilies(fontPath)
 	if err != nil {
 		return err
 	}
-	family, err := pickMatchableFamily(fontPath, families)
+	family, err := s.pickMatchableFamily(fontPath, families)
 	if err != nil {
 		return err
 	}
@@ -246,7 +285,7 @@ func removeUserFontAlias() {
 }
 
 // refreshFontCache 清 fontconfig 缓存并重建 (让 xochitl 下次拉字体读到新配置).
-func refreshFontCache() {
+func (s *Server) refreshFontCache() {
 	// cache-9 是 fontconfig 3.x 的 cache 版本, 直接删所有以 .cache-9 结尾的.
 	entries, err := os.ReadDir("/var/cache/fontconfig")
 	if err == nil {
@@ -257,7 +296,7 @@ func refreshFontCache() {
 		}
 	}
 	if path, err := exec.LookPath("fc-cache"); err == nil {
-		_ = exec.Command(path, "-f").Run()
+		_ = s.fontCmd(path, "-f").Run()
 	}
 }
 
@@ -378,6 +417,7 @@ func (s *Server) applyScreen(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		if path, err := exec.LookPath("systemctl"); err == nil {
+			markIntentionalRestart()
 			_ = exec.Command(path, "restart", "xochitl").Run()
 		}
 	}()
@@ -461,6 +501,7 @@ func (s *Server) applyAll(w http.ResponseWriter, r *http.Request) {
 			log.Printf("applyAll: systemctl not in PATH: %v", err)
 			return
 		}
+		markIntentionalRestart()
 		if err := exec.Command(path, "restart", "xochitl").Run(); err != nil {
 			log.Printf("applyAll: systemctl restart xochitl failed: %v", err)
 		} else {

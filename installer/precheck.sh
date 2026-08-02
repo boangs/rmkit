@@ -115,9 +115,25 @@ disable_qmldiff() { # $1=reason
 # 熔断标记 (.fuse_tripped) 由 fw-upgrade.sh 成功后 / install.sh / 用户手动清除。
 # 稳定运行 120 秒后后台清空计数, 正常的偶发 restart 不会累积。
 # 调试逃生口: touch /tmp/rmkit-no-fuse (tmpfs, 重启自动消失)
+# 主动重启豁免: 用户在高级面板应用字体/壁纸会重启 xochitl, 这是正常操作,
+# 不能计入 crash 计数。实测踩过: 开机 1 次 + 连续应用两次字体 = 600 秒内 3 次
+# → 误熔断 → 注入全摘 → 高级面板凭空消失。
+# upload-server 重启前写下时间戳, 这里认掉并立即删除 (只认新鲜的, 防止陈旧
+# 标记变成长期豁免)。
+INTENT=$RMKIT/.intentional_restart
+SKIP_COUNT=0
+if [ -f "$INTENT" ]; then
+    INTENT_TS=$(cat "$INTENT" 2>/dev/null)
+    rm -f "$INTENT" 2>/dev/null
+    if [ -n "$INTENT_TS" ] && [ $((NOW - INTENT_TS)) -lt 180 ] 2>/dev/null; then
+        SKIP_COUNT=1
+        echo "[precheck] 主动重启, 不计入 crash 计数" >&2
+    fi
+fi
+
 if [ ! -f /tmp/rmkit-no-fuse ]; then
     [ -f "$FUSE" ] && disable_all "fuse-tripped ($(cat "$FUSE" 2>/dev/null))"
-    echo "$NOW" >> "$STARTS" 2>/dev/null
+    [ "$SKIP_COUNT" = "0" ] && echo "$NOW" >> "$STARTS" 2>/dev/null
     RECENT=$(awk -v n="$NOW" 'n-$1<600' "$STARTS" 2>/dev/null | wc -l)
     if [ "$RECENT" -ge 3 ] 2>/dev/null; then
         echo "crashloop@$NOW fw=$FW" > "$FUSE"
