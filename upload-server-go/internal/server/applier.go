@@ -116,6 +116,13 @@ func (s *Server) applyFontInternal(name string) (string, error) {
 // fontAliasConfPath 是 fontconfig alias 配置文件, 决定 Noto Sans SC 等家族名映射到用户字体.
 const fontAliasConfPath = "/etc/fonts/conf.d/99-rmkit-cn-user-font.conf"
 
+// fontAliasBackupPath 是 alias 的持久副本.
+// /etc 是 upperdir 在 tmpfs (/var/volatile) 上的 overlay: 写进去当场生效, 一重启
+// 整层蒸发。字体文件本身在 /home 下不受影响, 但 alias 没了字体就不生效 —— 表现为
+// "重启后字体变回默认, 要去高级面板重新应用一次" (用户实测)。
+// 这里留一份到 /home, 由 precheck.sh 在 xochitl 启动前拷回 /etc。
+const fontAliasBackupPath = "/home/root/rmkit-cn/etc/99-rmkit-cn-user-font.conf"
+
 // fontAliasTargets 3.28+ xochitl 请求的字体家族名, 需要全部 alias 到用户字体.
 // NotoSans/EBGaramond = 拉丁, NotoSansSC/NotoSansCJKSC = 中文, sans-serif = 兜底.
 var fontAliasTargets = []string{
@@ -218,12 +225,24 @@ func writeUserFontAlias(fontPath string) error {
 	if err := os.MkdirAll(filepath.Dir(fontAliasConfPath), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(fontAliasConfPath, []byte(buf.String()), 0o644)
+	if err := os.WriteFile(fontAliasConfPath, []byte(buf.String()), 0o644); err != nil {
+		return err
+	}
+	// 持久副本失败不算致命: 本次应用已经生效, 只是重启后需要重新应用.
+	if err := os.MkdirAll(filepath.Dir(fontAliasBackupPath), 0o755); err != nil {
+		log.Printf("字体 alias 持久副本目录创建失败: %v", err)
+		return nil
+	}
+	if err := os.WriteFile(fontAliasBackupPath, []byte(buf.String()), 0o644); err != nil {
+		log.Printf("字体 alias 持久副本写入失败: %v", err)
+	}
+	return nil
 }
 
 // removeUserFontAlias 卸载/切回默认时删掉 alias 配置, 让系统 fallback 到 Noto Sans SC.
 func removeUserFontAlias() {
 	_ = os.Remove(fontAliasConfPath)
+	_ = os.Remove(fontAliasBackupPath)
 }
 
 // refreshFontCache 清 fontconfig 缓存并重建 (让 xochitl 下次拉字体读到新配置).

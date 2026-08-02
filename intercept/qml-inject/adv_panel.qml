@@ -199,7 +199,9 @@ import QtQuick.Layouts
                         anchors.top: parent.top
                         anchors.topMargin: 10
                         anchors.right: parent.right
-                        anchors.rightMargin: 10
+                        // 40 而不是和返回按钮对称的 10: IconButton 的图标+文字是右
+                        // 对齐排布, 贴着 10 会顶到屏幕边缘 (返回按钮在左侧没这个问题)
+                        anchors.rightMargin: 40
                         iconSource: "qrc:/ark/icons/checkmark"
                         title: "\u5e94\u7528"
                         onClicked: _rmhConfirmApply.visible = true
