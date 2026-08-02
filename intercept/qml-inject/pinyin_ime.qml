@@ -50,9 +50,10 @@ Item {
     y: _landscape && parent ? (parent.height - height) / 2 : 0
     rotation: _landscape ? 90 : 0
 
-    // librime 版 ime-server 地址。端到端验证期间指向测试实例 (19899),
-    // 生产切换时改回 19876。所有接口 (含 setMode) 统一走这个地址, 不能分裂。
-    property string rimeBase: "http://127.0.0.1:19899"
+    // ime-server 地址。所有接口 (含 setMode) 统一走这个地址, 不能分裂 ——
+    // 曾经 setMode 写死 19876 而 rime 接口指向验证实例 19899, 生产服务一停
+    // 标志就建不起来, 表现为"只能打英文"。
+    property string rimeBase: "http://127.0.0.1:19876"
 
     property string pinyinBuffer: ""
     property var candidates: []
@@ -89,6 +90,7 @@ Item {
     // ActionHeader 等无关元素上, 只看 activeFocusItem 会永远激活不了。
     property var editorItem: null
     property int _xhrStuck: 0
+    property int _interceptStuck: 0
     property int focusPing: 0
     onFocusPingChanged: {
         if (!active) enterDirectModeIfApplicable()
@@ -109,6 +111,20 @@ Item {
             }
         } else {
             _xhrStuck = 0
+        }
+        // intercepting 死锁兜底: 它在多处被手动置位/复位, 只要有一条路径中途抛异常
+        // 就会永久停在 true, 而 _pollChars 开头就被它挡住 —— 拉取链彻底停摆, 没有
+        // 任何自愈机会 (实测 placeAnchor 空 controller 抛异常就是这么锁死的)。
+        // 正常的 intercepting 窗口只有一两帧, 连续 20 拍 (5 秒) 还没复位必是异常。
+        if (intercepting) {
+            _interceptStuck++
+            if (_interceptStuck > 20) {
+                _interceptStuck = 0
+                intercepting = false
+                console.warn("[rmkit-ime] intercepting 卡死, 已强制复位")
+            }
+        } else {
+            _interceptStuck = 0
         }
         if (active && isChineseMode) _pollChars()   // 两种模式都要拉链
         // 仅在"焦点已到编辑器但 controller 还没绑好"时短暂重试, 用完即止。
@@ -314,6 +330,13 @@ Item {
     // ── 零宽空格占位符管理 ───────────────────────────────────────────
     // 插入 U+200B 作为退格吸收器，使退格不会误删正文
     function placeAnchor(ctrl) {
+        // text 模式 (搜索框等 GeneralTextInput) 没有 controller —— 它直接改
+        // TextInput.text, 不需要零宽空格占位符。
+        // 曾经这里不判空: ctrl 为 undefined 时先把 intercepting 置成 true 再抛
+        // TypeError, 于是 intercepting 永远卡在 true, _pollChars 开头的守卫让
+        // 拉取链彻底锁死 (250ms 心跳兜底也救不回来), 服务端 20 秒后判定 QML
+        // 停止拉取清掉模式标志 —— 表现就是"没有候选框, 过几秒变成输出英文"。
+        if (!ctrl) return
         if (hasAnchor) return
         intercepting = true
         anchorIdx = ctrl.textCursorIndex
@@ -337,6 +360,7 @@ Item {
 
     // 删除占位符（选词前调用）
     function removeAnchor(ctrl) {
+        if (!ctrl) { hasAnchor = false; return }
         if (!hasAnchor) return
         intercepting = true
         ctrl.deleteText(1, 0)
@@ -386,7 +410,16 @@ Item {
             if (xhr.status === 200 && xhr.responseText) {
                 var st = null
                 try { st = JSON.parse(xhr.responseText) } catch (e) {}
-                if (st) pinyinIME._applyState(st, ctrl)
+                // _applyState 抛异常绝不能中断拉取链: 它下面就是续链的 callLater,
+                // 一旦异常逃逸, 链就永久停在这里, 且 intercepting 可能停在 true。
+                if (st) {
+                    try {
+                        pinyinIME._applyState(st, ctrl)
+                    } catch (e2) {
+                        pinyinIME.intercepting = false
+                        console.warn("[rmkit-ime] 应用状态异常, 已复位并续链: " + e2)
+                    }
+                }
             }
             // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
             Qt.callLater(pinyinIME._pollChars)
@@ -422,8 +455,11 @@ Item {
         // 上屏文本 (librime 在选词/整句成型/回车时产生)
         if (st.commit && st.commit.length > 0) {
             pinyinIME.intercepting = true
-            pinyinIME.removeAnchor(ctrl)          // 先撤零宽空格占位符
-            pinyinIME.insertToDoc(ctrl, st.commit)
+            pinyinIME.removeAnchor(ctrl)          // 先撤零宽空格占位符 (text 模式无占位符)
+            if (ctrl)
+                pinyinIME.insertToDoc(ctrl, st.commit)      // direct 模式: 走文档 API
+            else
+                pinyinIME.insertToTextInput(st.commit)      // text 模式: 直接改 TextInput
             pinyinIME.intercepting = false
         }
 
@@ -455,8 +491,13 @@ Item {
 
     // 通用: 请求 ime-server 的某个 rime 端点并应用返回状态 (选词/翻页/清空)
     function _rimeCall(path) {
+        // ctrl 可以为 null —— text 模式 (搜索框) 本来就没有 controller, _applyState
+        // 会按有无 controller 分流上屏路径。
+        // 这里原先有 `if (!ctrl) return`, 于是 text 模式下本函数**一个请求都发不出去**:
+        // 点候选 (/rime/select)、退格 (/rime/key)、激活时清会话 (/rime/clear) 全部
+        // 静默失效 —— 表现为"空格能上屏, 点候选没反应", 且上次的 preedit 一直留在
+        // 服务端会话里。空格能用是因为它走 hook → 字符队列 → /rime/input 另一条通路。
         var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
-        if (!ctrl) return
         var xhr = new XMLHttpRequest()
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== 4) return
@@ -642,6 +683,39 @@ Item {
         } catch(e) {
             console.warn("XOVI-PINYIN: insertToDoc FAIL: " + e)
         }
+    }
+
+    // text 模式 (搜索框等 GeneralTextInput) 的上屏: 直接改 TextInput.text。
+    //
+    // 这条路径原先是缺的 —— insertToDoc 见 ctrl 为空就 return, 于是搜索框里
+    // "有候选、选完却什么都不进框"。老的 commitTextMode 那套"按 pinyinBuffer
+    // 长度回切文本"逻辑是自研引擎时代的遗留: 那时字母真的被打进输入框, 再整体
+    // 替换; 现在字母全被 hook 吞走, 框里根本没有拼音可替换。
+    // 调用方负责 intercepting 的置位/复位 (改 text 会触发 onTextChanged)。
+    function insertToTextInput(text) {
+        if (!text || !focusTarget || focusTarget.text === undefined) return
+        var before = focusTarget.text
+        var pos = focusTarget.cursorPosition
+        if (pos === undefined || pos < 0 || pos > before.length) pos = before.length
+
+        // 优先用 TextInput 原生 insert(): 直接给 text 赋值在被 binding 绑住的
+        // 封装组件 (xochitl 的 GeneralTextInput) 上会被静默覆盖, 看起来就是
+        // "候选选了却什么都没进框"。insert() 走内部编辑路径, 不与 binding 打架。
+        var ok = false
+        try {
+            if (typeof focusTarget.insert === "function") {
+                focusTarget.insert(pos, text)
+                ok = (focusTarget.text !== before)
+            }
+        } catch (e) {}
+        if (!ok) {
+            focusTarget.text = before.substring(0, pos) + text + before.substring(pos)
+            focusTarget.cursorPosition = pos + text.length
+            ok = (focusTarget.text !== before)
+        }
+        pinyinIME._lastText = focusTarget.text
+        if (!ok)
+            console.warn("[rmkit-ime] text 模式上屏失败: 目标不接受写入 " + focusTarget)
     }
 
     function commitDirect(ctrl, chosen) {
