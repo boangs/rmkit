@@ -11,6 +11,31 @@ Item {
     objectName: "rmkitGlyphAiButton"
 
     property var tools: null
+
+    // ── 横屏适配 ───────────────────────────────────────────────────
+    // xochitl 横屏不转窗口, 而是把各原生窗口容器各自旋转 90° 并位移 (根节点仍是
+    // 竖屏 954x1696)。我们把菜单/面板挂在未旋转的根节点上, 所以横屏时它们仍是
+    // 竖屏姿态 (实测: 界面横过来了、二级菜单还竖着)。
+    // 对策: 检测到横屏就给挂上去的对象套同一套变换 —— 宽高互换 + 绕中心转 90°。
+    // ── 浮层宿主 ───────────────────────────────────────────────────
+    // 关键: 菜单/面板必须挂在**和原生工具栏同一个坐标系**的容器里。
+    // 以前挂在窗口 contentItem (未旋转的物理根节点) 上, 而按钮处在 xochitl
+    // 横屏时旋转过的容器内 —— 两个坐标系不同, 于是横屏下菜单跑到屏幕角落
+    // (用户实测截图: 方向对了但位置在左上角, 选区在中间)。
+    // 从工具栏往上找第一个"足够大"的祖先当宿主, 竖屏横屏都自动正确, 不需要
+    // 任何旋转补偿。
+    // 浮层宿主 = 工具栏自身的父容器。
+    // 关键: 把菜单/面板放成 AI 按钮的**兄弟节点**, 它就自动继承完全相同的
+    // 变换链 —— 横屏竖屏都天然贴着按钮, 不需要任何坐标换算或旋转补偿。
+    // 前面几次尝试都栽在换算上: 挂 contentItem 方向对但位置错 (实测按钮
+    // 映射坐标 801,392 与视觉位置对不上), 挂大祖先容器则整个转 90 度。
+    // QML 默认不裁剪子项, 菜单超出父容器边界仍会完整显示。
+    function _overlayHost() {
+        return (tools && tools.parent) ? tools.parent : Window.window.contentItem
+    }
+
+
+
     property var selectionRoot: null
 
     // 尺寸对齐原生选区工具栏按钮 (~80x80 图标按钮)
@@ -55,14 +80,16 @@ Item {
         anchors.fill: parent
         onClicked: {
             if (!aiGlyphButton.tools || !aiGlyphButton.selectionRoot) return
-            var host = aiGlyphButton.Window.window.contentItem
+            var host = aiGlyphButton._overlayHost()
+            // 宿主是按钮的父容器, 局部坐标即可, 无需跨坐标系映射
             var btnPos = aiGlyphButton.mapToItem(host, 0, 0)
             aiGlyphButton.tools.visible = false
-            glyphMenuComp.createObject(host, {
+            var m = glyphMenuComp.createObject(host, {
                 selX: btnPos.x,
                 selY: btnPos.y + aiGlyphButton.height / 2,
                 tools: aiGlyphButton.tools,
-                selectionRoot: aiGlyphButton.selectionRoot
+                selectionRoot: aiGlyphButton.selectionRoot,
+                srcBtn: aiGlyphButton
             })
         }
     }
@@ -75,6 +102,7 @@ Item {
             property real selY: 0
             property var tools: null
             property var selectionRoot: null
+            property var srcBtn: null      // 注入按钮引用, 供横屏变换调用
             z: 99999
             color: "#ffffff"
             radius: 8
@@ -114,7 +142,7 @@ Item {
                                 ]
                                 var selectionRoot = glyphMenu.selectionRoot
                                 var sr = glyphMenu.tools.selectionRect
-                                var host = glyphMenu.Window.window.contentItem
+                                var host = glyphMenu.srcBtn ? glyphMenu.srcBtn._overlayHost() : glyphMenu.Window.window.contentItem
                                 // 把选区上下边映射到 host 坐标，让 panel 紧贴选区
                                 var srTopHost = selectionRoot.mapToItem(host, sr.x, sr.y)
                                 var srBotHost = selectionRoot.mapToItem(host, sr.x, sr.y + sr.height)
@@ -235,21 +263,49 @@ Item {
             }
 
             z: 9999; radius: 16; color: "#ffffff"; border.width: 0
-            width: parent ? Math.round(parent.width * 0.82) : 800
-            height: parent ? Math.round(parent.height * 0.26) : 560
-            readonly property real bodyAvailableH: Math.max(50, height - 77 - 72)
-            x: {
+            // 面板挂在工具栏容器里 (方向因此天然正确), 但那容器只有 526x84,
+            // 按 parent 尺寸算面板就成了一条看不见的缝。真正需要的是**屏幕可视
+            // 区域在本坐标系下的矩形**: 把窗口四角映射进来取包围盒, 无论这层
+            // 坐标系有没有旋转都成立 (横屏下自然得到 1696x954)。
+            readonly property rect scrRect: {
                 var win = gp.Window.window
-                if (!win || !parent) return 0
-                return Math.round(win.width / 2 - parent.mapToItem(null, 0, 0).x - width / 2)
+                if (!win || !parent) return Qt.rect(0, 0, 1404, 1872)
+                // ★ 建立对**祖先链几何**的绑定依赖。横竖屏切换时窗口自身尺寸恒为
+                // 954x1696 (实测), 只有中间那层旋转容器的宽高/旋转角会变。这里逐层
+                // 读一遍它们的几何属性, QML 就会把这些属性记为本绑定的依赖 ——
+                // 旋转时自动重算尺寸和位置, 而不是像之前那样画死在创建时的朝向。
+                var dep = 0, pa = gp.parent
+                for (var di = 0; di < 25 && pa; di++) {
+                    dep += pa.width + pa.height + pa.rotation + pa.x + pa.y
+                    pa = pa.parent
+                }
+                var pts = [parent.mapFromItem(null, 0, 0),
+                           parent.mapFromItem(null, win.width, 0),
+                           parent.mapFromItem(null, 0, win.height),
+                           parent.mapFromItem(null, win.width, win.height)]
+                var x0 = pts[0].x, x1 = pts[0].x, y0 = pts[0].y, y1 = pts[0].y
+                for (var i = 1; i < 4; i++) {
+                    x0 = Math.min(x0, pts[i].x); x1 = Math.max(x1, pts[i].x)
+                    y0 = Math.min(y0, pts[i].y); y1 = Math.max(y1, pts[i].y)
+                }
+                return Qt.rect(x0, y0, x1 - x0, y1 - y0)
             }
+            // 比例要分朝向: 0.82/0.26 是按竖屏 (954x1696) 调的, 得到 782x441 偏方;
+            // 横屏 (1696x954) 套同一比例会拉成 1391x248 的长条 —— 太宽且正文只剩
+            // 一行。横屏改用 0.60/0.44, 让两种朝向下面板的实际形状接近。
+            readonly property bool wideScreen: scrRect.width > scrRect.height
+            width: Math.round(scrRect.width * (wideScreen ? 0.60 : 0.82))
+            height: Math.round(scrRect.height * (wideScreen ? 0.44 : 0.26))
+            readonly property real bodyAvailableH: Math.max(50, height - 77 - 72)
+            // 一律相对 scrRect 定位: 水平居中, 垂直优先贴选区下方, 放不下翻到上方
+            x: Math.round(scrRect.x + (scrRect.width - width) / 2)
             y: {
-                var pH = parent ? parent.height : 1872
+                var top = scrRect.y, bot = scrRect.y + scrRect.height
                 var below = cursorBottomY + 24
-                if (below + height <= pH - 24) return below
+                if (below + height <= bot - 24) return Math.round(below)
                 var above = cursorTopY - 24 - height
-                if (above >= 24) return above
-                return 24
+                if (above >= top + 24) return Math.round(above)
+                return Math.round(top + 24)
             }
             MouseArea { anchors.fill: parent; onClicked: {} }
 
