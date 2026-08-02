@@ -204,6 +204,40 @@ if enable_qml_inject; then
 else
     RT_NOTE="runtime-qml=off (无产物, qmd 路径生效)"
 fi
+# ── 8. 恢复字体 alias ────────────────────────────────────────────
+# /etc 是 upperdir 在 tmpfs (/var/volatile) 上的 overlay —— 写进去当场生效,
+# 一重启整层蒸发。字体文件本身在 /home 下没事, 但让它生效的 fontconfig alias
+# 没了, 表现为"重启后字体变回默认, 要去高级面板重新应用一次"。
+# 应用字体时 upload-server 会在 $RMKIT/etc/ 留一份持久副本, 这里拷回去即可。
+# 必须在 xochitl 启动**前**做: 晚了字体已经解析完, 补上也要等下次重启。
+FONT_ALIAS_SRC=$RMKIT/etc/99-rmkit-cn-user-font.conf
+FONT_ALIAS_DST=/etc/fonts/conf.d/99-rmkit-cn-user-font.conf
+if [ -f "$FONT_ALIAS_SRC" ] && [ ! -f "$FONT_ALIAS_DST" ]; then
+    mkdir -p /etc/fonts/conf.d 2>/dev/null
+    if cp "$FONT_ALIAS_SRC" "$FONT_ALIAS_DST" 2>/dev/null; then
+        # /var/cache 同样是 tmpfs overlay, 缓存每次开机都是空的, 必须重建一次,
+        # 否则 fontconfig 读不到刚拷回来的 alias。
+        command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1
+        echo "[precheck] 已恢复字体 alias" >&2
+    fi
+fi
+
+# ── 9. 自启 symlink 自愈 ─────────────────────────────────────────
+# /etc/systemd/system/multi-user.target.wants/ 同样在 tmpfs overlay 上。
+# 正常情况下 reenable.sh 已把 symlink 双写到底层, 这里只是兜底: 万一底层那份
+# 丢了 (OTA / 手工 systemctl disable / 装了旧版脚本), 至少让本次开机把服务拉起来,
+# 而不是等用户发现"中文和上传服务都没了"。
+# 用 --no-block: ExecStartPre 里同步调 systemctl start 会和当前事务互等死锁。
+for u in rmkit-cn-upload.service rmkit-cn-ime-http.service; do
+    [ -f "/etc/systemd/system/$u" ] || continue
+    if [ ! -e "/etc/systemd/system/multi-user.target.wants/$u" ]; then
+        mkdir -p /etc/systemd/system/multi-user.target.wants 2>/dev/null
+        ln -sf "/etc/systemd/system/$u" "/etc/systemd/system/multi-user.target.wants/$u" 2>/dev/null
+        echo "[precheck] 自启 symlink 缺失, 已补建: $u" >&2
+    fi
+    systemctl is-active "$u" >/dev/null 2>&1 || systemctl start --no-block "$u" 2>/dev/null
+done
+
 write_status ok "" "$QUAR_LIST"
 echo "[precheck] OK fw=$FW quarantined=[${QUAR_LIST:-无}] $RT_NOTE" >&2
 exit 0

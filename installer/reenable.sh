@@ -110,6 +110,18 @@ if [ "$ARCH" = "aarch64" ]; then
         printf '%s\n' "$content" > "/tmp/rmkit_lower$abspath"
         chmod 644 "$abspath" "/tmp/rmkit_lower$abspath"
     }
+    # 自启 symlink 也必须双写。
+    # 坑: 原先这里靠 `systemctl enable`, 而它只写运行时的 /etc —— 那是 upperdir
+    # 在 tmpfs (/var/volatile) 上的 overlay, 一重启 symlink 就没了。表现是 unit
+    # 文件都在、is-enabled 却是 disabled, 开机后中文/上传服务全不起来 (实测多次)。
+    enable_both() {
+        mkdir -p /etc/systemd/system/multi-user.target.wants \
+                 /tmp/rmkit_lower/etc/systemd/system/multi-user.target.wants
+        for u in "$@"; do
+            ln -sf "/etc/systemd/system/$u" "/etc/systemd/system/multi-user.target.wants/$u"
+            ln -sf "/etc/systemd/system/$u" "/tmp/rmkit_lower/etc/systemd/system/multi-user.target.wants/$u"
+        done
+    }
 else
     # rm2: /etc 直接在 ext4, 直接写即可
     install_both() {
@@ -117,6 +129,13 @@ else
         mkdir -p "$(dirname "$abspath")"
         printf '%s\n' "$content" > "$abspath"
         chmod 644 "$abspath"
+    }
+    # rm2 的 /etc 是真实 ext4, 写一次即持久
+    enable_both() {
+        mkdir -p /etc/systemd/system/multi-user.target.wants
+        for u in "$@"; do
+            ln -sf "/etc/systemd/system/$u" "/etc/systemd/system/multi-user.target.wants/$u"
+        done
     }
     # 修复 /home/root owner (rm2 出厂重置后可能设成 uid 502)
     chown root:root /home/root 2>/dev/null || true
@@ -129,6 +148,10 @@ install_both "$VERSION_SVC"  "/etc/systemd/system/rmkit-cn-version.service"
 install_both "$VERSION_PATH" "/etc/systemd/system/rmkit-cn-version.path"
 install_both "$OTA_SVC"      "/etc/systemd/system/rmkit-cn-ota.service"
 install_both "$OTA_TIMER"    "/etc/systemd/system/rmkit-cn-ota.timer"
+
+# 建自启 symlink —— 必须在 bind mount 还挂着的时候做
+enable_both rmkit-cn-upload.service rmkit-cn-ime-http.service \
+            rmkit-cn-version.path rmkit-cn-ota.timer
 
 if [ "$ARCH" = "aarch64" ]; then
     sync
@@ -146,9 +169,8 @@ rm -f "$RMKIT_DIR/.fuse_tripped" "$RMKIT_DIR/.starts"
 echo "[reenable] ✓ active symlink 建立, 熔断计数复位"
 
 systemctl daemon-reload
-systemctl enable rmkit-cn-upload.service rmkit-cn-ime-http.service \
-                 rmkit-cn-version.path rmkit-cn-version.service \
-                 rmkit-cn-ota.timer 2>/dev/null || true
+# 注意: 不用 `systemctl enable` 做持久化 —— 它只写 overlay 上层 (tmpfs), 重启即失。
+# 自启 symlink 已由上面的 enable_both 双写到底层。这里只负责本次启动。
 systemctl start rmkit-cn-upload.service rmkit-cn-ime-http.service \
                 rmkit-cn-version.path rmkit-cn-ota.timer 2>/dev/null || true
 echo "[reenable] ✓ 服务已启用并启动"
