@@ -337,10 +337,20 @@ public:
 static void hookTextCopied(QObject *ctrl) {
     if (!ctrl)
         return;
-    static QList<QObject *> hooked;
-    if (hooked.contains(ctrl))
-        return;
-    hooked.append(ctrl);
+    // 去重表必须用 QPointer, 不能用裸指针。
+    // 裸指针版的坑: controller 销毁后条目留在表里, 分配器把同一地址分给新
+    // controller 时, contains() 按地址命中 → 判定"已挂钩"直接返回 → 新对象
+    // 其实从没 connect 过。表现是每个地址只有第一次复制能捕获到 textCopied,
+    // 之后点 AI 永远"读取选中文字超时" (实测 ctx=0x3531ff20 反复复用)。
+    // QPointer 在对象析构时自动置空, 顺手清掉空洞即可正确识别新对象。
+    static QList<QPointer<QObject>> hooked;
+    for (int i = hooked.size() - 1; i >= 0; i--) {
+        if (hooked[i].isNull())
+            hooked.removeAt(i);
+        else if (hooked[i].data() == ctrl)
+            return;
+    }
+    hooked.append(QPointer<QObject>(ctrl));
     const QMetaObject *mo = ctrl->metaObject();
     int sigIdx = -1;
     for (int i = 0; i < mo->methodCount(); i++) {
