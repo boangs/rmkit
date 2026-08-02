@@ -18,15 +18,15 @@ type Overlay interface {
 // FramebufferOverlay reMarkable 2 帧缓冲覆盖层 (8-bit 灰度)
 // 注意：Paper Pro 使用 DRM 而非 fbdev，此实现仅适用于 rM2
 type FramebufferOverlay struct {
-	fbPath      string
+	fbPath       string
 	screenWidth  int
 	screenHeight int
-	savedRegion []byte
+	savedRegion  []byte
 }
 
 func NewFramebufferOverlay(fbPath string, width, height int) *FramebufferOverlay {
 	return &FramebufferOverlay{
-		fbPath:      fbPath,
+		fbPath:       fbPath,
 		screenWidth:  width,
 		screenHeight: height,
 	}

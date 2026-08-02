@@ -54,6 +54,11 @@ After=multi-user.target
 Type=simple
 User=root
 ExecStart=$RMKIT_DIR/bin/ime-server
+# librime 需要知道词库位置: 共享目录是随包下发的预编译产物, 用户目录存 userdb
+# (个人词频/造词) 和编译缓存, 都在 /home 下持久。不设的话 librime 找不到 schema,
+# 启动后候选永远为空。
+Environment="RIME_SHARED_DIR=$RMKIT_DIR/rime"
+Environment="RIME_USER_DIR=/home/root/.rmkit-rime"
 Restart=on-failure
 RestartSec=3
 

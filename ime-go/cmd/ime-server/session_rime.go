@@ -8,13 +8,19 @@
 package main
 
 import (
+	"log"
+	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/rmkit-cn/ime/rime"
 )
 
 // X11 keysym: librime 按 keysym 收键。可打印 ASCII 的 keysym 即其码值,
 // 特殊键用这几个常量。
+// maxPreeditRunes: composed 串长度上限, 超过即认定状态已脏并清空会话。
+const maxPreeditRunes = 32
+
 const (
 	keyBackSpace = 0xff08
 	keyReturn    = 0xff0d
@@ -58,7 +64,16 @@ func (b *rimeBackend) Feed(chars string) inputState {
 			committed += c
 		}
 	}
-	return b.snapshot(committed)
+	st := b.snapshot(committed)
+	// preedit 长度上限: 长 preedit 会让**之后每一次** Snapshot 都昂贵 (候选枚举
+	// 随长度线性增长), CPU 永远落不下来。正常输入不会 composed 出这么长的串,
+	// 出现即说明状态已经脏了 —— 直接清掉重来, 比让服务卡死好。
+	if utf8.RuneCountInString(strings.ReplaceAll(st.Preedit, " ", "")) > maxPreeditRunes {
+		log.Printf("[session] preedit 过长 (%q), 已清空会话", st.Preedit)
+		b.sess.Clear()
+		return inputState{}
+	}
+	return st
 }
 
 // Snapshot 只读当前状态, 不消费按键。长轮询超时返回它, 而不是伪造空状态 ——

@@ -24,8 +24,8 @@ type inputState struct {
 // backend 抽象输入引擎。librime 版有整句 + userdb; 回退版是词级自研引擎。
 // 两者行为差异对 HTTP 层与 QML 层透明。
 type backend interface {
-	Feed(chars string) inputState  // 喂一批按键字符, 返回处理后状态
-	Snapshot() inputState          // 不改状态, 只读当前输入状态 (长轮询超时用)
+	Feed(chars string) inputState // 喂一批按键字符, 返回处理后状态
+	Snapshot() inputState         // 不改状态, 只读当前输入状态 (长轮询超时用)
 	SelectCandidate(idx int) inputState
 	ChangePage(backward bool) inputState
 	Clear()
@@ -56,7 +56,7 @@ func envOr(k, def string) string {
 // 空格常常在标志生效前就按下, hook 不吞它 → 空格直接进正文 → librime 永远收不到
 // 提交信号 → preedit 无限累积 (实测: 打一会儿就攒出一长串历史输入)。
 // 服务端算完 preedit 立刻就知道状态, 零延迟, 无竞态。
-// 心跳保活: QML 每次拉取都刷新时间戳。看门狗发现超过 3 秒没人拉取, 就认为
+// 心跳保活: QML 每次拉取都刷新时间戳。看门狗发现超过 20 秒没人拉取, 就认为
 // QML 侧已经不在工作 (崩溃/重建/焦点丢失), 立刻清掉 chinese_mode ——
 // 否则 ime_hook 会继续吞掉每一个按键却无人处理, 用户体验是"打字极卡"
 // (实测: CPU 全程空闲 load 0.3, 但每次按键都要等超时才落地)。
@@ -78,7 +78,7 @@ func startModeWatchdog() {
 				if _, err := os.Stat("/tmp/rmkit_chinese_mode"); err == nil {
 					os.Remove("/tmp/rmkit_chinese_mode")
 					os.Remove("/tmp/rmkit_pinyin_active")
-					log.Printf("[watchdog] QML 停止拉取 >3s, 已清除输入模式标志")
+					log.Printf("[watchdog] QML 停止拉取 >20s, 已清除输入模式标志")
 				}
 				lastPollUnix.Store(0)
 			}

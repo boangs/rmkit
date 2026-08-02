@@ -19,6 +19,8 @@ const (
 	charQueueFile   = "/tmp/rmkit_char_queue"
 	hookNotifySock  = "/tmp/rmkit_hook_notify.sock"
 	blockingTimeout = 5 * time.Second
+	// 单次喂给引擎的字符上限。正常打字一个词组不过十来个字母, 超过必是积压。
+	maxFeedChars = 32
 )
 
 var (
@@ -103,7 +105,17 @@ func tryReadCharQueue() string {
 	if err != nil {
 		return ""
 	}
-	return strings.ReplaceAll(string(data), "\n", "")
+	out := strings.ReplaceAll(string(data), "\n", "")
+	// 单批上限: QML 侧拉取链一旦断掉 (JS 异常 / 焦点异常), hook 仍在吞按键并
+	// 入队而无人消费, 恢复后会把积压的几十上百个字母一次性喂给 librime, composed
+	// 出一个超长 preedit。此后每次长轮询超时返回的 Snapshot 都要重新枚举一遍候选
+	// (实测每字母约 2.4 jiffies), CPU 再也落不下来, 请求看起来像挂死 —— 而且会
+	// 自我维持: 请求超时 → 链断 → 重连 → 又一次昂贵的 Snapshot。
+	if len(out) > maxFeedChars {
+		log.Printf("[queue] 积压 %d 字符, 只取最后 %d 个", len(out), maxFeedChars)
+		out = out[len(out)-maxFeedChars:]
+	}
+	return out
 }
 
 func writeTextPlain(w http.ResponseWriter, body string) {

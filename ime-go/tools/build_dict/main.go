@@ -42,9 +42,9 @@ const (
 	maxCharsPerPinyin   = 20
 	maxPhrasesPerPinyin = 8
 	maxAbbrevPerKey     = 8
-	maxWordRunes        = 4  // 词最大长度，过滤罕见长词
-	minCharReadingFreq  = 0  // chardict 最小字频阈值
-	minPhraseFreq       = 0  // phrases 最小词频阈值（>=0 才收录）
+	maxWordRunes        = 4 // 词最大长度，过滤罕见长词
+	minCharReadingFreq  = 0 // chardict 最小字频阈值
+	minPhraseFreq       = 0 // phrases 最小词频阈值（>=0 才收录）
 )
 
 type entry struct {
