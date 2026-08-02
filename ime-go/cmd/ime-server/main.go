@@ -124,6 +124,7 @@ func popAllCharsHandler(w http.ResponseWriter, r *http.Request) {
 // 不再"先取字符、再查候选"两次往返 —— 后者的回调要排 xochitl 主线程队列,
 // 正是之前"打字有时候慢、空格上屏卡一下"的根因。
 func rimeInputHandler(w http.ResponseWriter, r *http.Request) {
+	touchPoll() // 心跳: 证明 QML 侧还在工作, 看门狗据此判断是否该清模式标志
 	chars := tryReadCharQueue()
 	if chars == "" {
 		// 无字符: 阻塞等 hook 通知 (0-polling), 超时返回空状态
@@ -143,7 +144,10 @@ func rimeInputHandler(w http.ResponseWriter, r *http.Request) {
 		chars = tryReadCharQueue()
 	}
 	if chars == "" {
-		writeState(w, inputState{}) // 超时空转, QML 侧重新挂起
+		// 超时空转: 返回**当前真实状态**, 不能伪造空状态 —— 空 preedit 会让
+		// writeState 删掉 pinyin_active (hook 随即不再吞空格, 提交信号丢失,
+		// preedit 无限累积), 也会让 QML 的候选框在停顿 5 秒后凭空消失。
+		writeState(w, ime.Snapshot())
 		return
 	}
 	writeState(w, ime.Feed(chars))
@@ -253,6 +257,7 @@ func main() {
 
 	// 输入引擎 (librime 或回退的自研引擎, 由 build tag 决定)
 	initBackend()
+	startModeWatchdog()
 
 	// 新接口: long-poll + 引擎处理合一, QML 每次输入只需这一个请求
 	http.HandleFunc("/rime/input", rimeInputHandler)

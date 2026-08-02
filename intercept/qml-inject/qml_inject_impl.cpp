@@ -7,9 +7,15 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
+#include <ctime>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <QtCore/QByteArray>
+#include <QtCore/QChildEvent>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QList>
 #include <QtCore/QMetaMethod>
@@ -22,6 +28,8 @@
 #include <QtCore/QStringList>
 #include <QtGui/QClipboard>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QKeyEvent>
+#include <QtGui/QInputMethodEvent>
 #include <QtQml/QQmlComponent>
 #include <QtQml/QQmlContext>
 #include <QtQml/QQmlExpression>
@@ -446,8 +454,11 @@ static QQuickItem *findAncestorByClass(QQuickItem *item, const char *key) {
 }
 
 // 递归收集所有类名含 key 的节点
+// 剪枝: 不可见子树整棵跳过。我们要找的都是**当前显示中**的 UI (选区菜单/
+// 语言对话框/侧栏), 而节点大头恰恰是隐藏的文件网格、未展示的页面等。
+// 实测全树遍历单次 38~94ms 阻塞 GUI 主线程 = 打字卡顿主因, 剪枝后大幅缩短。
 static void findAllByClass(QQuickItem *item, const char *key, QList<QQuickItem *> &out) {
-    if (!item)
+    if (!item || !item->isVisible())
         return;
     if (QByteArray(item->metaObject()->className()).contains(key))
         out.append(item);
@@ -782,6 +793,257 @@ static void doInject(QQmlEngine *engine) {
     }
 }
 
+
+// ─── 输入拦截: Qt 事件过滤器 (取代 ime_hook 的符号插桩) ──────────────
+//
+// 为什么必须用事件过滤器: ime_hook 靠插桩具体函数拦按键, 但不同键盘走不同路径 ——
+// 探针实证 (虚拟键盘): 字母走 QInputMethodEvent::setCommitString, 而**退格两条
+// 插桩路径都不走** (它是合成 QKeyEvent 直接投递给焦点 item, 不经过
+// QGuiApplicationPrivate::processKeyEvent —— 那层只处理窗口系统来的硬件事件)。
+// 逐个猜路径是打地鼠。事件过滤器装在 QGuiApplication 上, 所有投递给任何对象的
+// 事件都先过我们的手, 硬件合成一视同仁 (installEventFilter + 一个旁路标志避免
+// 自己投递的事件被再次拦截)。
+//
+// 拦截策略: 仅在 /tmp/rmkit_chinese_mode 存在时生效, 其余场景零影响。
+// 截获的键写进与 ime_hook 相同的字符队列, 服务端逻辑完全不用改。
+static bool fileExists(const char *p) { return access(p, F_OK) == 0; }
+
+// 与 ime_hook 相同的入队格式: UTF-8 + '\n' 分隔 (服务端会剥掉 '\n')
+static void enqueueChar(unsigned short ch) {
+    int fd = open("/tmp/rmkit_char_queue", O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0)
+        return;
+    char buf[5];
+    int n = 0;
+    if (ch < 0x80) {
+        buf[n++] = (char)ch;
+    } else if (ch < 0x800) {
+        buf[n++] = (char)(0xC0 | (ch >> 6));
+        buf[n++] = (char)(0x80 | (ch & 0x3F));
+    } else {
+        buf[n++] = (char)(0xE0 | (ch >> 12));
+        buf[n++] = (char)(0x80 | ((ch >> 6) & 0x3F));
+        buf[n++] = (char)(0x80 | (ch & 0x3F));
+    }
+    buf[n++] = '\n';
+    ssize_t ignored = write(fd, buf, n);
+    (void)ignored;
+    close(fd);
+    // 唤醒 ime-server 的 long-poll (与 ime_hook 一致, 走 unix datagram)
+    int sk = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (sk >= 0) {
+        struct sockaddr_un addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sun_family = AF_UNIX;
+        strncpy(addr.sun_path, "/tmp/rmkit_hook_notify.sock", sizeof(addr.sun_path) - 1);
+        char one = 1;
+        ssize_t ig2 = sendto(sk, &one, 1, MSG_DONTWAIT, (struct sockaddr *)&addr, sizeof(addr));
+        (void)ig2;
+        close(sk);
+    }
+}
+
+// 事件驱动注入: 见 RmkitInputFilter::eventFilter 的 ChildAdded 分支
+static QQmlEngine *g_engine = nullptr;
+static void runInjectPass();           // 前置声明, 定义在各 doInject* 之后
+static QTimer *g_injectSoon = nullptr;
+
+// 请求"尽快跑一次注入": 50ms 单次防抖 —— ChildAdded 触发时子树往往还没建完
+// (我们要找的按钮容器可能还没挂上), 等一小会儿再扫命中率高且能合并连续事件。
+static void requestInjectSoon() {
+    if (!g_injectSoon) {
+        g_injectSoon = new QTimer(QCoreApplication::instance());
+        g_injectSoon->setSingleShot(true);
+        g_injectSoon->setInterval(16);  // 一帧即可, 尽快补按钮
+        QObject::connect(g_injectSoon, &QTimer::timeout, []() { runInjectPass(); });
+    }
+    g_injectSoon->start(); // 重复调用会重置计时, 天然防抖
+}
+
+class RmkitInputFilter : public QObject {
+public:
+    explicit RmkitInputFilter(QObject *parent = nullptr) : QObject(parent) {}
+
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        // 实时开关: touch /tmp/rmkit-nofilter 立刻旁路整个过滤器
+        static int offCheck = 0;
+        static bool off = false;
+        if ((++offCheck & 0x3F) == 0) // 每 64 次事件查一次开关, 避免频繁 syscall
+            off = (access("/tmp/rmkit-nofilter", F_OK) == 0);
+        if (off)
+            return QObject::eventFilter(obj, ev);
+
+        // 调用量统计: 过滤器挂在 QCoreApplication 上, 应用内**所有**事件都会过它,
+        // 量级本身就是嫌疑 (渲染/触摸/定时器事件极其频繁)
+        static long nEv = 0;
+        if ((++nEv % 20000) == 0)
+            flog("[perf] 过滤器已处理 %ld 个事件\n", nEv);
+
+        const QEvent::Type t = ev->type();
+
+        // ── 事件驱动注入 (取代纯定时扫描) ──────────────────────────
+        // 选区工具栏/语言对话框都是用户操作时才创建的临时 UI。以前靠定时器全树
+        // 扫描发现它们, 周期多长按钮就可能晚多久出现 (用户实测"有时半秒有时更久")。
+        // 改成监听 ChildAdded: 目标类型一出现就立刻安排注入, 按钮几乎瞬间到位。
+        // QQuickItem 的可视化父子用 setParentItem, **不发 QChildEvent** (实测 0 命中),
+        // 所以 ChildAdded 这条路对 QML 无效。改用焦点/显示类事件: 选区菜单、语言
+        // 对话框出现时必然伴随焦点变化或窗口激活, 用它们触发注入即可做到即时,
+        // 无需定时全树扫描 (扫描跑在 GUI 主线程, 是打字卡顿的主因)。
+        if (t == QEvent::FocusIn || t == QEvent::WindowActivate ||
+            t == QEvent::ApplicationActivate) {
+            requestInjectSoon();
+            // 同时通知拼音组件重新评估是否该激活输入。
+            // QML 侧的 onActiveFocusItemChanged 并非在所有焦点变化路径下都触发
+            // (实测: 用户点进已打开的记事本后 QML 收不到, 于是永远不激活 →
+            // 打不出中文)。这里由 C++ 侧的真实焦点事件驱动, 不用轮询。
+            if (g_pinyinItem) {
+                // 焦点常落在 ActionHeader 等无关元素上, QML 只看 activeFocusItem
+                // 就永远等不到编辑器 → 打不出中文 (实测)。这里定向找 SceneView:
+                // findByClass 命中即返回, 开销远小于注入用的全树多类扫描
+                // (那个实测单次阻塞主线程 38~94ms, 是打字卡顿的元凶)。
+                QQuickItem *sv = nullptr;
+                for (QWindow *w : QGuiApplication::topLevelWindows()) {
+                    auto *qw = qobject_cast<QQuickWindow *>(w);
+                    if (!qw || !qw->contentItem() || !qw->isVisible())
+                        continue;
+                    sv = findByClass(qw->contentItem(), "SceneView");
+                    if (sv)
+                        break;
+                }
+                static int fseq = 0;
+                ++fseq;
+                if (fseq <= 25)
+                    flog("[focus] type=%d sceneView=%s seq=%d\n", (int)t,
+                         sv ? "找到" : "无", fseq);
+                if (sv)
+                    g_pinyinItem->setProperty("editorItem", QVariant::fromValue((QObject *)sv));
+                g_pinyinItem->setProperty("focusPing", fseq);
+            }
+            return QObject::eventFilter(obj, ev);
+        }
+        if (t == QEvent::ChildAdded) {
+            auto *ce = static_cast<QChildEvent *>(ev);
+            QObject *c = ce->child();
+            if (c) {
+                const char *cn = c->metaObject()->className();
+                if (strstr(cn, "SelectionContextualMenu") || strstr(cn, "TextSelectionMenu") ||
+                    strstr(cn, "SceneSelectionHandler") || strstr(cn, "SelectionComponent") ||
+                    strstr(cn, "Sidebar")) {
+                    requestInjectSoon();
+                    static int hit = 0;
+                    if (++hit <= 30)
+                        flog("[childadd] 命中 %s → 触发注入\n", cn);
+                } else {
+                    // 诊断: 记录带 Menu/Selection 字样但未命中的类名, 用于补白名单
+                    static int miss = 0;
+                    if (miss < 40 && (strstr(cn, "Menu") || strstr(cn, "Selection") ||
+                                      strstr(cn, "Contextual"))) {
+                        miss++;
+                        flog("[childadd] 未命中 %s\n", cn);
+                    }
+                }
+            }
+            return QObject::eventFilter(obj, ev);
+        }
+
+        if (t != QEvent::KeyPress && t != QEvent::KeyRelease)
+            return QObject::eventFilter(obj, ev);
+        if (!fileExists("/tmp/rmkit_chinese_mode"))
+            return QObject::eventFilter(obj, ev);
+
+        auto *ke = static_cast<QKeyEvent *>(ev);
+        const int key = ke->key();
+        const QString txt = ke->text();
+        const bool pinyin = fileExists("/tmp/rmkit_pinyin_active");
+        unsigned short ch = txt.isEmpty() ? 0 : txt.at(0).unicode();
+
+        // 字母任何时候都拦 (改道候选栏); 其余键仅在拼音累积期拦, 否则正常派发
+        bool isLetter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+        bool isBackspace = (key == Qt::Key_Backspace) && pinyin;
+        bool isSpace = (ch == ' ') && pinyin;
+        bool isEnter = (key == Qt::Key_Return || key == Qt::Key_Enter) && pinyin;
+        bool isDigit = (ch >= '1' && ch <= '9') && pinyin;
+        bool isPunct = pinyin && (ch == ',' || ch == '.' || ch == '?' || ch == '!' ||
+                                  ch == ':' || ch == ';' || ch == '(' || ch == ')' ||
+                                  ch == '<' || ch == '>' || ch == '\\');
+        // rime-frost 的翻页键: '-' 上一页 / '=' 下一页 (default.yaml 的 key_binder
+        // 里 minus→Page_Up, equal→Page_Down)。不拦的话按下去直接进正文。
+        bool isPageKey = pinyin && (ch == '-' || ch == '=');
+
+        if (!(isLetter || isBackspace || isSpace || isEnter || isDigit || isPunct || isPageKey))
+            return QObject::eventFilter(obj, ev);
+
+        // press 入队, press/release 都吞 (保持配对, 避免下游收到半截事件)
+        if (t == QEvent::KeyPress) {
+            unsigned short out = isBackspace ? 0x08 : (isEnter ? '\r' : ch);
+            enqueueChar(out);
+            static int n = 0;
+            if (++n <= 40)
+                flog("[filter] 截获 key=0x%x ch=0x%x → 队列 0x%02x\n", key, ch, out);
+        }
+        return true; // 吞掉, 不再往下派发
+    }
+};
+
+static void installInputFilter() {
+    static RmkitInputFilter *filter = nullptr;
+    if (filter)
+        return;
+    QCoreApplication *app = QCoreApplication::instance();
+    if (!app)
+        return;
+    filter = new RmkitInputFilter(app);
+    app->installEventFilter(filter);
+    flog("[filter] 输入事件过滤器已安装\n");
+    fprintf(stderr, "[impl] 输入事件过滤器已安装\n");
+}
+
+// 跑一遍全部注入 (幂等)。由 ChildAdded 事件驱动调用, 定时器仅作兜底。
+static void runInjectPass() {
+    if (!g_engine)
+        return;
+    // 拼音候选框: 一次性注入, 已存在则立即返回 (QPointer 判空), 开销可忽略。
+    // **必须永远执行** —— 它没注入的话 g_pinyinItem 为空, C++ 侧的焦点处理
+    // 全部跳过, QML 收不到任何通知 → 打不出中文。
+    doInjectPinyin(g_engine);
+    // 以下是昂贵的全树扫描 (4 次遍历, 剪枝后仍可达 41ms 阻塞 GUI 主线程)。
+    // ★ 打字期间一律跳过 —— 焦点事件会触发扫描, 而打字时候选框显隐本身就在
+    // 制造焦点变化, 等于边打边扫, 这是卡顿的直接来源。
+    if (access("/tmp/rmkit_pinyin_active", F_OK) == 0)
+        return;
+    if (access("/tmp/rmkit-noscan", F_OK) == 0)
+        return;
+    // 限流: 焦点事件可能连发, 两次昂贵扫描至少间隔 1.5s
+    {
+        static struct timespec last = {0, 0};
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long dms = (now.tv_sec - last.tv_sec) * 1000L + (now.tv_nsec - last.tv_nsec) / 1000000L;
+        // 300ms: 选区菜单一出现就要尽快补上 AI 按钮 (1.5s 时用户感知"要等一秒")。
+        // 打字卡顿由上面的 pinyin_active 跳过来防, 不该靠拖长限流。
+        if (last.tv_sec != 0 && dms < 300)
+            return;
+        last = now;
+    }
+    // 耗时统计: 全树扫描跑在 GUI 主线程, 是打字卡顿的头号嫌疑
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    doInject(g_engine);
+    doInjectLanguage(g_engine);
+    doInjectGlyphAI(g_engine);
+    doInjectTextAI(g_engine);
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    long us = (t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_nsec - t0.tv_nsec) / 1000;
+    static long worst = 0, calls = 0;
+    calls++;
+    if (us > worst) {
+        worst = us;
+        flog("[perf] 注入扫描 第%ld次 本次%ldus 最慢%ldus\n", calls, us, worst);
+    } else if (calls % 20 == 0) {
+        flog("[perf] 注入扫描 第%ld次 本次%ldus 最慢%ldus\n", calls, us, worst);
+    }
+}
+
 extern "C" __attribute__((visibility("default"))) void pw_inject(void *enginePtr) {
     auto *engine = reinterpret_cast<QQmlEngine *>(enginePtr);
     if (!engine || !QCoreApplication::instance())
@@ -791,12 +1053,19 @@ extern "C" __attribute__((visibility("default"))) void pw_inject(void *enginePtr
     QMetaObject::invokeMethod(
         QCoreApplication::instance(),
         [engine]() {
-            fprintf(stderr, "[impl] 启动重复注入检查 (每 2s)\n");
+            fprintf(stderr, "[impl] 注入: 事件驱动 + 5s 兜底扫描\n");
+            g_engine = engine;
+            installInputFilter();
             QTimer *t = new QTimer(QCoreApplication::instance());
             t->setInterval(1000); // 1s: 平衡响应 (语言列表注入延迟) 与全树扫描 CPU
-            QObject::connect(t, &QTimer::timeout, [engine]() {
+            QObject::connect(t, &QTimer::timeout, [t, engine]() {
                 g_engineForClip = engine;
                 maybeDumpAll();
+                // ★ 正在输入拼音时跳过整轮扫描。全树递归 (文件网格 4000+ 节点)
+                // 跑在 GUI 主线程上, 每秒一次会和打字渲染抢线程 → 用户感知为
+                // "打字小卡一下"。输入期间界面结构不会变, 没有扫描的必要。
+                if (access("/tmp/rmkit_pinyin_active", F_OK) == 0)
+                    return;
                 { // 主动求值 Clipboard 单例: 不依赖"用户触发按钮注入"这条路径
                     static int tries = 0;
                     if (!g_clipSingleton && tries < 600) {
@@ -835,11 +1104,17 @@ extern "C" __attribute__((visibility("default"))) void pw_inject(void *enginePtr
                              (int)now.length(), fmts.toUtf8().constData());
                     }
                 }
-                doInject(engine);
-                doInjectLanguage(engine);
-                doInjectGlyphAI(engine);
-                doInjectTextAI(engine);
-                doInjectPinyin(engine);
+                runInjectPass();
+                // 注入主力已改为事件驱动 (ChildAdded → requestInjectSoon), 本定时器
+                // 只作兜底: 万一某个 UI 的创建路径不发 ChildAdded, 或事件被别的
+                // 过滤器提前吃掉, 靠它补上。所以可以降到 5s —— 全树扫描是主线程
+                // 开销大头 (文件网格 4000+ 节点), 降频后打字卡顿基本消失。
+                // 主力是事件驱动 (FocusIn/WindowActivate → requestInjectSoon),
+                // 本定时器只作兜底: 万一某个 UI 出现时不带这些事件, 3s 内补上。
+                // 全树扫描跑在 GUI 主线程 (文件网格 4000+ 节点), 频率高会直接
+                // 表现为打字卡顿, 所以能少扫就少扫。
+                if (g_pinyinItem && t->interval() != 3000)
+                    t->setInterval(3000);
             });
             t->start();
             // pinyin IME 心跳: 250ms 写 imeTick, 驱动组件内的 poll 链兜底 + 候选防抖
@@ -847,6 +1122,8 @@ extern "C" __attribute__((visibility("default"))) void pw_inject(void *enginePtr
             QTimer *tick = new QTimer(QCoreApplication::instance());
             tick->setInterval(250);
             QObject::connect(tick, &QTimer::timeout, []() {
+                if (access("/tmp/rmkit-notick", F_OK) == 0)
+                    return;   // 实时开关: 停掉 QML 侧的 tick 驱动
                 static int n = 0;
                 if (g_pinyinItem)
                     g_pinyinItem->setProperty("imeTick", ++n);

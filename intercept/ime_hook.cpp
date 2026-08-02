@@ -182,6 +182,7 @@ static const size_t KE_KEYTYPE_OFFSET = 60;
 static const int QEVENT_KEYPRESS   = 6;
 static const int QEVENT_KEYRELEASE = 7;
 // Qt::Key
+static const int QT_KEY_BACKSPACE = 0x01000003;
 static const int QT_KEY_RETURN = 0x01000004;
 static const int QT_KEY_ENTER  = 0x01000005;
 
@@ -206,7 +207,11 @@ void _ZN17QInputMethodEvent15setCommitStringERK7QStringii(
     // 退格：replaceFrom<0 的空 commit，仅当拼音正在累积时拦
     if (replaceFrom < 0 && qstring_size(qs) == 0) {
         if (file_exists("/tmp/rmkit_pinyin_active")) {
-            if (g_debug) fprintf(stderr, "[rmkit-hook] swallow backspace\n");
+            // 必须入队转发给引擎: 只吞不转发的话, 引擎的 preedit 原封不动,
+            // 下一个字母直接接在后面 (实测 NI 退格后打 N → NNI 越积越长)。
+            // 旧版缓冲区在 QML 手里可以本地删, 现在归 librime 管, 只能走队列。
+            enqueue_char('\b');
+            if (g_debug) fprintf(stderr, "[rmkit-hook] queue backspace (commit path)\n");
             return;
         }
     }
@@ -276,6 +281,9 @@ void _ZN22QGuiApplicationPrivate15processKeyEventEPN29QWindowSystemInterfacePriv
             bool pinyin = file_exists("/tmp/rmkit_pinyin_active");
             bool is_letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
             bool is_space  = (ch == ' ') && pinyin;
+            // 退格: 物理键盘走本路径, 之前完全没处理 → 引擎收不到退格。
+            // unicode 里退格是 0x08, 但也按 Qt::Key 兜底 (KeyEvent 的 unicode 可能为空)
+            bool is_backspace = (ch == 0x08 || key == QT_KEY_BACKSPACE) && pinyin;
             // 回车键的 unicode QString 在 Qt 6 KeyEvent 里可能是空的——按 Qt::Key 判断
             bool is_enter  = (key == QT_KEY_RETURN || key == QT_KEY_ENTER) && pinyin;
             bool is_digit  = (ch >= '1' && ch <= '9') && pinyin;  // 1-9 选候选
@@ -287,9 +295,9 @@ void _ZN22QGuiApplicationPrivate15processKeyEventEPN29QWindowSystemInterfacePriv
                 fprintf(stderr, "[rmkit-hook] keyev type=%d key=0x%x n=%lld ch=0x%x\n",
                         keyType, key, n, ch);
             }
-            if (is_letter || is_space || is_enter || is_digit || is_cn_punct) {
+            if (is_letter || is_space || is_enter || is_digit || is_cn_punct || is_backspace) {
                 if (keyType == QEVENT_KEYPRESS) {
-                    uint16_t out = is_enter ? '\r' : ch;
+                    uint16_t out = is_enter ? '\r' : (is_backspace ? '\b' : ch);
                     enqueue_char(out);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] key queue 0x%02x\n", out);
                 }

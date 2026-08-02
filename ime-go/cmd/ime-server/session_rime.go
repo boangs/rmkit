@@ -61,6 +61,15 @@ func (b *rimeBackend) Feed(chars string) inputState {
 	return b.snapshot(committed)
 }
 
+// Snapshot 只读当前状态, 不消费按键。长轮询超时返回它, 而不是伪造空状态 ——
+// 空状态会让 writeState 误删 pinyin_active 标志 (hook 就不再吞空格, librime
+// 永远收不到提交 → preedit 无限累积), 同时也会让 QML 侧候选框凭空消失。
+func (b *rimeBackend) Snapshot() inputState {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.snapshot("")
+}
+
 // SelectCandidate 选中当前页第 idx 个候选 (点击候选框时用)。
 func (b *rimeBackend) SelectCandidate(idx int) inputState {
 	b.mu.Lock()

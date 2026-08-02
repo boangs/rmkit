@@ -61,6 +61,12 @@ func (b *fallbackBackend) Feed(chars string) inputState {
 	return b.snapshot(committed)
 }
 
+func (b *fallbackBackend) Snapshot() inputState {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.snapshot("")
+}
+
 func (b *fallbackBackend) SelectCandidate(idx int) inputState {
 	b.mu.Lock()
 	defer b.mu.Unlock()

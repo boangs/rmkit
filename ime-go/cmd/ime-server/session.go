@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
+	"sync/atomic"
+	"time"
 )
 
 // inputState 是一次按键处理后的完整输入状态, 直接序列化给 QML。
@@ -22,6 +25,7 @@ type inputState struct {
 // 两者行为差异对 HTTP 层与 QML 层透明。
 type backend interface {
 	Feed(chars string) inputState  // 喂一批按键字符, 返回处理后状态
+	Snapshot() inputState          // 不改状态, 只读当前输入状态 (长轮询超时用)
 	SelectCandidate(idx int) inputState
 	ChangePage(backward bool) inputState
 	Clear()
@@ -45,7 +49,53 @@ func envOr(k, def string) string {
 	return def
 }
 
+// syncPinyinActive 按当前 preedit 状态维护 /tmp/rmkit_pinyin_active。
+//
+// 这个标志决定 ime_hook 要不要吞掉空格和退格。**必须由服务端写**: 之前交给 QML
+// 在收到响应后再发一个 HTTP 请求去设, 中间隔着一次往返 —— 用户连续打字时,
+// 空格常常在标志生效前就按下, hook 不吞它 → 空格直接进正文 → librime 永远收不到
+// 提交信号 → preedit 无限累积 (实测: 打一会儿就攒出一长串历史输入)。
+// 服务端算完 preedit 立刻就知道状态, 零延迟, 无竞态。
+// 心跳保活: QML 每次拉取都刷新时间戳。看门狗发现超过 3 秒没人拉取, 就认为
+// QML 侧已经不在工作 (崩溃/重建/焦点丢失), 立刻清掉 chinese_mode ——
+// 否则 ime_hook 会继续吞掉每一个按键却无人处理, 用户体验是"打字极卡"
+// (实测: CPU 全程空闲 load 0.3, 但每次按键都要等超时才落地)。
+var lastPollUnix atomic.Int64
+
+func touchPoll() { lastPollUnix.Store(time.Now().Unix()) }
+
+func startModeWatchdog() {
+	go func() {
+		for range time.Tick(time.Second) {
+			last := lastPollUnix.Load()
+			if last == 0 {
+				continue
+			}
+			// ★ 阈值必须远大于长轮询周期 (blockingTimeout=5s)。
+			// 原本设 3s < 5s —— 每次正常的长轮询阻塞期间看门狗都误判"QML 停止
+			// 拉取", 把 chinese_mode 清掉, 于是标志刚设上就没, 永远打不出中文。
+			if time.Now().Unix()-last > 20 {
+				if _, err := os.Stat("/tmp/rmkit_chinese_mode"); err == nil {
+					os.Remove("/tmp/rmkit_chinese_mode")
+					os.Remove("/tmp/rmkit_pinyin_active")
+					log.Printf("[watchdog] QML 停止拉取 >3s, 已清除输入模式标志")
+				}
+				lastPollUnix.Store(0)
+			}
+		}
+	}()
+}
+
+func syncPinyinActive(composing bool) {
+	if composing {
+		os.WriteFile("/tmp/rmkit_pinyin_active", []byte{}, 0644)
+	} else {
+		os.Remove("/tmp/rmkit_pinyin_active")
+	}
+}
+
 func writeState(w http.ResponseWriter, st inputState) {
+	syncPinyinActive(st.Preedit != "")
 	if st.Candidates == nil {
 		st.Candidates = []string{} // 让 QML 侧永远拿到数组而非 null
 	}

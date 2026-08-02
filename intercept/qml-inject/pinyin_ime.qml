@@ -15,8 +15,44 @@ import QtQuick
 Item {
     id: pinyinIME
     objectName: "rmkitPinyinIME"
-    anchors.fill: parent
     z: 99999
+
+    // ── 横屏支持 ───────────────────────────────────────────────────
+    // xochitl 横屏不是转窗口, 而是把各个原生窗口 (ShortcutsWindow/GesturesWindow
+    // 等) 各自旋转 90° 并位移: 根节点仍是竖屏 954x1696, 而它们变成 1696x954
+    // pos=(-371,371)。我们注入在根节点上, 不在那些被旋转的容器里, 所以不会跟着转
+    // —— 表现为界面横过来了、候选框却还竖着侧躺 (实测截图)。
+    //
+    // 对策: 自己复制那套变换。检测到原生窗口是横屏尺寸时, 把自己也按屏幕中心
+    // 旋转 90°, 并交换宽高, 这样内部所有布局按横屏的宽高算, 与原生 UI 对齐。
+    // 判定横屏: 找"尺寸与根节点交换"的原生窗口容器。
+    // 不能用"任一子节点宽>高"—— 工具栏/状态栏天生宽>高, 竖屏下也会误判,
+    // 结果候选框在竖屏被转了 90 度 (用户实测)。
+    // 实测数据: 竖屏时所有容器都是 954x1696 (同根节点);
+    //           横屏时变成 1696x954 pos=(-371,371)。
+    property bool _landscape: {
+        var w = pinyinIME.Window.window
+        if (!w || !w.contentItem) return false
+        var root = w.contentItem
+        var kids = root.children
+        for (var i = 0; i < kids.length; i++) {
+            var k = kids[i]
+            if (k !== pinyinIME && k.width > 100 && k.height > 100 &&
+                Math.abs(k.width - root.height) < 8 && Math.abs(k.height - root.width) < 8)
+                return true
+        }
+        return false
+    }
+    // 竖屏: 直接铺满。横屏: 宽高互换 + 绕中心转 90°, 与原生窗口同一套变换。
+    width: _landscape ? (parent ? parent.height : 1696) : (parent ? parent.width : 954)
+    height: _landscape ? (parent ? parent.width : 954) : (parent ? parent.height : 1696)
+    x: _landscape && parent ? (parent.width - width) / 2 : 0
+    y: _landscape && parent ? (parent.height - height) / 2 : 0
+    rotation: _landscape ? 90 : 0
+
+    // librime 版 ime-server 地址。端到端验证期间指向测试实例 (19899),
+    // 生产切换时改回 19876。所有接口 (含 setMode) 统一走这个地址, 不能分裂。
+    property string rimeBase: "http://127.0.0.1:19899"
 
     property string pinyinBuffer: ""
     property var candidates: []
@@ -44,17 +80,81 @@ Item {
     // ── Timer 替代机制 ──────────────────────────────────────────────
     // C++ (qml_inject_impl) 每 250ms 自增写入 imeTick。
     property int imeTick: 0
+    // C++ 事件过滤器在真实焦点事件 (FocusIn/WindowActivate) 时自增此属性。
+    // QML 自己的 onActiveFocusItemChanged 并非所有路径都触发 —— 实测用户点进
+    // 已打开的记事本时收不到, 于是永远不激活、打不出中文。改由 C++ 侧驱动。
+    // controller 未就绪时的重试余额 (焦点事件触发, 用完即止, 不是持续轮询)
+    property int _ctrlRetry: 0
+    // C++ 在焦点事件时定向找到的编辑器 (SceneView)。焦点本身常落在
+    // ActionHeader 等无关元素上, 只看 activeFocusItem 会永远激活不了。
+    property var editorItem: null
+    property int _xhrStuck: 0
+    property int focusPing: 0
+    onFocusPingChanged: {
+        if (!active) enterDirectModeIfApplicable()
+    }
     // text 模式上一次的文本快照 (原 textWatcher.lastText)
     property string _lastText: ""
     onImeTickChanged: {
         // 原 charPoller Timer (500ms) 职责: long-poll 链兜底重启
         // (_pollChars 内部有 _charXhrActive / intercepting / mode 守卫, 幂等)
-        if (active && isChineseMode && useDirectCommit) _pollChars()
+        // 二重保险: XHR 若静默失效 (既不回调也不超时), _charXhrActive 会永远
+        // 卡在 true。连续 40 个 tick (10s, 远超服务端 5s 长轮询) 仍未回来就强制复位。
+        if (_charXhrActive) {
+            _xhrStuck++
+            if (_xhrStuck > 120) {   // 30s, 远超服务端 5s 长轮询, 避免误判
+                _xhrStuck = 0
+                _charXhrActive = false
+                console.warn("XOVI-PINYIN: 拉取链卡死, 已强制复位")
+            }
+        } else {
+            _xhrStuck = 0
+        }
+        if (active && isChineseMode) _pollChars()   // 两种模式都要拉链
+        // 仅在"焦点已到编辑器但 controller 还没绑好"时短暂重试, 用完即止。
+        // 平时这里什么都不做 —— 持续轮询会和打字渲染抢主线程 (实测明显卡顿)。
+        if (_ctrlRetry > 0 && !active) {
+            _ctrlRetry--
+            enterDirectModeIfApplicable()
+        }
     }
 
+    // ── 中文模式判定 ───────────────────────────────────────────────
+    // 不能只信 Qt.inputMethod.locale: 它要等虚拟键盘出现过一次才会变成 zh_CN。
+    // 用户接物理键盘直接打开记事本时虚拟键盘从未出现 → locale 还是默认值 →
+    // 判定为非中文 → 不开拦截 → 字母直接进正文 (必须先调出虚拟键盘才正常, 实测)。
+    // 回退到读 xochitl 配置里的 Keyboard=, 那才是用户真正设定的键盘。
+    property bool _cfgChinese: false
+    function _loadKeyboardCfg() {
+        try {
+            var xhr = new XMLHttpRequest()
+            xhr.open("GET", "file:///home/root/.config/remarkable/xochitl.conf", false)
+            xhr.send()
+            pinyinIME._cfgChinese = /Keyboard\s*=\s*zh/i.test(xhr.responseText || "")
+            console.warn("XOVI-PINYIN: 键盘配置 zh=" + pinyinIME._cfgChinese)
+        } catch (e) {
+            console.warn("XOVI-PINYIN: 读键盘配置失败 " + e)
+        }
+    }
+    // locale 可信时以它为准 (用户在虚拟键盘上切语言要能立刻生效);
+    // locale 尚未初始化 (空 / 不含区域信息) 时才用配置兜底。
+    // 注意: 不要在这里读文件。_cfgChinese 是启动时读一次的缓存 ——
+    // 早先版本每次调用都同步 XHR 读配置 (阻塞主线程做磁盘 IO), 而本函数被
+    // 激活检查每秒调用数次 → 打字明显卡顿。
+    function _isChineseNow() {
+        var loc = Qt.inputMethod.locale
+        var lang = loc ? loc.name : ""
+        if (lang.indexOf("zh") === 0) return true
+        if (lang === "" || lang === "C") return pinyinIME._cfgChinese
+        return false
+    }
+
+    // 模式标志也走 rimeBase, 不能写死 19876 —— 否则验证期把 rime 接口指到测试
+    // 端口后, setMode 仍打生产端口; 生产服务一停请求就全失败, chinese_mode 标志
+    // 建不起来, 事件过滤器永不拦截 → 只能打英文 (实测踩过)。
     function setMode(key, val) {
         var xhr = new XMLHttpRequest()
-        xhr.open("GET", "http://127.0.0.1:19876/set-mode?" + key + "=" + (val ? "1" : "0"))
+        xhr.open("GET", rimeBase + "/set-mode?" + key + "=" + (val ? "1" : "0"))
         xhr.send()
     }
 
@@ -89,17 +189,39 @@ Item {
     // 物理键盘回落：虚拟键盘不 visible 时，若当前焦点是 SceneView
     // （记事本编辑器：无 text 属性、有 controller），且 locale 为 zh，
     // 就保持 direct mode 让字母走 charPoller。返回是否成功进入。
+    property int _diagN: 0
     function enterDirectModeIfApplicable() {
+        var dbg = pinyinIME._diagN < 20
+        if (dbg) pinyinIME._diagN++
         var win = pinyinIME.Window.window
-        if (!win) return false
+        if (!win) { if (dbg) console.warn("[rmkit-ime] 无 window"); return false }
         var item = win.activeFocusItem
-        if (!item) return false
-        var locale = Qt.inputMethod.locale
-        var lang = locale ? locale.name : ""
-        var isChinese = lang.indexOf("zh") === 0
-        if (!isChinese) return false
-        if (item.text !== undefined) return false     // TextInput，走 text mode 由 onVisibleChanged 管
-        if (!item.controller) return false            // 不是 SceneView
+        // 焦点项没有 controller 时改用 C++ 定向找到的编辑器
+        if ((!item || item.controller === undefined || !item.controller) &&
+            pinyinIME.editorItem && pinyinIME.editorItem.controller)
+            item = pinyinIME.editorItem
+        if (!item) { if (dbg) console.warn("[rmkit-ime] 无焦点项"); return false }
+        if (!pinyinIME._isChineseNow()) {
+            if (dbg) console.warn("[rmkit-ime] 判定非中文 locale=" +
+                (Qt.inputMethod.locale ? Qt.inputMethod.locale.name : "?") +
+                " cfg=" + pinyinIME._cfgChinese)
+            return false
+        }
+        if (item.text !== undefined) {
+            if (dbg) console.warn("[rmkit-ime] 焦点是 TextInput → " + item)
+            return false
+        }
+        if (!item.controller) {
+            // 焦点已经落在编辑器 (SceneView) 上, 但它的 controller 属性此刻还没
+            // 绑定完 —— 焦点事件比属性就绪早。以前靠虚拟键盘的 onVisibleChanged
+            // (时机晚得多) 才成功, 这正是"必须先调出虚拟键盘才能打中文"的根源。
+            // 安排有限次重试: 由焦点事件触发, 最多 8 次 (约 2 秒) 后自动停止,
+            // 不是无限轮询。
+            if (item.text === undefined && pinyinIME._ctrlRetry <= 0)
+                pinyinIME._ctrlRetry = 8
+            if (dbg) console.warn("[rmkit-ime] controller 未就绪, 安排重试 → " + item)
+            return false
+        }
         pinyinIME.focusTarget = item
         pinyinIME.useDirectCommit = true
         pinyinIME.active = true
@@ -109,6 +231,9 @@ Item {
         // 物理键盘没有虚拟键盘 overlay → 候选栏必须 detach 回 pinyinIME，
         // 否则之前 nudgeToolbar 把它 reparent 到 overlay (width=0) 会看不见。
         pinyinIME.detachCandidateBar()
+        // 清空服务端 librime session: 它是常驻的, 不清会把上一轮/上一个焦点
+        // 遗留的 preedit 继续累积 (实测过: 打一个 n 就把历史输入全吐出来)
+        pinyinIME._rimeCall("/rime/clear")
         // Timer 版靠 charPoller running 条件自动开链; 运行时版显式拉起
         Qt.callLater(pinyinIME._pollChars)
         console.warn("XOVI-PINYIN: enter direct mode (physical kb)")
@@ -241,12 +366,16 @@ Item {
     // 字符到达立刻返回 (~5ms)。响应处理完后 chain 递归立刻发下一次 xhr,
     // 形成持续 long-poll 链。imeTick (250ms) 仅作 fallback (网络
     // 错误 / 服务重启时把链拉回来)。
+    // 两种模式共用: direct(记事本 SceneView) 和 text(搜索栏等 TextInput)。
+    // 事件过滤器统一截键 → 服务端 librime 出候选 → 这里取回并显示/上屏。
     function _pollChars() {
         if (pinyinIME._charXhrActive) return
         if (pinyinIME.intercepting) return
-        if (!pinyinIME.active || !pinyinIME.useDirectCommit || !pinyinIME.isChineseMode) return
+        if (!pinyinIME.active || !pinyinIME.isChineseMode) return
+        // direct 模式需要 controller 往文档写; text 模式直接改 TextInput.text,
+        // 没有 controller 也要继续 (否则搜索栏里永远收不到候选)。
         var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
-        if (!ctrl) return
+        if (pinyinIME.useDirectCommit && !ctrl) return
 
         pinyinIME._charXhrActive = true
         var xhr = new XMLHttpRequest()
@@ -262,8 +391,24 @@ Item {
             // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
             Qt.callLater(pinyinIME._pollChars)
         }
-        xhr.open("GET", "http://127.0.0.1:19876/rime/input")
-        xhr.send()
+        // 超时/网络错误必须复位标志, 否则拉取链永久卡住:
+        // 链一断 → 服务端看门狗判定"QML 停止拉取"清掉模式标志 → hook 不再拦截
+        // → 候选消失; 同时"打字时跳过扫描"的保护也失效, 1.6s 的扫描就撞进打字里。
+        xhr.ontimeout = function() {
+            pinyinIME._charXhrActive = false
+            Qt.callLater(pinyinIME._pollChars)
+        }
+        xhr.onerror = function() {
+            pinyinIME._charXhrActive = false
+            Qt.callLater(pinyinIME._pollChars)
+        }
+        try {
+            xhr.open("GET", rimeBase + "/rime/input")
+            xhr.send()
+        } catch (e) {
+            pinyinIME._charXhrActive = false
+            console.warn("[rmkit-ime] 长轮询发送失败: " + e)
+        }
     }
 
     // 把 ime-server 返回的输入状态应用到界面 + 文档。
@@ -282,13 +427,21 @@ Item {
             pinyinIME.intercepting = false
         }
 
-        // 编辑区文本: 非空时需要占位符吸收退格; 空了就撤掉
-        if (newPreedit !== "" && !hadPreedit) {
-            pinyinIME.setMode("pinyin_active", true)
+        // 编辑区文本: 非空时需要占位符吸收退格; 空了就撤掉。
+        // pinyin_active 标志不在这里设 —— 已改由 ime-server 在返回状态时同步写
+        // (QML 侧发请求去设中间隔一次往返, 连续打字时空格会赶在标志生效前按下,
+        // hook 不吞 → librime 收不到提交 → preedit 无限累积)。
+        // 只要还在输入就保证占位符在位 (原来只在"从空变非空"时放, 而虚拟键盘退格
+        // 会把占位符删掉 → 之后没东西可删 → 光标不动 → 检测不到, 只能删一次)。
+        // 虚拟键盘的退格既不走 setCommitString 也不走 processKeyEvent (探针实证),
+        // 直接改文档, 所以占位符是唯一能感知它的手段, 必须持续维护。
+        if (newPreedit !== "" && !pinyinIME.hasAnchor) {
             pinyinIME.placeAnchor(ctrl)
         } else if (newPreedit === "" && hadPreedit) {
             pinyinIME.removeAnchor(ctrl)
-            pinyinIME.setMode("pinyin_active", false)
+            // 兜底: 候选框一消失就清服务端 session。即使还有没覆盖到的路径让
+            // 两边状态不一致, 也不会让脏状态长期留着继续累积。
+            pinyinIME._rimeCall("/rime/clear")
         }
 
         pinyinIME.pinyinBuffer = newPreedit
@@ -313,7 +466,7 @@ Item {
                 if (st) pinyinIME._applyState(st, ctrl)
             }
         }
-        xhr.open("GET", "http://127.0.0.1:19876" + path)
+        xhr.open("GET", rimeBase + path)
         xhr.send()
     }
 
@@ -331,18 +484,18 @@ Item {
             if (!ctrl) return
             var newIdx = ctrl.textCursorIndex
 
-            // 光标退到占位符位置或更前 → 占位符被退格键删掉了
+            // 光标退到占位符位置或更前 → 占位符被退格键删掉了。
+            // ime_hook 只是"吞掉"退格 (免得它删正文), 并不转发给引擎 —— 所以必须
+            // 由这里把退格补送给 librime, 否则它的 preedit 原封不动, 下一个字母
+            // 直接接在后面 (实测: NI 退格后再打 N 变成 NNI, 越积越长)。
+            // 旧版是 QML 自己维护缓冲区才能本地 slice; 现在缓冲区归 librime。
             if (newIdx <= pinyinIME.anchorIdx) {
                 pinyinIME.hasAnchor = false
-                pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
-                if (pinyinIME.pinyinBuffer === "") {
-                    pinyinIME.clearState()
-                } else {
-                    // 重新放置占位符供下次退格使用
-                    pinyinIME.anchorIdx = newIdx
-                    pinyinIME.replaceAnchor(ctrl)
-                    pinyinIME.fetchCandidates()
-                }
+                pinyinIME.anchorIdx = newIdx
+                console.warn("XOVI-PINYIN: 虚拟退格 → 转发 librime (idx=" + newIdx + ")")
+                // code=8 → 服务端映射成 BackSpace keysym 送进 rime session。
+                // 返回的新状态会重建占位符 (preedit 非空时 _applyState 会 placeAnchor)
+                pinyinIME._rimeCall("/rime/key?code=8")
             } else if (newIdx > pinyinIME.anchorIdx + 1) {
                 // PPM 虚拟 Enter 键：既不走 setCommitString 也不走 processKeyEvent，
                 // 直接让 SceneView 插入一个换行（cursor 从 anchorIdx+1 前移到 anchorIdx+2）。
@@ -367,7 +520,7 @@ Item {
         function onLocaleChanged() {
             var locale = Qt.inputMethod.locale
             var lang = locale ? locale.name : ""
-            var isChinese = lang.indexOf("zh") === 0
+            var isChinese = pinyinIME._isChineseNow()   // locale 优先, 未初始化时用配置兜底
             console.warn("XOVI-PINYIN: localeChanged lang=" + lang + " chinese=" + isChinese)
             pinyinIME.isChineseMode = isChinese
             if (!isChinese) {
@@ -390,9 +543,9 @@ Item {
                 }
                 var locale = Qt.inputMethod.locale
                 var lang = locale ? locale.name : ""
-                var isChinese = lang.indexOf("zh") === 0
+                var isChinese = pinyinIME._isChineseNow()
                 pinyinIME.isChineseMode = isChinese
-                console.warn("XOVI-PINYIN: kb visible locale=" + lang)
+                console.warn("XOVI-PINYIN: kb visible locale=" + lang + " chinese=" + isChinese)
                 if (!isChinese) {
                     pinyinIME.setMode("chinese", false)
                     pinyinIME.active = false
@@ -462,51 +615,18 @@ Item {
                 var added = t.substring(pinyinIME._lastText.length)
                 pinyinIME._lastText = t
                 if (pinyinIME.isChineseMode && /^[a-zA-Z]+$/.test(added)) {
-                    pinyinIME.pinyinBuffer += added  // 保留原始大小写
-                    pinyinIME.fetchCandidates()
+                    // 字母转发给 librime (它维护缓冲区+候选), 不再本地累积
+                    pinyinIME._rimeCall("/rime/key?code=" + added.charCodeAt(added.length - 1))
                 } else if (pinyinIME.pinyinBuffer !== "") {
                     pinyinIME.commitTextMode(added.length)
                 }
             } else if (t.length < pinyinIME._lastText.length) {
                 pinyinIME._lastText = t
                 if (pinyinIME.pinyinBuffer !== "") {
-                    pinyinIME.pinyinBuffer = pinyinIME.pinyinBuffer.slice(0, -1)
-                    if (pinyinIME.pinyinBuffer === "") pinyinIME.clearState()
-                    else pinyinIME.fetchCandidates()
+                    pinyinIME._rimeCall("/rime/key?code=8")   // 退格同样转发
                 }
             }
         }
-    }
-
-    // 候选查询: 每次拼音串变化立即查询, 无防抖。
-    // (原 candidatesDebounce 250ms 防抖是为省墨水屏刷新 —— qmd 时代候选框每变一次
-    // 就一次慢刷; 现在整屏走 Animation 快刷, 刷新代价低, 去掉防抖让候选框实时跟手。)
-    function fetchCandidates() {
-        if (pinyinBuffer === "") {
-            candidates = []
-            showBar = false
-            return
-        }
-        showBar = true
-        _doFetchCandidates()
-    }
-
-    function _doFetchCandidates() {
-        if (pinyinBuffer === "") return
-        var xhr = new XMLHttpRequest()
-        xhr.timeout = 500
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === 4 && xhr.status === 200) {
-                try {
-                    var r = JSON.parse(xhr.responseText)
-                    pinyinIME.candidates = Array.isArray(r) ? r : []
-                    pinyinIME.pageIdx = 0
-                } catch(e) {}
-            }
-        }
-        // 词库按小写索引；查询统一小写化，但 buffer 仍保留原大小写供回车原样上屏
-        xhr.open("GET", "http://127.0.0.1:19876/candidates?pinyin=" + encodeURIComponent(pinyinBuffer.toLowerCase()))
-        xhr.send()
     }
 
     function insertToDoc(ctrl, text) {
@@ -614,6 +734,8 @@ Item {
     }
 
     function clearState() {
+        // 本地清空的同时也清服务端 session, 两边状态必须一致
+        if (pinyinBuffer !== "") pinyinIME._rimeCall("/rime/clear")
         pinyinBuffer = ""
         candidates = []
         pageIdx = 0
@@ -684,9 +806,15 @@ Item {
             pinyinIME.useDirectCommit = false
             pinyinIME._lastText = item.text
             pinyinIME.active = true
-            // text mode：字母走原生 TextInput,不让 hook 拦
-            pinyinIME.setMode("chinese", false)
-            console.warn("XOVI-PINYIN: text mode")
+            // text mode (搜索栏等 TextInput)。
+            // ★ 必须同样开启拦截: 旧架构下 text 模式让字母原生进 TextInput、QML
+            // 轮询 text 变化, 所以故意 setMode("chinese", false)。改用事件过滤器 +
+            // librime 后两种模式的输入路径已统一, 再关拦截就等于这里完全没有中文
+            // —— 实测虚拟键盘弹出时焦点是 GeneralTextInput, 走到这里把中文关掉,
+            // 于是"输不出汉字"。
+            pinyinIME.setMode("chinese", true)
+            pinyinIME._rimeCall("/rime/clear")
+            console.warn("XOVI-PINYIN: text mode (拦截已开启)")
         } else {
             pinyinIME.focusTarget = item
             pinyinIME.useDirectCommit = true
@@ -694,6 +822,7 @@ Item {
             if (item && item.controller) ctrlConn.target = item.controller
             // direct mode：字母改道到候选栏
             pinyinIME.setMode("chinese", true)
+            pinyinIME._rimeCall("/rime/clear")   // 同上: 每次激活都从干净状态开始
             // Timer 版靠 charPoller running 条件自动开链; 运行时版显式拉起
             Qt.callLater(pinyinIME._pollChars)
             console.warn("XOVI-PINYIN: direct mode, ctrl=" + (item ? item.controller : null))
@@ -735,7 +864,8 @@ Item {
     }
 
     Component.onCompleted: {
-        console.warn("XOVI-PINYIN: IME ready v61-runtime (fast-refresh)")
+        console.warn("XOVI-PINYIN: IME ready v62-runtime (event-filter)")
+        _loadKeyboardCfg()
         setMode("chinese", false)
         setMode("pinyin_active", false)
         // 快刷标记打在常驻整屏 fastZone 上 —— 会话期间几何零变化, 零抖动。
