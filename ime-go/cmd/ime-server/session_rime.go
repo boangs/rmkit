@@ -56,6 +56,15 @@ func (b *rimeBackend) Feed(chars string) inputState {
 		case '\r', '\n':
 			code = keyReturn
 		default:
+			// 大写字母归一化成小写再喂给 librime。
+			// rime 见到大写会切进 ASCII 直通模式 (原样输出不组词), 而虚拟键盘
+			// 句首默认自动大写 —— 用户以为在打 "nihao", 实际发出的是 "N"+"ihao",
+			// 于是"打半天只出英文"。本项目是中文输入法, 英文照样能从 melt_eng
+			// 的候选里选 (打 "i" 就有 ID / IE / Internet Explorer), 归一化不损失
+			// 输入能力, 却能根除这一整类"吃字"。
+			if ch >= 'A' && ch <= 'Z' {
+				ch = ch - 'A' + 'a'
+			}
 			code = int(ch) // 可打印 ASCII 的 keysym == 码值
 		}
 		b.sess.ProcessKey(code, 0)

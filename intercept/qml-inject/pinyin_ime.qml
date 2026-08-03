@@ -91,6 +91,8 @@ Item {
     property var editorItem: null
     property int _xhrStuck: 0
     property int _interceptStuck: 0
+    // 在途的长轮询 XHR。强制复位时必须 abort 它, 否则连接泄漏 (见下)。
+    property var _charXhr: null
     property int focusPing: 0
     onFocusPingChanged: {
         if (!active) enterDirectModeIfApplicable()
@@ -106,8 +108,17 @@ Item {
             _xhrStuck++
             if (_xhrStuck > 120) {   // 30s, 远超服务端 5s 长轮询, 避免误判
                 _xhrStuck = 0
+                // ★ 必须 abort 旧请求再复位标志。
+                // 只置 _charXhrActive=false 的话旧连接一直挂着, 复位一次泄漏一条;
+                // Qt 对同一主机的并发连接数有上限 (默认 6), 攒满之后新请求永远排队
+                // 不发出 —— 表现就是"每 30 秒复位一次却再也拉不到东西, 中文彻底没了"
+                // (实测 netstat 看到 4 条 ESTABLISHED 挂在 19876 上)。
+                if (_charXhr) {
+                    try { _charXhr.abort() } catch (e) {}
+                    _charXhr = null
+                }
                 _charXhrActive = false
-                console.warn("XOVI-PINYIN: 拉取链卡死, 已强制复位")
+                console.warn("XOVI-PINYIN: 拉取链卡死, 已 abort 旧请求并复位")
             }
         } else {
             _xhrStuck = 0
@@ -403,10 +414,12 @@ Item {
 
         pinyinIME._charXhrActive = true
         var xhr = new XMLHttpRequest()
+        pinyinIME._charXhr = xhr
         xhr.timeout = 6000  // 略大于 ime-server blocking 5s timeout
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== 4) return
             pinyinIME._charXhrActive = false
+            if (pinyinIME._charXhr === xhr) pinyinIME._charXhr = null
             if (xhr.status === 200 && xhr.responseText) {
                 var st = null
                 try { st = JSON.parse(xhr.responseText) } catch (e) {}

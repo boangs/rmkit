@@ -81,6 +81,11 @@ static int rime_bridge_change_page(RimeSessionId s, int backward) {
 }
 static void rime_bridge_clear(RimeSessionId s) {
     if (api()->clear_composition) api()->clear_composition(s);
+    // 顺带退出 ASCII 直通模式。
+    // 大写字母会让 rime 切进该模式 (输入原样直通, 不组词), 而 clear_composition
+    // 只清 preedit **不复位选项** —— 实测打 "N" 再退格后, 之后输入 "ihao" 得到
+    // preedit "ihao" 且候选为 0, 中文再也出不来, 只能重启服务。
+    if (api()->set_option) api()->set_option(s, "ascii_mode", False);
 }
 
 // ── 取 commit (已上屏文本), 返回的 char* 需 caller free ──────────────
