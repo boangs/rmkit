@@ -458,6 +458,35 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 	}
 }
 
+// drawCloudFrame 顶栏如意云头框: 两端云头保形, 中段直线带按需拉伸 (三段式映射)。
+// 素材比例 5.3:1, 顶栏区域 14:1 —— 整体拉伸会把云头拉扁, 只拉直线段没有失真。
+func (c *canvas) drawCloudFrame(x, y, w, h float64) {
+	la, ra := cloudLeftW*h, cloudRightW*h
+	midSrc := cloudAspect - cloudLeftW - cloudRightW
+	mapX := func(u float64) float64 {
+		switch {
+		case u <= cloudLeftW:
+			return x + u*h
+		case u >= cloudAspect-cloudRightW:
+			return x + w - (cloudAspect-u)*h
+		default:
+			return x + la + (u-cloudLeftW)/midSrc*(w-la-ra)
+		}
+	}
+	for _, dp := range cloudVec {
+		if dp.depth%2 == 0 {
+			c.inkFill()
+		} else {
+			c.pdf.SetFillColor(255, 255, 255)
+		}
+		pts := make([]gopdf.Point, 0, len(dp.pts))
+		for _, p := range dp.pts {
+			pts = append(pts, gopdf.Point{X: mapX(p.x), Y: y + p.y*h})
+		}
+		c.pdf.Polygon(pts, "F")
+	}
+}
+
 // drawCorner 在 (x,y) 处画边长 size 的角花 (矢量, 三层)。
 // 主体 → 白色挖孔, 还原素材的 even-odd 镂空 (逐多边形 nonzero 填充画不出孔,
 // 曾渲染成两个实心疙瘩)。
@@ -603,9 +632,30 @@ func (c *canvas) fretFrame(x, y, w, h, band float64) {
 	c.drawFretVecH(x+band, y+h-band, w-2*band, band)
 	c.drawFretVecV(x, y+band, band, h-2*band)
 	c.drawFretVecV(x+w-band, y+band, band, h-2*band)
+	// 四角回字方块: 外框 + 中心块, 全部用填充矩形拼, 笔画宽取素材带笔画
+	// 占比 (12/94 ≈ 0.128), 与回纹带严格同粗 —— 早先的描边版 (0.7/0.5pt
+	// 细线) 和带子质感对不上, 删掉又显得四角秃 (用户两轮反馈), 这版两头兼顾。
 	for _, p := range [][2]float64{{x, y}, {x + w - band, y}, {x, y + h - band}, {x + w - band, y + h - band}} {
-		c.cornerSpiral(p[0], p[1], band)
+		c.huiSquare(p[0], p[1], band)
 	}
+}
+
+// huiSquare 在 (x,y) 处画边长 s 的"回"字方块 (填充矩形拼: 空心外框 + 实心中心)
+func (c *canvas) huiSquare(x, y, s float64) {
+	t := s * 0.128 // 笔画宽 = 素材回纹带笔画占带高的比例
+	c.inkFill()
+	fill := func(x0, y0, w0, h0 float64) {
+		c.pdf.Polygon([]gopdf.Point{
+			{X: x0, Y: y0}, {X: x0 + w0, Y: y0},
+			{X: x0 + w0, Y: y0 + h0}, {X: x0, Y: y0 + h0},
+		}, "F")
+	}
+	fill(x, y, s, t)           // 上
+	fill(x, y+s-t, s, t)       // 下
+	fill(x, y+t, t, s-2*t)     // 左
+	fill(x+s-t, y+t, t, s-2*t) // 右
+	d := 2.2 * t               // 中心块与外框之间留一圈缝
+	fill(x+d, y+d, s-2*d, s-2*d)
 }
 
 // cornerSpiral 角上的回旋方块, 让四条带的接缝看起来是收口而非断口
@@ -696,21 +746,18 @@ func draw(c *canvas, a almanac) {
 	iw := ix1 - ix0
 
 	// ── 顶栏: 年份 | 福印 | 月份, 两端配回纹块 ──
-	ty, th := m+10, 34.0
-	c.rect(ix0, ty, iw, th, 0.9)
-	endW := 38.0
-	c.fretBandH(ix0+2, ty+9, endW, th-18, 1)
-	c.fretBandH(ix1-endW-2, ty+9, endW, th-18, -1)
-	c.line(ix0+endW+3, ty, ix0+endW+3, ty+th, 0.5)
-	c.line(ix1-endW-3, ty, ix1-endW-3, ty+th, 0.5)
-	c.textCal(ix0+endW+12, ty+9, 21, fmt.Sprintf("%d", a.year))
+	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头
+	ty, th := m+8, 40.0
+	c.drawCloudFrame(ix0, ty, iw, th)
+	endW := cloudLeftW*th + 6
+	c.textCal(ix0+endW+8, ty+11, 21, fmt.Sprintf("%d", a.year))
 	c.seal(pageW/2, ty+th/2, 25, "福")
 	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
 	en := enMonth(a.month)
 	c.font(19)
 	enW, _ := c.pdf.MeasureTextWidth(en)
-	c.textRight(ix0, ty+9, iw-endW-12, 19, en)
-	c.textRightCal(ix0, ty+9, iw-endW-18-enW, 19, monthLabel(a))
+	c.textRight(ix0, ty+12, iw-endW-8, 19, en)
+	c.textRightCal(ix0, ty+12, iw-endW-14-enW, 19, monthLabel(a))
 
 	// ── 副行: 干支年 / 星宿吉凶 ──
 	sy := ty + th + 4
@@ -753,10 +800,10 @@ func draw(c *canvas, a almanac) {
 	cy := by + bh + 6
 	ch := 52.0
 	third := iw / 3
-	c.textCenterDisp(ix0, cy+4, third, 25, a.dayCN+"日")
-	c.textCenter(ix0, cy+34, third, 9, "农历"+a.ganzhiY+"年"+a.monthCN+"月")
-	c.textCenterDisp(ix0+2*third, cy+4, third, 25, a.weekCN)
-	c.textCenter(ix0+2*third, cy+34, third, 9, a.weekEN)
+	c.textCenterDisp(ix0, cy+7, third, 29, a.dayCN+"日")
+	c.textCenter(ix0, cy+38, third, 10.5, "农历"+a.ganzhiY+"年"+a.monthCN+"月")
+	c.textCenterDisp(ix0+2*third, cy+7, third, 29, a.weekCN)
+	c.textCenter(ix0+2*third, cy+38, third, 10.5, a.weekEN)
 	if os.Getenv("CORNER_BIG") != "" {
 		c.drawCorner(80, 100, 220, false, false)
 	}
@@ -764,15 +811,21 @@ func draw(c *canvas, a almanac) {
 	// 素材角花是"顶臂横线 + 侧竖臂"的顶角造型: 原方向竖臂在右, 放右侧;
 	// 水平镜像后竖臂在左, 放左侧。两个顶臂之间用双线补上, 视觉上连成
 	// 一条完整的顶框 (参考实体日历的做法); 底部按用户要求先不封。
-	fr0y := cy - 6
-	cs := ch + 10.0
+	// 尺寸约束: 顶部离上方"吉神宜趋"框底 4pt, 底部离下方主网格顶 3pt。
+	// 原来 fr0y=cy-6 正好压着上框底线, cs=ch+10 又戳进主网格 4pt, 两头都重叠。
+	fr0y := cy - 2
+	cs := ch - 1
 	c.drawCorner(ix1-cs, fr0y, cs, false, false) // 右侧 (原方向, 竖臂在右)
 	c.drawCorner(ix0, fr0y, cs, true, false)     // 左侧 (镜像, 竖臂在左)
 	// 顶部双线 = 角花自己两条横臂的延伸, 线宽和 y 都按素材归一坐标取:
 	// 顶臂 y∈[0, 0.0344] → 宽 cs*0.0344; 第二短线 y∈[0.1027, 0.1314] → 宽 cs*0.0287。
 	// 之前用 1.4/0.7 的固定线宽, 明显细于角花笔画, 接缝一眼看穿 (用户实测)。
-	c.line(ix0+cs*0.5, fr0y+cs*0.0172, ix1-cs*0.5, fr0y+cs*0.0172, cs*0.0344)
-	c.line(ix0+cs*0.5, fr0y+cs*0.117, ix1-cs*0.5, fr0y+cs*0.117, cs*0.0287)
+	// 在中间节气旗框处断开, 不横穿旗框内部 (旗框只描边不填充, 遮不住线)
+	fbx0, fbx1 := ix0+third+8, ix0+2*third-8
+	for _, ln := range [][3]float64{{fr0y + cs*0.0172, cs * 0.0344, 0}, {fr0y + cs*0.117, cs * 0.0287, 0}} {
+		c.line(ix0+cs*0.5, ln[0], fbx0, ln[0], ln[1])
+		c.line(fbx1, ln[0], ix1-cs*0.5, ln[0], ln[1])
+	}
 
 	// 中间旗形框
 	fx, fw := ix0+third+8, third-16
