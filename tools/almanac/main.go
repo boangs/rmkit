@@ -309,8 +309,7 @@ func (c *canvas) fontCalIf(s string, size float64) {
 // textCal / textCenterCal / textRightCal: 日期元素专用 (年份/日号/星期/农历日)
 func (c *canvas) textCal(x, y, size float64, s string) {
 	c.fontCalIf(s, size)
-	c.pdf.SetXY(x, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x, y, s)
 }
 
 // textCenterDisp 农历日 / 星期专用。
@@ -325,8 +324,7 @@ func (c *canvas) textCenterDisp(x, y, w, size float64, s string) {
 		c.fontCalIf(s, size)
 	}
 	tw, _ := c.pdf.MeasureTextWidth(s)
-	c.pdf.SetXY(x+(w-tw)/2, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x+(w-tw)/2, y, s)
 }
 
 // textCenterBold 巨大日号专用: 同一串字按细密偏移多画几遍做"仿粗体"。
@@ -347,38 +345,43 @@ func (c *canvas) textCenterBold(x, y, w, size float64, s string) {
 func (c *canvas) textRightCal(x, y, w, size float64, s string) {
 	c.fontCalIf(s, size)
 	tw, _ := c.pdf.MeasureTextWidth(s)
-	c.pdf.SetXY(x+w-tw, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x+w-tw, y, s)
 }
 
 func (c *canvas) textCenterCal(x, y, w, size float64, s string) {
 	c.fontCalIf(s, size)
 	tw, _ := c.pdf.MeasureTextWidth(s)
-	c.pdf.SetXY(x+(w-tw)/2, y)
+	c.cellAt(x+(w-tw)/2, y, s)
+}
+
+// cellAt 在 (x,y) 写字并叠一遍微偏移 —— 全局仿粗。
+// 华文细黑在墨水屏上偏细 (用户实测费劲), 而它没有粗体字重文件,
+// 双重绘制是零依赖的粗化手段; 大标题另有 textCenterBold 的 9 遍版本。
+func (c *canvas) cellAt(x, y float64, s string) {
+	c.pdf.SetXY(x, y)
+	_ = c.pdf.Cell(nil, s)
+	c.pdf.SetXY(x+0.35, y)
 	_ = c.pdf.Cell(nil, s)
 }
 
 // text 左上角对齐写一行 (gopdf 的 SetXY 以基线上方为准, 这里统一按上沿)
 func (c *canvas) text(x, y, size float64, s string) {
 	c.font(size)
-	c.pdf.SetXY(x, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x, y, s)
 }
 
 // textCenter 在 [x, x+w] 区间水平居中
 func (c *canvas) textCenter(x, y, w, size float64, s string) {
 	c.font(size)
 	tw, _ := c.pdf.MeasureTextWidth(s)
-	c.pdf.SetXY(x+(w-tw)/2, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x+(w-tw)/2, y, s)
 }
 
 // textRight 右对齐到 x+w
 func (c *canvas) textRight(x, y, w, size float64, s string) {
 	c.font(size)
 	tw, _ := c.pdf.MeasureTextWidth(s)
-	c.pdf.SetXY(x+w-tw, y)
-	_ = c.pdf.Cell(nil, s)
+	c.cellAt(x+w-tw, y, s)
 }
 
 // vtext 竖排文字 (中文按字逐行下落)
@@ -388,8 +391,7 @@ func (c *canvas) vtext(x, y, size, lead float64, s string) {
 	for _, r := range s {
 		ch := string(r)
 		tw, _ := c.pdf.MeasureTextWidth(ch)
-		c.pdf.SetXY(x-tw/2, cy)
-		_ = c.pdf.Cell(nil, ch)
+		c.cellAt(x-tw/2, cy, ch)
 		cy += lead
 	}
 }
@@ -422,6 +424,37 @@ func (c *canvas) vtextCols(cx, y0, h, size, lead, colGap float64, s string, perC
 		x := cx + totalW/2 - float64(i)*colGap
 		c.vtext(x, y, size, lead, string(col))
 	}
+}
+
+// fillPill 圆角胶囊 (多边形近似两端半圆), 填主题墨色 —— 反白标题的底
+func (c *canvas) fillPill(x, y, w, h float64) {
+	c.inkFill()
+	r := h / 2
+	var pts []gopdf.Point
+	for i := 0; i <= 10; i++ {
+		a := -1.5708 + 3.1416*float64(i)/10
+		pts = append(pts, gopdf.Point{X: x + w - r + r*math.Cos(a), Y: y + r + r*math.Sin(a)})
+	}
+	for i := 0; i <= 10; i++ {
+		a := 1.5708 + 3.1416*float64(i)/10
+		pts = append(pts, gopdf.Point{X: x + r + r*math.Cos(a), Y: y + r + r*math.Sin(a)})
+	}
+	c.pdf.Polygon(pts, "F")
+}
+
+// pillTitle 胶囊反白标题: 主题色底 + 白字 (参考实体日历的栏目标题样式)。
+// SetTextColor 连设两次是打断 gopdf 颜色缓存去重 (见 fillRect 注释)。
+func (c *canvas) pillTitle(x, y, w, size float64, title string) {
+	c.font(size)
+	tw, _ := c.pdf.MeasureTextWidth(title)
+	capW, capH := tw+18, size+7
+	px := x + (w-capW)/2
+	c.fillPill(px, y, capW, capH)
+	c.pdf.SetTextColor(1, 1, 1)
+	c.pdf.SetTextColor(255, 255, 255)
+	c.textCenter(x, y+3, w, size, title)
+	c.pdf.SetTextColor(0, 0, 0)
+	c.pdf.SetTextColor(curTheme.r, curTheme.g, curTheme.b)
 }
 
 func (c *canvas) rect(x, y, w, h, lw float64) {
@@ -828,21 +861,25 @@ func draw(c *canvas, a almanac) {
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.textCal(ix0+endW+8, ty+11, 21, fmt.Sprintf("%d", a.year))
+	// 干支年·生肖 放年份右侧 (原来的独立副行删除, 空间还给版心)
+	c.text(ix0+endW+66, ty+16, 11, a.ganzhiY+"年·"+a.shengXiao+"年")
 	c.seal(pageW/2, ty+th/2, 25, "福")
 	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
+	// 右侧: 一月 JAN 第N天 (JAN 再加重一遍, 第N天原是独立副行)
+	dayN := "第" + fmt.Sprint(a.yearDay) + "天"
+	c.font(11)
+	dnW, _ := c.pdf.MeasureTextWidth(dayN)
+	c.text(ix1-endW-6-dnW, ty+16, 11, dayN)
 	en := enMonth(a.month)
 	c.font(19)
 	enW, _ := c.pdf.MeasureTextWidth(en)
-	c.textRight(ix0, ty+12, iw-endW-8, 19, en)
-	c.textRightCal(ix0, ty+12, iw-endW-14-enW, 19, monthLabel(a))
+	enX := ix1 - endW - 12 - dnW - enW
+	c.text(enX, ty+12, 19, en)
+	c.text(enX+0.4, ty+12, 19, en) // JAN 三重加粗
+	c.textRightCal(ix0, ty+12, enX-ix0-5, 19, monthLabel(a))
 
-	// ── 副行: 干支年 / 星宿吉凶 ──
-	sy := ty + th + 4
-	c.text(ix0+4, sy, 11, a.ganzhiY+"年 "+a.shengXiao+"年")
-	c.textRight(ix0, sy, iw-4, 11, "第"+fmt.Sprint(a.yearDay)+"天")
-
-	// ── 主区: 左右竖排 + 巨大日号 ──
-	my := sy + 14
+	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
+	my := ty + th + 8
 	mh := 182.0 // 压缩日号区, 空间倒给主网格 (小字放大后底部溢出)
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
@@ -865,7 +902,8 @@ func draw(c *canvas, a almanac) {
 	}
 	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
-	c.textCenter(ix0+sideW, my+mh-16, iw-2*sideW, 12, a.tianShen+" "+a.tianShenLuck)
+	// 下移贴近日号区底: 原 my+mh-16 与巨大日号的字底重合 (用户实测)
+	c.textCenter(ix0+sideW, my+mh-2, iw-2*sideW, 12.5, a.tianShen+" "+a.tianShenLuck)
 
 	// ── 吉神宜趋 / 凶煞宜忌 (无框, 左右区域各自居中) ──
 	// 中间空出来给卷轴框的上探部分 —— 卷轴顶伸进这一行, 文字靠两侧就不打架。
@@ -974,46 +1012,50 @@ func draw(c *canvas, a almanac) {
 	drawWordGrid(c, yiX+4, gyy+32, colW-8, ghh-36, a.yi, 13)
 	drawWordGrid(c, jiX+4, gyy+32, colW-8, ghh-36, a.ji, 13)
 
-	// ── 中区 ──
+	// ── 中区: 单一外框 + 共用分隔线的卡片组 (参考实体日历) ──
+	// 原先每个区域各画一个 rect, 相邻框之间双线夹缝, 显得琐碎; 现在整个中区
+	// 一个外框, 卡片之间只共用一条分隔线。栏目标题用胶囊反白。
 	mx0, mx1 := yiX+colW, jiX
 	mw := mx1 - mx0
 
-	// 时辰吉凶: 一行 12 列
-	hh := 42.0
-	c.rect(mx0+4, gyy+2, mw-8, hh, 0.6)
-	drawHourTable(c, mx0+6, gyy+4, mw-12, hh-4, a.hourLuck)
+	top2 := gyy + 2
+	bot2 := gyy + ghh - 2
+	c.rect(mx0+4, top2, mw-8, bot2-top2, 0.8)
+	y1 := top2 + 44 // 时辰表底
+	y2 := y1 + 100  // 三框底
+	y3 := y2 + 58   // 胎神/八字底
+	c.line(mx0+4, y1, mx0+mw-4, y1, 0.5)
+	c.line(mx0+4, y2, mx0+mw-4, y2, 0.5)
+	c.line(mx0+4, y3, mx0+mw-4, y3, 0.5)
 
-	// 三个并排小框: 吉神方位 / 干支五行 / 择吉须知
-	ry := gyy + 2 + hh + 5
-	rh := 92.0
-	bw := (mw - 8 - 8) / 3
-	drawBox(c, mx0+4, ry, bw, rh, "吉神方位", [][2]string{
+	// 时辰吉凶: 一行 12 列
+	drawHourTable(c, mx0+6, top2+2, mw-12, 40, a.hourLuck)
+
+	// 三栏: 吉神方位 / 干支五行 / 择吉须知 (竖线共用)
+	bw := (mw - 8) / 3
+	c.line(mx0+4+bw, y1, mx0+4+bw, y2, 0.5)
+	c.line(mx0+4+2*bw, y1, mx0+4+2*bw, y2, 0.5)
+	drawBox(c, mx0+4, y1, bw, y2-y1, "吉神方位", [][2]string{
 		{"喜神", a.posXi}, {"财神", a.posCai}, {"福神", a.posFu}, {"贵神", a.posGui},
 	})
-	drawBox(c, mx0+4+bw+4, ry, bw, rh, "干支五行", [][2]string{
+	drawBox(c, mx0+4+bw, y1, bw, y2-y1, "干支五行", [][2]string{
 		{"天干", a.dayGan}, {"地支", a.dayZhi}, {"纳音", a.naYin}, {"值星", a.zhiXing},
 	})
-	drawBox(c, mx0+4+2*bw+8, ry, bw, rh, "择吉须知", [][2]string{
+	drawBox(c, mx0+4+2*bw, y1, bw, y2-y1, "择吉须知", [][2]string{
 		{"星宿", a.xiu}, {"九星", truncRunes(a.nineStar, 5)}, {"冲", a.chong}, {"煞", a.sha},
 	})
 
-	// 胎神 / 八字
-	ty2 := ry + rh + 5
-	th2 := 52.0
-	c.rect(mx0+4, ty2, mw/2-6, th2, 0.6)
-	c.textCenter(mx0+4, ty2+5, mw/2-6, 11, "每日胎神")
-	c.textCenter(mx0+4, ty2+22, mw/2-6, 14.5, a.taiShen)
-	c.rect(mx0+mw/2+2, ty2, mw/2-6, th2, 0.6)
-	c.textCenter(mx0+mw/2+2, ty2+5, mw/2-6, 11, "今日八字")
-	c.textCenter(mx0+mw/2+2, ty2+22, mw/2-6, 14.5, joinSpace(a.bazi))
+	// 胎神 / 八字 (竖线共用)
+	c.line(mx0+mw/2, y2, mx0+mw/2, y3, 0.5)
+	c.pillTitle(mx0+4, y2+5, mw/2-4, 11, "每日胎神")
+	c.textCenter(mx0+4, y2+30, mw/2-4, 14.5, a.taiShen)
+	c.pillTitle(mx0+mw/2, y2+5, mw/2-4, 11, "今日八字")
+	c.textCenter(mx0+mw/2, y2+30, mw/2-4, 14.5, joinSpace(a.bazi))
 
-	// 底部: 彭祖百忌全文 (中区剩余空间)
-	py2 := ty2 + th2 + 5
-	if py2 < gyy+ghh-24 {
-		c.rect(mx0+4, py2, mw-8, gyy+ghh-py2-2, 0.6)
-		c.line(mx0+4, py2+16, mx0+mw-4, py2+16, 0.4)
-		c.textCenter(mx0+4, py2+3, mw-8, 11, "今日提要")
-		drawWrapped(c, mx0+10, py2+21, mw-20, 10.5, 13.5,
+	// 今日提要 (占余下高度)
+	if y3+22 < bot2 {
+		c.pillTitle(mx0+4, y3+5, mw-8, 11, "今日提要")
+		drawWrapped(c, mx0+12, y3+27, mw-24, 10.5, 13.5,
 			"值神 "+a.tianShen+" "+a.tianShenLuck+"   星宿 "+a.xiu+" "+a.xiuLuck+
 				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
@@ -1030,18 +1072,16 @@ func draw(c *canvas, a almanac) {
 	c.line(ix0, barY+3, ix1, barY+3, 6)
 }
 
-// drawBox 带标题的小框 + 若干"标签 值"行
+// drawBox 栏目内容 (框线由外层共线网格提供): 胶囊反白标题 + "标签 值"行
 func drawBox(c *canvas, x, y, w, h float64, title string, rows [][2]string) {
-	c.rect(x, y, w, h, 0.6)
-	c.line(x, y+16, x+w, y+16, 0.4)
-	c.textCenter(x, y+3, w, 11, title)
+	c.pillTitle(x, y+5, w, 11, title)
 	for i, kv := range rows {
-		ry := y + 21 + float64(i)*17
+		ry := y + 28 + float64(i)*17.5
 		if ry+11 > y+h {
 			break
 		}
-		c.text(x+4, ry, 10.5, kv[0])
-		c.textRight(x, ry, w-4, 10.5, truncRunes(kv[1], 6))
+		c.text(x+6, ry, 10.5, kv[0])
+		c.textRight(x, ry, w-6, 10.5, truncRunes(kv[1], 6))
 	}
 }
 
