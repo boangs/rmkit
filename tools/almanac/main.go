@@ -1049,8 +1049,8 @@ func draw(c *canvas, a almanac) {
 	strip := 18.0
 	colW := 62.0
 	// 彭祖百忌: 固定 8 字上下, 工整不换行, 垂直居中 + 放大 (与星宿诗互换后)
-	c.vtextCols(gx0+strip/2, gyy, ghh, 13, 17, 17, a.pengGan, 12)
-	c.vtextCols(gx1-strip/2, gyy, ghh, 13, 17, 17, a.pengZhi, 12)
+	c.vtextCols(gx0+strip/2, gyy, ghh, 14, 18, 18, a.pengGan, 12)
+	c.vtextCols(gx1-strip/2, gyy, ghh, 14, 18, 18, a.pengZhi, 12)
 
 	yiX := gx0 + strip
 	jiX := gx1 - strip - colW
@@ -1058,8 +1058,8 @@ func draw(c *canvas, a almanac) {
 	c.line(jiX, gyy, jiX, gyy+ghh, 0.5)
 	c.circleLabel(yiX+colW/2, gyy+14, 11, "宜")
 	c.circleLabel(jiX+colW/2, gyy+14, 11, "忌")
-	drawWordGrid(c, yiX+4, gyy+32, colW-8, ghh-36, a.yi, 13)
-	drawWordGrid(c, jiX+4, gyy+32, colW-8, ghh-36, a.ji, 13)
+	drawWordGrid(c, yiX+4, gyy+32, colW-8, ghh-36, a.yi, 14)
+	drawWordGrid(c, jiX+4, gyy+32, colW-8, ghh-36, a.ji, 14)
 
 	// ── 中区: 单一外框 + 共用分隔线的卡片组 (参考实体日历) ──
 	// 原先每个区域各画一个 rect, 相邻框之间双线夹缝, 显得琐碎; 现在整个中区
@@ -1097,14 +1097,14 @@ func draw(c *canvas, a almanac) {
 	// 胎神 / 八字 (竖线共用)
 	c.line(mx0+mw/2, y2, mx0+mw/2, y3, 0.5)
 	c.pillTitle(mx0+4, y2+5, mw/2-4, 11, "每日胎神")
-	c.textCenter(mx0+4, y2+30, mw/2-4, 14.5, a.taiShen)
+	c.textCenter(mx0+4, y2+30, mw/2-4, 15.5, a.taiShen)
 	c.pillTitle(mx0+mw/2, y2+5, mw/2-4, 11, "今日八字")
-	c.textCenter(mx0+mw/2, y2+30, mw/2-4, 14.5, joinSpace(a.bazi))
+	c.textCenter(mx0+mw/2, y2+30, mw/2-4, 15.5, joinSpace(a.bazi))
 
 	// 今日提要 (占余下高度)
 	if y3+22 < bot2 {
 		c.pillTitle(mx0+4, y3+5, mw-8, 11, "今日提要")
-		drawWrapped(c, mx0+12, y3+27, mw-24, 10.5, 13.5,
+		drawWrapped(c, mx0+12, y3+27, mw-24, 11.5, 15,
 			"值神 "+a.tianShen+" "+a.tianShenLuck+"   星宿 "+a.xiu+" "+a.xiuLuck+
 				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
@@ -1125,12 +1125,12 @@ func draw(c *canvas, a almanac) {
 func drawBox(c *canvas, x, y, w, h float64, title string, rows [][2]string) {
 	c.pillTitle(x, y+5, w, 11, title)
 	for i, kv := range rows {
-		ry := y + 28 + float64(i)*17.5
-		if ry+11 > y+h {
+		ry := y + 28 + float64(i)*18
+		if ry+12 > y+h {
 			break
 		}
-		c.text(x+6, ry, 10.5, kv[0])
-		c.textRight(x, ry, w-6, 10.5, truncRunes(kv[1], 6))
+		c.text(x+6, ry, 11.5, kv[0])
+		c.textRight(x, ry, w-6, 11.5, truncRunes(kv[1], 6))
 	}
 }
 
@@ -1209,9 +1209,9 @@ func drawHourTable(c *canvas, x, y, w, h float64, cells []hourCell) {
 		if i > 0 {
 			c.line(cx, y+1, cx, y+h-1, 0.3)
 		}
-		c.textCenter(cx, y+2, cw, 12, hc.zhi)
-		c.textCenter(cx, y+16, cw, 6.5, hc.span)
-		c.textCenter(cx, y+25, cw, 11, hc.luck)
+		c.textCenter(cx, y+2, cw, 13, hc.zhi)
+		c.textCenter(cx, y+17, cw, 7, hc.span)
+		c.textCenter(cx, y+26, cw, 12, hc.luck)
 	}
 }
 
