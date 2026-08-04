@@ -1298,16 +1298,25 @@ func draw(c *canvas, a almanac) {
 				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
 
-	// ── 底栏: 文字 + 页脚实心色条 ──
+	// ── 底栏: 文字 + 实心色条, 紧跟主网格收底 (用户: 不锚页底) ──
 	// 色条用"加粗的线"画, 不用填充矩形: gopdf 的填充色指令在与当前文字色相同时
 	// 会被静默吞掉 (实测传红色能填、传主题绿填不上, 换几种写法都没绕过去), 而描边
 	// 一直正常。文字放在色条上方而不是反白压在条上, 同时避开了反白字失效的问题。
-	fy := pageH - m - 4 - footH
+	fy := gy + gh + 5
 	c.text(ix0+4, fy+2, 11, fmt.Sprintf("干支  %s年 %s月 %s日", a.ganzhiY, a.ganzhiM, a.ganzhiD))
 	c.textCenter(ix0, fy+2, iw, 11, "铂昂士黄历")
 	c.textRight(ix0, fy+2, iw-4, 11, a.xiuLuck)
 	barY := fy + 16
 	c.line(ix0, barY+3, ix1, barY+3, 6)
+
+	// ── 备注横线: 底栏到页底的余量留给使用者手写 (用户要求) ──
+	// 中性灰细线不跟主题墨色: 线条走描边色, 必须 SetStrokeColor (文字色
+	// 只管填充); 每页开头会重设主题描边色, 这里无需恢复。
+	// pro 页高无余量时循环自然一条都不画。
+	c.pdf.SetStrokeColor(150, 150, 150)
+	for ly := barY + 16; ly <= pageH-m; ly += 26 {
+		c.line(ix0, ly, ix1, ly, 0.6)
+	}
 }
 
 // drawBox 栏目内容 (框线由外层共线网格提供): 胶囊反白标题 + "标签 值"行
