@@ -16,6 +16,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -504,6 +505,32 @@ func (c *canvas) drawVecDepth(shapes []depthPoly, x, y, h float64) {
 	}
 }
 
+// scrollEdgeAt 求卷轴外轮廓 (depth 0 子路径) 在归一化高度 yn 处的左右边缘。
+// 用途: 中带双线要"刚好抵到卷轴边缘就停" —— 横贯靠白底遮挡时, 线与拱弧、
+// 轴杆的轮廓交叉重叠, 看着杂乱 (用户实测)。直接对矢量数据求交点最准。
+func scrollEdgeAt(yn float64) (float64, float64) {
+	minX, maxX := math.Inf(1), math.Inf(-1)
+	for _, dp := range scrollVec {
+		if dp.depth != 0 {
+			continue
+		}
+		pts := dp.pts
+		for i := 0; i < len(pts); i++ {
+			p1, p2 := pts[i], pts[(i+1)%len(pts)]
+			if (p1.y > yn) != (p2.y > yn) {
+				x := p1.x + (yn-p1.y)/(p2.y-p1.y)*(p2.x-p1.x)
+				if x < minX {
+					minX = x
+				}
+				if x > maxX {
+					maxX = x
+				}
+			}
+		}
+	}
+	return minX, maxX
+}
+
 // drawCorner 在 (x,y) 处画边长 size 的角花 (矢量, 三层)。
 // 主体 → 白色挖孔, 还原素材的 even-odd 镂空 (逐多边形 nonzero 填充画不出孔,
 // 曾渲染成两个实心疙瘩)。
@@ -838,10 +865,8 @@ func draw(c *canvas, a almanac) {
 	// 顶部双线 = 角花自己两条横臂的延伸, 线宽和 y 都按素材归一坐标取:
 	// 顶臂 y∈[0, 0.0344] → 宽 cs*0.0344; 第二短线 y∈[0.1027, 0.1314] → 宽 cs*0.0287。
 	// 之前用 1.4/0.7 的固定线宽, 明显细于角花笔画, 接缝一眼看穿 (用户实测)。
-	// 双线横贯即可 —— 中间的卷轴框后画, 其白底会遮住穿过的部分,
-	// 视觉上"线从卷轴后面穿过", 与实体日历的图层效果一致
-	c.line(ix0+cs*0.5, fr0y+cs*0.0172, ix1-cs*0.5, fr0y+cs*0.0172, cs*0.0344)
-	c.line(ix0+cs*0.5, fr0y+cs*0.117, ix1-cs*0.5, fr0y+cs*0.117, cs*0.0287)
+	// 双线在卷轴边缘精确停住 (见卷轴绘制处, 需先确定卷轴几何) —— 曾试过
+	// 横贯+白底遮挡, 线与拱弧轴杆的轮廓交叉重叠, 杂乱 (用户实测)。
 
 	// 中间拱形卷轴框 (素材: 边框1-5.ai 第一款)。
 	// 高度故意超出中带 (上下各出头 4pt), 作为压在带上的立体装饰 —— 参考
@@ -850,6 +875,14 @@ func draw(c *canvas, a almanac) {
 	// 高度拉到 65 → 底 = cy+51, 刚好落在主网格回纹带上沿 (cy+52) 之上。
 	scX := ix0 + (iw-scW)/2
 	scY := cy - 14
+	// 双线: 从角花臂延伸, 精确断在卷轴该高度的外轮廓上 (对矢量数据求交)
+	for _, ln := range [][2]float64{{fr0y + cs*0.0172, cs * 0.0344}, {fr0y + cs*0.117, cs * 0.0287}} {
+		ly, lw2 := ln[0], ln[1]
+		yn := (ly - scY) / scH
+		lx, rx := scrollEdgeAt(yn)
+		c.line(ix0+cs*0.5, ly, scX+lx*scH-1, ly, lw2)
+		c.line(scX+rx*scH+1, ly, ix1-cs*0.5, ly, lw2)
+	}
 	c.drawVecDepth(scrollVec, scX, scY, scH)
 	flag := []string{}
 	if a.shuJiu != "" {
