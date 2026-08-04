@@ -1017,14 +1017,29 @@ func draw(c *canvas, a almanac) {
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	// 生肖缩小、标注加大 (用户: 图小一些字大一号, 给两侧星宿诗留空间)
 	zSize := 52.0
-	// 生肖贴向两侧诗栏 (28 这类宽日号与生肖显近, 各向外让 10pt)
+	// 生肖位置跟随日号实际宽度: 贴着数字两侧放, "1"这类窄日号时向中间
+	// 靠拢 (原固定在页面两侧, 窄日号时生肖离数字特别远); 宽日号 (28/30)
+	// 时 clamp 回两侧极限, 不压诗栏。
+	dayS := fmt.Sprintf("%d", a.day)
+	c.fontCalIf(dayS, 190)
+	dw, _ := c.pdf.MeasureTextWidth(dayS)
+	dcx := ix0 + sideW + (iw-2*sideW)/2
+	zgap := 10.0
+	zlx := dcx - dw/2 - zgap - zSize
+	if zlx < ix0+sideW-2 {
+		zlx = ix0 + sideW - 2
+	}
+	zrx := dcx + dw/2 + zgap
+	if zrx > ix1-sideW+2-zSize {
+		zrx = ix1 - sideW + 2 - zSize
+	}
 	if img := loadZodiac(a.dayZhi); img != nil {
-		c.drawZodiac(img, ix0+sideW-2, my+8, zSize)
-		c.textCenter(ix0+sideW-2, my+10+zSize, zSize, 10, "值日·"+a.dayZhiAnimal)
+		c.drawZodiac(img, zlx, my+8, zSize)
+		c.textCenter(zlx, my+10+zSize, zSize, 10, "值日·"+a.dayZhiAnimal)
 	}
 	if img := loadZodiac(a.chongZhi); img != nil {
-		c.drawZodiac(img, ix1-sideW+2-zSize, my+mh-zSize-32, zSize)
-		c.textCenter(ix1-sideW+2-zSize, my+mh-30, zSize, 10, "冲·"+a.chongAnimal)
+		c.drawZodiac(img, zrx, my+mh-zSize-32, zSize)
+		c.textCenter(zrx, my+mh-30, zSize, 10, "冲·"+a.chongAnimal)
 	}
 	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
