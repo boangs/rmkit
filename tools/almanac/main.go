@@ -17,6 +17,7 @@ import (
 	"image/color"
 	"image/png"
 	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -584,20 +585,40 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 	}
 }
 
-// drawTearBand 手撕日历顶边: 页面最顶一条主题色带, 底缘撕裂纹理,
-// 下方浅灰衬层露出"纸芯" —— 手撕日历撕掉上页后的残边效果。
+// drawTearBand 手撕日历顶边: 上缘平直的主题色带 + 下缘细锯齿撕裂 +
+// 浅灰纸芯衬层。撕裂线程序化生成 (固定种子, 每页一致) —— 素材那条撕裂
+// 线整体起伏太大, 色带左厚右薄看着歪 (用户实测); 程序化的去掉整体趋势,
+// 只留均匀的局部锯齿, 色块主体绝对平直。
 func (c *canvas) drawTearBand(x, y, w, h float64) {
-	draw := func(vec []vpt) {
-		pts := make([]gopdf.Point, 0, len(vec))
-		for _, p := range vec {
-			pts = append(pts, gopdf.Point{X: x + p.x*w, Y: y + p.y*h})
+	rng := rand.New(rand.NewSource(20260101))
+	n := int(w/6) + 1
+	step := w / float64(n)
+	edge := make([]float64, n+1)
+	for i := range edge {
+		// 底缘在 0.60h..0.92h 之间细碎起伏; 相邻点带相关性, 更像纤维撕痕
+		if i == 0 {
+			edge[i] = 0.76
+		} else {
+			edge[i] = edge[i-1] + (rng.Float64()-0.5)*0.22
 		}
-		c.pdf.Polygon(pts, "F")
+		if edge[i] < 0.60 {
+			edge[i] = 0.60
+		}
+		if edge[i] > 0.92 {
+			edge[i] = 0.92
+		}
 	}
-	c.pdf.SetFillColor(214, 210, 205) // 纸芯浅灰 (白底页面上白衬不可见)
-	draw(tearWhiteVec)
+	poly := func(off float64) []gopdf.Point {
+		pts := []gopdf.Point{{X: x, Y: y}, {X: x + w, Y: y}}
+		for i := n; i >= 0; i-- {
+			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + (edge[i]+off)*h})
+		}
+		return pts
+	}
+	c.pdf.SetFillColor(212, 208, 202) // 纸芯浅灰
+	c.pdf.Polygon(poly(0.10), "F")
 	c.inkFill()
-	draw(tearColorVec)
+	c.pdf.Polygon(poly(0), "F")
 }
 
 // drawCloudFrame 顶栏如意云头框: 两端云头保形, 中段直线带按需拉伸 (三段式映射)。
