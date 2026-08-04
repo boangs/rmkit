@@ -933,10 +933,8 @@ func draw(c *canvas, a almanac) {
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
 	// "内乱""三三"这种残句 —— 两者互换 (用户建议)。
-	// 每列 11 字硬切 (试过按句分列, 太整齐反而刻板 —— 用户定稿回退);
-	// 标点去掉, 句间用全角空格留白, 竖排里就是一个空格的停顿
-	cleaned := strings.NewReplacer("，", "　", "。", "", "；", "　").Replace(a.xiuSong)
-	song2 := []rune(strings.TrimRight(cleaned, "　"))
+	// 每列 11 字硬切, 标点保留 (试过按句分列和去标点留白, 都不如原样自然)
+	song2 := []rune(a.xiuSong)
 	half2 := (len(song2) + 1) / 2
 	c.vtextCols(ix0+sideW/2, my+4, mh-10, 12, 15, 17, string(song2[:half2]), 11)
 	c.vtextCols(ix1-sideW/2, my+4, mh-10, 12, 15, 17, string(song2[half2:]), 11)
