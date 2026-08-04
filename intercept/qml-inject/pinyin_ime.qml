@@ -91,6 +91,9 @@ Item {
     property var editorItem: null
     property int _xhrStuck: 0
     property int _interceptStuck: 0
+    // 输入活动窗口: 快刷区的开关依据 (见 fastZone 注释)
+    property bool _inputBusy: false
+    property int _lastInputTick: -999
     // 在途的长轮询 XHR。强制复位时必须 abort 它, 否则连接泄漏 (见下)。
     property var _charXhr: null
     property int focusPing: 0
@@ -137,6 +140,7 @@ Item {
         } else {
             _interceptStuck = 0
         }
+        if (_inputBusy && imeTick-_lastInputTick > 20) _inputBusy = false
         if (active && isChineseMode) _pollChars()   // 两种模式都要拉链
         // 仅在"焦点已到编辑器但 controller 还没绑好"时短暂重试, 用完即止。
         // 平时这里什么都不做 —— 持续轮询会和打字渲染抢主线程 (实测明显卡顿)。
@@ -464,6 +468,10 @@ Item {
         pinyinIME.refreshCursorPosition()
         var newPreedit = st.preedit || ""
         var hadPreedit = pinyinIME.pinyinBuffer !== ""
+        if (newPreedit !== "" || (st.commit && st.commit.length > 0)) {
+            pinyinIME._lastInputTick = pinyinIME.imeTick
+            pinyinIME._inputBusy = true
+        }
 
         // 上屏文本 (librime 在选词/整句成型/回车时产生)
         if (st.commit && st.commit.length > 0) {
@@ -1087,9 +1095,14 @@ Item {
     // 不是"区域多小", 而是"变得多少次"。整屏覆盖 → 几何永不变, 只在中文输入会话
     // 开始/结束各变一次; 会话中无论候选框怎么伸缩移动、词怎么上屏, 都零抖动。
     // 代价: 输入期间全屏走 Animation 波形, 退出中文输入即恢复正常灰阶。
+    // ★ 只跟"输入活动"而非"IME 激活": PDF/EPUB 查看器也是 SceneView + controller,
+    // IME 会在阅读界面误判激活 —— 若快刷区跟 active 走, 看 PDF 时整屏挂上
+    // Animation 波形, 彩色被压成灰 (用户实测"看 PDF 颜色全灰")。
+    // 改为打字时开 (收到非空 preedit/commit 刷新活动时间), 停止输入 5 秒后关。
+    // 代价: 每个输入会话头尾各一次全刷, 换来阅读场景完全不受干扰。
     Item {
         id: fastZone
-        visible: pinyinIME.active && pinyinIME.isChineseMode
+        visible: pinyinIME.active && pinyinIME.isChineseMode && pinyinIME._inputBusy
         anchors.fill: parent
     }
 
