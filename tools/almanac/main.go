@@ -394,6 +394,36 @@ func (c *canvas) vtext(x, y, size, lead float64, s string) {
 	}
 }
 
+// vtextCols 竖排多列 (传统右起: 先右列后左列), 区高内垂直居中。
+// 给长文本用 (如星宿诗 30+ 字), 单列放不下时自动分列, 不再截断。
+func (c *canvas) vtextCols(cx, y0, h, size, lead, colGap float64, s string, perCol int) {
+	r := []rune(s)
+	var cols [][]rune
+	for len(r) > 0 {
+		n := perCol
+		if n > len(r) {
+			n = len(r)
+		}
+		cols = append(cols, r[:n])
+		r = r[n:]
+	}
+	if len(cols) == 0 {
+		return
+	}
+	maxLen := 0
+	for _, c2 := range cols {
+		if len(c2) > maxLen {
+			maxLen = len(c2)
+		}
+	}
+	y := y0 + (h-float64(maxLen)*lead)/2
+	totalW := float64(len(cols)-1) * colGap
+	for i, col := range cols {
+		x := cx + totalW/2 - float64(i)*colGap
+		c.vtext(x, y, size, lead, string(col))
+	}
+}
+
 func (c *canvas) rect(x, y, w, h, lw float64) {
 	c.pdf.SetLineWidth(lw)
 	c.pdf.RectFromUpperLeftWithStyle(x, y, w, h, "D")
@@ -815,8 +845,13 @@ func draw(c *canvas, a almanac) {
 	my := sy + 14
 	mh := 182.0 // 压缩日号区, 空间倒给主网格 (小字放大后底部溢出)
 	sideW := 70.0
-	c.vtext(ix0+sideW/2, my+10, 12, 16, truncRunes(a.pengGan, 12))
-	c.vtext(ix1-sideW/2, my+10, 12, 16, truncRunes(a.pengZhi, 12))
+	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
+	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
+	// "内乱""三三"这种残句 —— 两者互换 (用户建议)。
+	song2 := []rune(a.xiuSong)
+	half2 := (len(song2) + 1) / 2
+	c.vtextCols(ix0+sideW/2, my+4, mh-10, 12, 15, 17, string(song2[:half2]), 11)
+	c.vtextCols(ix1-sideW/2, my+4, mh-10, 12, 15, 17, string(song2[half2:]), 11)
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	zSize := 62.0
@@ -924,12 +959,11 @@ func draw(c *canvas, a almanac) {
 	ghh := gh - 2*band - 6
 
 	// 两侧竖排吉语 (星宿诗) + 宜/忌 列
-	strip := 16.0
+	strip := 18.0
 	colW := 62.0
-	song := []rune(a.xiuSong)
-	half := len(song) / 2
-	c.vtext(gx0+strip/2, gyy+6, 11, 14.5, truncRunes(string(song[:half]), 18))
-	c.vtext(gx1-strip/2, gyy+6, 11, 14.5, truncRunes(string(song[half:]), 18))
+	// 彭祖百忌: 固定 8 字上下, 工整不换行, 垂直居中 + 放大 (与星宿诗互换后)
+	c.vtextCols(gx0+strip/2, gyy, ghh, 13, 17, 17, a.pengGan, 12)
+	c.vtextCols(gx1-strip/2, gyy, ghh, 13, 17, 17, a.pengZhi, 12)
 
 	yiX := gx0 + strip
 	jiX := gx1 - strip - colW
@@ -980,8 +1014,8 @@ func draw(c *canvas, a almanac) {
 		c.line(mx0+4, py2+16, mx0+mw-4, py2+16, 0.4)
 		c.textCenter(mx0+4, py2+3, mw-8, 11, "今日提要")
 		drawWrapped(c, mx0+10, py2+21, mw-20, 10.5, 13.5,
-			"彭祖百忌 "+a.pengGan+" "+a.pengZhi+"   值神 "+a.tianShen+" "+a.tianShenLuck+
-				"   星宿 "+a.xiu+" "+a.xiuLuck, 3)
+			"值神 "+a.tianShen+" "+a.tianShenLuck+"   星宿 "+a.xiu+" "+a.xiuLuck+
+				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
 
 	// ── 底栏: 文字 + 页脚实心色条 ──
