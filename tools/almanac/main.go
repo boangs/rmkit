@@ -588,8 +588,11 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 // drawTearBand 手撕日历钉装头: 上半是**上下缘都平直**的红色装订条 (订装
 // 区域不会被撕烂), 其下露出被撕掉旧页的纸残边 —— 撕裂锯齿只属于纸层,
 // 不属于装订条 (用户对照实物澄清)。装订红固定, 不随日历主题变。
+// h = 装订条 + 纸层区: 纸层区固定 tearH 不随 h 变 (用户: 只调装订区,
+// 撕纸效果不动), h 30→48.6 时红条 18.6→37.2 正好翻倍。
 func (c *canvas) drawTearBand(x, y, w, h float64) {
-	barH := h * 0.62 // 红色装订条 (平直矩形, 用户要求高一些)
+	const tearH = 11.4 // 纸层撕裂区高度, 保持原值
+	barH := h - tearH  // 红色装订条 (平直矩形, 用户要求再翻倍)
 	n := int(w/6) + 1
 	step := w / float64(n)
 	mk := func(seed int64, base, jitter, lo, hi float64) []float64 {
@@ -613,7 +616,10 @@ func (c *canvas) drawTearBand(x, y, w, h float64) {
 	poly := func(e []float64) []gopdf.Point {
 		pts := []gopdf.Point{{X: x, Y: y}, {X: x + w, Y: y}}
 		for i := n; i >= 0; i-- {
-			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + e[i]*h})
+			// e[i] ∈ [0.62, 0.99] 是当初按整带比例生成的波形, 线性映射到
+			// 纸层区 [barH, barH+tearH], 撕纸轮廓形状与原来完全一致
+			yy := y + barH + (e[i]-0.62)/0.37*tearH
+			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: yy})
 		}
 		return pts
 	}
@@ -1038,11 +1044,12 @@ func draw(c *canvas, a almanac) {
 	iw := ix1 - ix0
 
 	// ── 顶栏: 年份 | 福印 | 月份, 两端配回纹块 ──
-	// 手撕日历顶边: 贴页面最顶, 横贯全宽 (撕到纸边才像手撕)
-	c.drawTearBand(0, 0, pageW, 30)
+	// 手撕日历顶边: 贴页面最顶, 横贯全宽 (撕到纸边才像手撕)。
+	// 48.6 = 红条 37.2 (用户要求翻倍) + 纸层区 11.4 (不变)
+	c.drawTearBand(0, 0, pageW, 48.6)
 
 	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头
-	ty, th := m+24, 40.0
+	ty, th := m+43, 37.0
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.seal(pageW/2, ty+th/2, 25, "福")
@@ -1077,7 +1084,7 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 166.0 // 腾 12pt 给顶部撕边条
+	mh := 161.0 // 装订条翻倍后让出 5pt (星宿诗行距随之微压, vtextCols 自动)
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
@@ -1124,7 +1131,7 @@ func draw(c *canvas, a almanac) {
 	// ── 吉神宜趋 / 凶煞宜忌 (无框, 左右区域各自居中) ──
 	// 中间空出来给卷轴框的上探部分 —— 卷轴顶伸进这一行, 文字靠两侧就不打架。
 	by := my + mh
-	bh := 44.0
+	bh := 41.0
 	// 卷轴框高由对齐关系解出: 端翼大台阶线要与中带双线下线**完全重合**
 	// (用户构图要求), 同时底部保持贴回纹带上沿。
 	// 台阶线在素材里是外沿 y=0.295 / 内沿 y=0.314 的描边带 → 中心 0.3045,
