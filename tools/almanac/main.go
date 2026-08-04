@@ -902,9 +902,9 @@ func draw(c *canvas, a almanac) {
 	yearS := fmt.Sprintf("%d", a.year)
 	// 琥珀体试样: 与农历日/星期同一字体, 顶栏和中带呼应
 	if dispLoaded {
-		_ = c.pdf.SetFont(fontDisp, "", 20)
+		_ = c.pdf.SetFont(fontDisp, "", 21)
 	} else {
-		c.fontCalIf(yearS, 20)
+		c.fontCalIf(yearS, 21)
 	}
 	w1, _ := c.pdf.MeasureTextWidth(yearS)
 	lx0, lx1 := ix0+endW+4, pageW/2-24
@@ -933,13 +933,13 @@ func draw(c *canvas, a almanac) {
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
 	// "内乱""三三"这种残句 —— 两者互换 (用户建议)。
-	// 按句分列: 星宿诗是八句七言, 每句一列 (7 字+标点), 前四句左侧、
-	// 后四句右侧, 读起来句读工整 —— 原按"每列 11 字"硬切, 句子拦腰断
-	// (用户看着以为没显示全)。
-	sents := splitSentences(a.xiuSong)
-	halfS := (len(sents) + 1) / 2
-	c.vtextColList(ix0+sideW/2, my+4, mh-10, 12, 15, 17, sents[:halfS])
-	c.vtextColList(ix1-sideW/2, my+4, mh-10, 12, 15, 17, sents[halfS:])
+	// 每列 11 字硬切 (试过按句分列, 太整齐反而刻板 —— 用户定稿回退);
+	// 标点去掉, 句间用全角空格留白, 竖排里就是一个空格的停顿
+	cleaned := strings.NewReplacer("，", "　", "。", "", "；", "　").Replace(a.xiuSong)
+	song2 := []rune(strings.TrimRight(cleaned, "　"))
+	half2 := (len(song2) + 1) / 2
+	c.vtextCols(ix0+sideW/2, my+4, mh-10, 12, 15, 17, string(song2[:half2]), 11)
+	c.vtextCols(ix1-sideW/2, my+4, mh-10, 12, 15, 17, string(song2[half2:]), 11)
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	zSize := 62.0
