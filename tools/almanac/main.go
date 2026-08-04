@@ -185,6 +185,7 @@ type almanac struct {
 	dayGan, dayZhi, chongZhi                    string
 	xiuSong, xiuLuck                            string
 	dayZhiAnimal, chongAnimal                   string
+	yearZhi                                     string
 	yearDay                                     int
 	bazi                                        []string
 	hourLuck                                    []hourCell
@@ -236,6 +237,7 @@ func collect(t time.Time) almanac {
 		dayZhi:       l.GetDayZhi(),
 		chongZhi:     l.GetDayChong(),
 		dayZhiAnimal: l.GetDayShengXiao(),
+		yearZhi:      l.GetYearZhi(),
 		chongAnimal:  l.GetDayChongShengXiao(),
 		xiuSong:      l.GetXiuSong(),
 		xiuLuck:      "星宿" + l.GetXiuLuck(),
@@ -1019,18 +1021,13 @@ func draw(c *canvas, a almanac) {
 		c.line(scX+rx*scH-1.5, ly, ix1-cs*0.5, ly, lw2)
 	}
 	c.drawVecDepth(scrollVec, scX, scY, scH)
-	flag := []string{}
-	if a.shuJiu != "" {
-		flag = append(flag, a.shuJiu)
-	}
+	// 卷面内容: 节气当天显示节气名, 其余日子显示今年的生肖剪纸 (用户定稿)。
+	// 数九/物候方案放弃 —— 全年覆盖但信息价值低, 生肖更有年历的仪式感。
 	if a.jieQi != "" {
-		flag = append(flag, a.jieQi)
-	} else if a.nextJieQi != "" {
-		flag = append(flag, a.nextJieQi)
-	}
-	fty := scY + (scH-float64(len(flag))*17)/2 - 4
-	for i, t := range flag {
-		c.textCenter(scX, fty+float64(i)*17, scW, 13.5, t)
+		c.textCenterDisp(scX, scY+scH*0.36, scW, 20, a.jieQi)
+	} else if img := loadZodiac(a.yearZhi); img != nil {
+		zs := scH * 0.62
+		c.drawZodiac(img, scX+(scW-zs)/2, scY+scH*0.40-zs/2, zs)
 	}
 
 	// ── 主网格 (回纹花边) ──
