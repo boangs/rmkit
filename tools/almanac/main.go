@@ -808,15 +808,15 @@ func draw(c *canvas, a almanac) {
 
 	// ── 副行: 干支年 / 星宿吉凶 ──
 	sy := ty + th + 4
-	c.text(ix0+4, sy, 9.5, a.ganzhiY+"年 "+a.shengXiao+"年")
-	c.textRight(ix0, sy, iw-4, 9.5, "第"+fmt.Sprint(a.yearDay)+"天")
+	c.text(ix0+4, sy, 11, a.ganzhiY+"年 "+a.shengXiao+"年")
+	c.textRight(ix0, sy, iw-4, 11, "第"+fmt.Sprint(a.yearDay)+"天")
 
 	// ── 主区: 左右竖排 + 巨大日号 ──
 	my := sy + 14
-	mh := 196.0
+	mh := 182.0 // 压缩日号区, 空间倒给主网格 (小字放大后底部溢出)
 	sideW := 70.0
-	c.vtext(ix0+sideW/2, my+10, 10.5, 14, truncRunes(a.pengGan, 13))
-	c.vtext(ix1-sideW/2, my+10, 10.5, 14, truncRunes(a.pengZhi, 13))
+	c.vtext(ix0+sideW/2, my+10, 12, 16, truncRunes(a.pengGan, 12))
+	c.vtext(ix1-sideW/2, my+10, 12, 16, truncRunes(a.pengZhi, 12))
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	zSize := 62.0
@@ -828,7 +828,7 @@ func draw(c *canvas, a almanac) {
 		c.drawZodiac(img, ix1-sideW-2-zSize, my+mh-zSize-30, zSize)
 		c.textCenter(ix1-sideW-2-zSize, my+mh-30, zSize, 8.5, "冲·"+a.chongAnimal)
 	}
-	c.textCenterBold(ix0+sideW, my-6, iw-2*sideW, 196, fmt.Sprintf("%d", a.day))
+	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
 	c.textCenter(ix0+sideW, my+mh-16, iw-2*sideW, 12, a.tianShen+" "+a.tianShenLuck)
 
@@ -846,10 +846,10 @@ func draw(c *canvas, a almanac) {
 	scH := 67.6
 	scW := scH * scrollAspect
 	sideW2 := (iw-scW)/2 - 10
-	c.textCenter(ix0, by+2, sideW2, 9, "吉神宜趋")
-	drawWrappedCenter(c, ix0+4, by+15, sideW2-8, 8, 10, joinSpace(a.jishen), 2)
-	c.textCenter(ix1-sideW2, by+2, sideW2, 9, "凶煞宜忌")
-	drawWrappedCenter(c, ix1-sideW2+4, by+15, sideW2-8, 8, 10, joinSpace(a.xiongsha), 2)
+	c.textCenter(ix0, by, sideW2, 10.5, "吉神宜趋")
+	drawWrappedCenter(c, ix0+4, by+14, sideW2-8, 9.5, 11.5, joinSpace(a.jishen), 2)
+	c.textCenter(ix1-sideW2, by, sideW2, 10.5, "凶煞宜忌")
+	drawWrappedCenter(c, ix1-sideW2+4, by+14, sideW2-8, 9.5, 11.5, joinSpace(a.xiongsha), 2)
 
 	// ── 中带: 农历日 | 节气旗 | 星期 ──
 	cy := by + bh + 6
@@ -928,8 +928,8 @@ func draw(c *canvas, a almanac) {
 	colW := 62.0
 	song := []rune(a.xiuSong)
 	half := len(song) / 2
-	c.vtext(gx0+strip/2, gyy+6, 9.5, 12.5, truncRunes(string(song[:half]), 18))
-	c.vtext(gx1-strip/2, gyy+6, 9.5, 12.5, truncRunes(string(song[half:]), 18))
+	c.vtext(gx0+strip/2, gyy+6, 11, 14.5, truncRunes(string(song[:half]), 18))
+	c.vtext(gx1-strip/2, gyy+6, 11, 14.5, truncRunes(string(song[half:]), 18))
 
 	yiX := gx0 + strip
 	jiX := gx1 - strip - colW
@@ -937,21 +937,21 @@ func draw(c *canvas, a almanac) {
 	c.line(jiX, gyy, jiX, gyy+ghh, 0.5)
 	c.circleLabel(yiX+colW/2, gyy+14, 11, "宜")
 	c.circleLabel(jiX+colW/2, gyy+14, 11, "忌")
-	drawWordGrid(c, yiX+4, gyy+30, colW-8, ghh-34, a.yi, 11)
-	drawWordGrid(c, jiX+4, gyy+30, colW-8, ghh-34, a.ji, 11)
+	drawWordGrid(c, yiX+4, gyy+32, colW-8, ghh-36, a.yi, 13)
+	drawWordGrid(c, jiX+4, gyy+32, colW-8, ghh-36, a.ji, 13)
 
 	// ── 中区 ──
 	mx0, mx1 := yiX+colW, jiX
 	mw := mx1 - mx0
 
 	// 时辰吉凶: 一行 12 列
-	hh := 36.0
+	hh := 42.0
 	c.rect(mx0+4, gyy+2, mw-8, hh, 0.6)
 	drawHourTable(c, mx0+6, gyy+4, mw-12, hh-4, a.hourLuck)
 
 	// 三个并排小框: 吉神方位 / 干支五行 / 择吉须知
 	ry := gyy + 2 + hh + 5
-	rh := 78.0
+	rh := 92.0
 	bw := (mw - 8 - 8) / 3
 	drawBox(c, mx0+4, ry, bw, rh, "吉神方位", [][2]string{
 		{"喜神", a.posXi}, {"财神", a.posCai}, {"福神", a.posFu}, {"贵神", a.posGui},
@@ -965,24 +965,23 @@ func draw(c *canvas, a almanac) {
 
 	// 胎神 / 八字
 	ty2 := ry + rh + 5
-	th2 := 44.0
+	th2 := 52.0
 	c.rect(mx0+4, ty2, mw/2-6, th2, 0.6)
-	c.textCenter(mx0+4, ty2+4, mw/2-6, 9, "每日胎神")
-	c.textCenter(mx0+4, ty2+18, mw/2-6, 11.5, a.taiShen)
+	c.textCenter(mx0+4, ty2+5, mw/2-6, 11, "每日胎神")
+	c.textCenter(mx0+4, ty2+22, mw/2-6, 14.5, a.taiShen)
 	c.rect(mx0+mw/2+2, ty2, mw/2-6, th2, 0.6)
-	c.textCenter(mx0+mw/2+2, ty2+4, mw/2-6, 9, "今日八字")
-	c.textCenter(mx0+mw/2+2, ty2+18, mw/2-6, 11.5, joinSpace(a.bazi))
+	c.textCenter(mx0+mw/2+2, ty2+5, mw/2-6, 11, "今日八字")
+	c.textCenter(mx0+mw/2+2, ty2+22, mw/2-6, 14.5, joinSpace(a.bazi))
 
 	// 底部: 彭祖百忌全文 (中区剩余空间)
 	py2 := ty2 + th2 + 5
 	if py2 < gyy+ghh-24 {
 		c.rect(mx0+4, py2, mw-8, gyy+ghh-py2-2, 0.6)
-		c.line(mx0+4, py2+13, mx0+mw-4, py2+13, 0.4)
-		c.textCenter(mx0+4, py2+3, mw-8, 9, "今日提要")
-		drawWrapped(c, mx0+10, py2+18, mw-20, 8.5, 11, "彭祖百忌  "+a.pengGan+" "+a.pengZhi, 2)
-		drawWrapped(c, mx0+10, py2+42, mw-20, 8.5, 11,
-			"值神 "+a.tianShen+" "+a.tianShenLuck+"    星宿 "+a.xiu+" "+a.xiuLuck+
-				"    胎神 "+a.taiShen, 2)
+		c.line(mx0+4, py2+16, mx0+mw-4, py2+16, 0.4)
+		c.textCenter(mx0+4, py2+3, mw-8, 11, "今日提要")
+		drawWrapped(c, mx0+10, py2+21, mw-20, 10.5, 13.5,
+			"彭祖百忌 "+a.pengGan+" "+a.pengZhi+"   值神 "+a.tianShen+" "+a.tianShenLuck+
+				"   星宿 "+a.xiu+" "+a.xiuLuck, 3)
 	}
 
 	// ── 底栏: 文字 + 页脚实心色条 ──
@@ -990,9 +989,9 @@ func draw(c *canvas, a almanac) {
 	// 会被静默吞掉 (实测传红色能填、传主题绿填不上, 换几种写法都没绕过去), 而描边
 	// 一直正常。文字放在色条上方而不是反白压在条上, 同时避开了反白字失效的问题。
 	fy := pageH - m - 4 - footH
-	c.text(ix0+4, fy+2, 9.5, fmt.Sprintf("干支  %s年 %s月 %s日", a.ganzhiY, a.ganzhiM, a.ganzhiD))
-	c.textCenter(ix0, fy+2, iw, 9.5, "rmkit-cn 黄历")
-	c.textRight(ix0, fy+2, iw-4, 9.5, a.xiuLuck)
+	c.text(ix0+4, fy+2, 11, fmt.Sprintf("干支  %s年 %s月 %s日", a.ganzhiY, a.ganzhiM, a.ganzhiD))
+	c.textCenter(ix0, fy+2, iw, 11, "rmkit-cn 黄历")
+	c.textRight(ix0, fy+2, iw-4, 11, a.xiuLuck)
 	barY := fy + 16
 	c.line(ix0, barY+3, ix1, barY+3, 6)
 }
@@ -1000,15 +999,15 @@ func draw(c *canvas, a almanac) {
 // drawBox 带标题的小框 + 若干"标签 值"行
 func drawBox(c *canvas, x, y, w, h float64, title string, rows [][2]string) {
 	c.rect(x, y, w, h, 0.6)
-	c.line(x, y+13, x+w, y+13, 0.4)
-	c.textCenter(x, y+3, w, 9, title)
+	c.line(x, y+16, x+w, y+16, 0.4)
+	c.textCenter(x, y+3, w, 11, title)
 	for i, kv := range rows {
-		ry := y + 17 + float64(i)*14
-		if ry+9 > y+h {
+		ry := y + 21 + float64(i)*17
+		if ry+11 > y+h {
 			break
 		}
-		c.text(x+4, ry, 8.5, kv[0])
-		c.textRight(x, ry, w-4, 8.5, truncRunes(kv[1], 6))
+		c.text(x+4, ry, 10.5, kv[0])
+		c.textRight(x, ry, w-4, 10.5, truncRunes(kv[1], 6))
 	}
 }
 
@@ -1087,9 +1086,9 @@ func drawHourTable(c *canvas, x, y, w, h float64, cells []hourCell) {
 		if i > 0 {
 			c.line(cx, y+1, cx, y+h-1, 0.3)
 		}
-		c.textCenter(cx, y+2, cw, 10, hc.zhi)
-		c.textCenter(cx, y+13, cw, 5.5, hc.span)
-		c.textCenter(cx, y+21, cw, 9.5, hc.luck)
+		c.textCenter(cx, y+2, cw, 12, hc.zhi)
+		c.textCenter(cx, y+16, cw, 6.5, hc.span)
+		c.textCenter(cx, y+25, cw, 11, hc.luck)
 	}
 }
 
