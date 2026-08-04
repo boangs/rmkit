@@ -938,18 +938,19 @@ func draw(c *canvas, a almanac) {
 	// 每列 11 字硬切, 标点保留 (试过按句分列和去标点留白, 都不如原样自然)
 	song2 := []rune(a.xiuSong)
 	half2 := (len(song2) + 1) / 2
-	c.vtextCols(ix0+sideW/2, my+4, mh-10, 12, 15, 17, string(song2[:half2]), 11)
-	c.vtextCols(ix1-sideW/2, my+4, mh-10, 12, 15, 17, string(song2[half2:]), 11)
+	c.vtextCols(ix0+sideW/2, my+2, mh-4, 13, 16, 18, string(song2[:half2]), 11)
+	c.vtextCols(ix1-sideW/2, my+2, mh-4, 13, 16, 18, string(song2[half2:]), 11)
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
-	zSize := 62.0
+	// 生肖缩小、标注加大 (用户: 图小一些字大一号, 给两侧星宿诗留空间)
+	zSize := 52.0
 	if img := loadZodiac(a.dayZhi); img != nil {
-		c.drawZodiac(img, ix0+sideW+2, my+6, zSize)
-		c.textCenter(ix0+sideW+2, my+6+zSize, zSize, 8.5, "值日·"+a.dayZhiAnimal)
+		c.drawZodiac(img, ix0+sideW+8, my+8, zSize)
+		c.textCenter(ix0+sideW+8, my+10+zSize, zSize, 10, "值日·"+a.dayZhiAnimal)
 	}
 	if img := loadZodiac(a.chongZhi); img != nil {
-		c.drawZodiac(img, ix1-sideW-2-zSize, my+mh-zSize-30, zSize)
-		c.textCenter(ix1-sideW-2-zSize, my+mh-30, zSize, 8.5, "冲·"+a.chongAnimal)
+		c.drawZodiac(img, ix1-sideW-8-zSize, my+mh-zSize-32, zSize)
+		c.textCenter(ix1-sideW-8-zSize, my+mh-30, zSize, 10, "冲·"+a.chongAnimal)
 	}
 	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
