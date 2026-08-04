@@ -585,61 +585,48 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 	}
 }
 
-// drawTearBand 手撕日历顶边: 上缘平直的主题色带 + 下缘细锯齿撕裂 +
-// 浅灰纸芯衬层。撕裂线程序化生成 (固定种子, 每页一致) —— 素材那条撕裂
-// 线整体起伏太大, 色带左厚右薄看着歪 (用户实测); 程序化的去掉整体趋势,
-// 只留均匀的局部锯齿, 色块主体绝对平直。
+// drawTearBand 手撕日历钉装头: 上半是**上下缘都平直**的红色装订条 (订装
+// 区域不会被撕烂), 其下露出被撕掉旧页的纸残边 —— 撕裂锯齿只属于纸层,
+// 不属于装订条 (用户对照实物澄清)。装订红固定, 不随日历主题变。
 func (c *canvas) drawTearBand(x, y, w, h float64) {
-	rng := rand.New(rand.NewSource(20260101))
+	barH := h * 0.55 // 红色装订条 (平直矩形)
 	n := int(w/6) + 1
 	step := w / float64(n)
-	edge := make([]float64, n+1)
-	for i := range edge {
-		// 底缘在 0.60h..0.92h 之间细碎起伏; 相邻点带相关性, 更像纤维撕痕
-		if i == 0 {
-			edge[i] = 0.76
-		} else {
-			edge[i] = edge[i-1] + (rng.Float64()-0.5)*0.22
+	mk := func(seed int64, base, jitter, lo, hi float64) []float64 {
+		rng := rand.New(rand.NewSource(seed))
+		e := make([]float64, n+1)
+		for i := range e {
+			if i == 0 {
+				e[i] = base
+			} else {
+				e[i] = e[i-1] + (rng.Float64()-0.5)*jitter
+			}
+			if e[i] < lo {
+				e[i] = lo
+			}
+			if e[i] > hi {
+				e[i] = hi
+			}
 		}
-		if edge[i] < 0.60 {
-			edge[i] = 0.60
-		}
-		if edge[i] > 0.92 {
-			edge[i] = 0.92
-		}
+		return e
 	}
-	// 第二条独立撕痕 (更碎), 做多层纸残边
-	edge2 := make([]float64, n+1)
-	rng2 := rand.New(rand.NewSource(19990715))
-	for i := range edge2 {
-		if i == 0 {
-			edge2[i] = 0.80
-		} else {
-			edge2[i] = edge2[i-1] + (rng2.Float64()-0.5)*0.26
-		}
-		if edge2[i] < 0.66 {
-			edge2[i] = 0.66
-		}
-		if edge2[i] > 0.98 {
-			edge2[i] = 0.98
-		}
-	}
-	poly := func(e []float64, off float64) []gopdf.Point {
+	poly := func(e []float64) []gopdf.Point {
 		pts := []gopdf.Point{{X: x, Y: y}, {X: x + w, Y: y}}
 		for i := n; i >= 0; i-- {
-			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + (e[i]+off)*h})
+			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + e[i]*h})
 		}
 		return pts
 	}
-	// 装订条固定红色, 不随日历主题变 (这是"钉装部分", 用户参考手撕日历实物);
-	// 下缘三层: 最浅纸屑 → 纸芯灰 → 红色装订条。
-	// 红与主题红同值时会撞 gopdf 填色去重 (文字色可能正是主题红), R 偏移 1。
+	// 纸残边两层 (撕裂下缘), 从装订条下伸出
 	c.pdf.SetFillColor(232, 228, 222)
-	c.pdf.Polygon(poly(edge2, 0.14), "F")
+	c.pdf.Polygon(poly(mk(19990715, 0.88, 0.24, 0.70, 1.0)), "F")
 	c.pdf.SetFillColor(206, 202, 196)
-	c.pdf.Polygon(poly(edge, 0.09), "F")
+	c.pdf.Polygon(poly(mk(20260101, 0.76, 0.20, 0.62, 0.90)), "F")
+	// 红色装订条 (平直, 盖住纸层上半; R 偏移 1 避开与主题红文字的填色去重 bug)
 	c.pdf.SetFillColor(179, 34, 34)
-	c.pdf.Polygon(poly(edge, 0), "F")
+	c.pdf.Polygon([]gopdf.Point{
+		{X: x, Y: y}, {X: x + w, Y: y}, {X: x + w, Y: y + barH}, {X: x, Y: y + barH},
+	}, "F")
 }
 
 // drawCloudFrame 顶栏如意云头框: 两端云头保形, 中段直线带按需拉伸 (三段式映射)。
