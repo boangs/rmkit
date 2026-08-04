@@ -949,13 +949,14 @@ func draw(c *canvas, a almanac) {
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	// 生肖缩小、标注加大 (用户: 图小一些字大一号, 给两侧星宿诗留空间)
 	zSize := 52.0
+	// 生肖贴向两侧诗栏 (28 这类宽日号与生肖显近, 各向外让 10pt)
 	if img := loadZodiac(a.dayZhi); img != nil {
-		c.drawZodiac(img, ix0+sideW+8, my+8, zSize)
-		c.textCenter(ix0+sideW+8, my+10+zSize, zSize, 10, "值日·"+a.dayZhiAnimal)
+		c.drawZodiac(img, ix0+sideW-2, my+8, zSize)
+		c.textCenter(ix0+sideW-2, my+10+zSize, zSize, 10, "值日·"+a.dayZhiAnimal)
 	}
 	if img := loadZodiac(a.chongZhi); img != nil {
-		c.drawZodiac(img, ix1-sideW-8-zSize, my+mh-zSize-32, zSize)
-		c.textCenter(ix1-sideW-8-zSize, my+mh-30, zSize, 10, "冲·"+a.chongAnimal)
+		c.drawZodiac(img, ix1-sideW+2-zSize, my+mh-zSize-32, zSize)
+		c.textCenter(ix1-sideW+2-zSize, my+mh-30, zSize, 10, "冲·"+a.chongAnimal)
 	}
 	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
