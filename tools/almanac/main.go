@@ -1314,8 +1314,9 @@ func draw(c *canvas, a almanac) {
 	// 只管填充); 每页开头会重设主题描边色, 这里无需恢复。
 	// pro 页高无余量时循环自然一条都不画。
 	c.pdf.SetStrokeColor(150, 150, 150)
-	// 首线 barY+42: 原先 +16 离底栏色条太近, 用户要求去掉第一条
-	for ly := barY + 42; ly <= pageH-m; ly += 26 {
+	// 首线 barY+42: 原先 +16 离底栏色条太近, 用户要求去掉第一条。
+	// 行距 32 (26 太挤, 用户要求加大)
+	for ly := barY + 42; ly <= pageH-m; ly += 32 {
 		c.line(ix0, ly, ix1, ly, 0.6)
 	}
 }
