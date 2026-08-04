@@ -584,6 +584,22 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 	}
 }
 
+// drawTearBand 手撕日历顶边: 页面最顶一条主题色带, 底缘撕裂纹理,
+// 下方浅灰衬层露出"纸芯" —— 手撕日历撕掉上页后的残边效果。
+func (c *canvas) drawTearBand(x, y, w, h float64) {
+	draw := func(vec []vpt) {
+		pts := make([]gopdf.Point, 0, len(vec))
+		for _, p := range vec {
+			pts = append(pts, gopdf.Point{X: x + p.x*w, Y: y + p.y*h})
+		}
+		c.pdf.Polygon(pts, "F")
+	}
+	c.pdf.SetFillColor(214, 210, 205) // 纸芯浅灰 (白底页面上白衬不可见)
+	draw(tearWhiteVec)
+	c.inkFill()
+	draw(tearColorVec)
+}
+
 // drawCloudFrame 顶栏如意云头框: 两端云头保形, 中段直线带按需拉伸 (三段式映射)。
 // 素材比例 5.3:1, 顶栏区域 14:1 —— 整体拉伸会把云头拉扁, 只拉直线段没有失真。
 func (c *canvas) drawCloudFrame(x, y, w, h float64) {
@@ -971,8 +987,11 @@ func draw(c *canvas, a almanac) {
 	iw := ix1 - ix0
 
 	// ── 顶栏: 年份 | 福印 | 月份, 两端配回纹块 ──
+	// 手撕日历顶边: 贴页面最顶, 横贯全宽 (撕到纸边才像手撕)
+	c.drawTearBand(0, 0, pageW, 26)
+
 	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头
-	ty, th := m+8, 40.0
+	ty, th := m+20, 40.0
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.seal(pageW/2, ty+th/2, 25, "福")
@@ -1007,7 +1026,7 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 178.0 // 日号区宽裕些, 中带以下整块随之下移 (用户构图要求)
+	mh := 170.0 // 腾 8pt 给顶部撕边条
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
@@ -1198,7 +1217,7 @@ func draw(c *canvas, a almanac) {
 	// 今日提要 (占余下高度)
 	if y3+22 < bot2 {
 		c.pillTitle(mx0+4, y3+5, mw-8, 11, "今日提要")
-		drawWrapped(c, mx0+12, y3+26, mw-24, 11.5, 13.5,
+		drawWrapped(c, mx0+12, y3+25, mw-24, 11.5, 13,
 			"值神 "+a.tianShen+" "+a.tianShenLuck+"   星宿 "+a.xiu+" "+a.xiuLuck+
 				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
