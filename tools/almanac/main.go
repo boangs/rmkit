@@ -930,7 +930,7 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 182.0 // 压缩日号区, 空间倒给主网格 (小字放大后底部溢出)
+	mh := 168.0 // 日号区再让 14pt 给吉神/凶煞行 (its 字号加大后两行压双线)
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
@@ -938,8 +938,8 @@ func draw(c *canvas, a almanac) {
 	// 每列 11 字硬切, 标点保留 (试过按句分列和去标点留白, 都不如原样自然)
 	song2 := []rune(a.xiuSong)
 	half2 := (len(song2) + 1) / 2
-	c.vtextCols(ix0+sideW/2, my+2, mh-4, 13, 16, 18, string(song2[:half2]), 11)
-	c.vtextCols(ix1-sideW/2, my+2, mh-4, 13, 16, 18, string(song2[half2:]), 11)
+	c.vtextCols(ix0+sideW/2, my, mh-24, 13, 16, 18, string(song2[:half2]), 11)
+	c.vtextCols(ix1-sideW/2, my, mh-24, 13, 16, 18, string(song2[half2:]), 11)
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	// 生肖缩小、标注加大 (用户: 图小一些字大一号, 给两侧星宿诗留空间)
@@ -954,13 +954,14 @@ func draw(c *canvas, a almanac) {
 	}
 	c.textCenterBold(ix0+sideW, my-10, iw-2*sideW, 190, fmt.Sprintf("%d", a.day))
 	// 值神 + 黄道黑道
-	// 下移贴近日号区底: 原 my+mh-16 与巨大日号的字底重合 (用户实测)
-	c.textCenter(ix0+sideW, my+mh-2, iw-2*sideW, 12.5, a.tianShen+" "+a.tianShenLuck)
+	// 与上方拉开距离并加号 (用户: 这块离上面太近, 字可再大)。
+	// y 与两侧吉神行重叠但 x 在中列 (卷轴正上方), 横向互不冲突
+	c.textCenter(ix0+sideW, my+mh+6, iw-2*sideW, 13.5, a.tianShen+" "+a.tianShenLuck)
 
 	// ── 吉神宜趋 / 凶煞宜忌 (无框, 左右区域各自居中) ──
 	// 中间空出来给卷轴框的上探部分 —— 卷轴顶伸进这一行, 文字靠两侧就不打架。
 	by := my + mh
-	bh := 30.0
+	bh := 44.0
 	// 卷轴框高由对齐关系解出: 端翼大台阶线要与中带双线下线**完全重合**
 	// (用户构图要求), 同时底部保持贴回纹带上沿。
 	// 台阶线在素材里是外沿 y=0.295 / 内沿 y=0.314 的描边带 → 中心 0.3045,
@@ -971,10 +972,10 @@ func draw(c *canvas, a almanac) {
 	scH := 67.6
 	scW := scH * scrollAspect
 	sideW2 := (iw-scW)/2 - 10
-	c.textCenter(ix0, by, sideW2, 10.5, "吉神宜趋")
-	drawWrappedCenter(c, ix0+4, by+14, sideW2-8, 9.5, 11.5, joinSpace(a.jishen), 2)
-	c.textCenter(ix1-sideW2, by, sideW2, 10.5, "凶煞宜忌")
-	drawWrappedCenter(c, ix1-sideW2+4, by+14, sideW2-8, 9.5, 11.5, joinSpace(a.xiongsha), 2)
+	c.textCenter(ix0, by+8, sideW2, 11.5, "吉神宜趋")
+	drawWrappedCenter(c, ix0+4, by+24, sideW2-8, 10.5, 11, joinSpace(a.jishen), 2)
+	c.textCenter(ix1-sideW2, by+8, sideW2, 11.5, "凶煞宜忌")
+	drawWrappedCenter(c, ix1-sideW2+4, by+24, sideW2-8, 10.5, 11, joinSpace(a.xiongsha), 2)
 
 	// ── 中带: 农历日 | 节气旗 | 星期 ──
 	cy := by + bh + 6
