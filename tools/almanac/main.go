@@ -861,35 +861,26 @@ func draw(c *canvas, a almanac) {
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.seal(pageW/2, ty+th/2, 25, "福")
-	// 左组: 2026 + 乙巳年·蛇年 —— 同字号 19, 组内 12pt 空白, 整组在
-	// [云头右缘, 福印左缘] 区域内居中 (用户版式要求)
-	tby := ty + 12.0
+	// 左组: 只放年份 (干支生肖撤掉 — 加上后拥挤不好看, 用户定稿), 字号 20
+	tby := ty + 11.0
 	yearS := fmt.Sprintf("%d", a.year)
-	gzS := a.ganzhiY + "年·" + a.shengXiao + "年"
-	c.fontCalIf(yearS, 19)
+	c.fontCalIf(yearS, 20)
 	w1, _ := c.pdf.MeasureTextWidth(yearS)
-	c.font(19)
-	w2, _ := c.pdf.MeasureTextWidth(gzS)
 	lx0, lx1 := ix0+endW+4, pageW/2-24
-	lstart := lx0 + (lx1-lx0-(w1+12+w2))/2
-	c.textCal(lstart, tby, 19, yearS)
-	c.text(lstart+w1+12, tby, 19, gzS)
+	c.textCal(lx0+(lx1-lx0-w1)/2, tby, 20, yearS)
 	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
-	// 右组: 一月大 JAN 第N天 —— 同字号 19, 组内 12pt 空白, 区域内居中。
-	// 月份带传统大小标注 (31 天为大, 其余为小, 二月也标小)
+	// 右组: 一月大 JAN (第N天撤掉), 字号 20, 区域内居中
 	moS := monthLabel(a) + monthSize(a)
 	en := enMonth(a.month)
-	dayN := "第" + fmt.Sprint(a.yearDay) + "天"
-	c.font(19)
+	c.font(20)
 	mW, _ := c.pdf.MeasureTextWidth(moS)
 	eW, _ := c.pdf.MeasureTextWidth(en)
-	dW, _ := c.pdf.MeasureTextWidth(dayN)
 	rx0, rx1 := pageW/2+24, ix1-endW-4
-	rstart := rx0 + (rx1-rx0-(mW+12+eW+12+dW))/2
-	c.text(rstart, tby, 19, moS)
-	c.text(rstart+mW+12, tby, 19, en)
-	c.text(rstart+mW+12.4, tby, 19, en) // JAN 三重加粗
-	c.text(rstart+mW+eW+24, tby, 19, dayN)
+	rstart := rx0 + (rx1-rx0-(mW+10+eW))/2
+	c.text(rstart, tby, 20, moS)
+	c.text(rstart+mW+10, tby, 20, en)
+	c.text(rstart+mW+10.4, tby, 20, en) // JAN 三重加粗
+	_ = a.yearDay
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
