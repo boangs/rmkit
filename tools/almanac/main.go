@@ -457,6 +457,42 @@ func (c *canvas) pillTitle(x, y, w, size float64, title string) {
 	c.pdf.SetTextColor(curTheme.r, curTheme.g, curTheme.b)
 }
 
+// vtextColList 竖排指定列 (传统右起), 区高内垂直居中 —— 每列一句诗用
+func (c *canvas) vtextColList(cx, y0, h, size, lead, colGap float64, cols []string) {
+	if len(cols) == 0 {
+		return
+	}
+	maxLen := 0
+	for _, col := range cols {
+		if n := len([]rune(col)); n > maxLen {
+			maxLen = n
+		}
+	}
+	y := y0 + (h-float64(maxLen)*lead)/2
+	totalW := float64(len(cols)-1) * colGap
+	for i, col := range cols {
+		x := cx + totalW/2 - float64(i)*colGap
+		c.vtext(x, y, size, lead, col)
+	}
+}
+
+// splitSentences 按中文句读切分 (标点跟在句尾)
+func splitSentences(s string) []string {
+	var out []string
+	var cur []rune
+	for _, r := range s {
+		cur = append(cur, r)
+		if r == '，' || r == '。' || r == '；' || r == '、' {
+			out = append(out, string(cur))
+			cur = nil
+		}
+	}
+	if len(cur) > 0 {
+		out = append(out, string(cur))
+	}
+	return out
+}
+
 func (c *canvas) rect(x, y, w, h, lw float64) {
 	c.pdf.SetLineWidth(lw)
 	c.pdf.RectFromUpperLeftWithStyle(x, y, w, h, "D")
@@ -864,22 +900,30 @@ func draw(c *canvas, a almanac) {
 	// 左组: 只放年份 (干支生肖撤掉 — 加上后拥挤不好看, 用户定稿), 字号 20
 	tby := ty + 11.0
 	yearS := fmt.Sprintf("%d", a.year)
-	c.fontCalIf(yearS, 20)
+	// 琥珀体试样: 与农历日/星期同一字体, 顶栏和中带呼应
+	if dispLoaded {
+		_ = c.pdf.SetFont(fontDisp, "", 20)
+	} else {
+		c.fontCalIf(yearS, 20)
+	}
 	w1, _ := c.pdf.MeasureTextWidth(yearS)
 	lx0, lx1 := ix0+endW+4, pageW/2-24
-	c.textCal(lx0+(lx1-lx0-w1)/2, tby, 20, yearS)
+	c.cellAt(lx0+(lx1-lx0-w1)/2, tby, yearS)
 	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
 	// 右组: 一月大 JAN (第N天撤掉), 字号 20, 区域内居中
 	moS := monthLabel(a) + monthSize(a)
 	en := enMonth(a.month)
-	c.font(20)
+	if dispLoaded {
+		_ = c.pdf.SetFont(fontDisp, "", 20)
+	} else {
+		c.font(20)
+	}
 	mW, _ := c.pdf.MeasureTextWidth(moS)
 	eW, _ := c.pdf.MeasureTextWidth(en)
 	rx0, rx1 := pageW/2+24, ix1-endW-4
 	rstart := rx0 + (rx1-rx0-(mW+10+eW))/2
-	c.text(rstart, tby, 20, moS)
-	c.text(rstart+mW+10, tby, 20, en)
-	c.text(rstart+mW+10.4, tby, 20, en) // JAN 三重加粗
+	c.cellAt(rstart, tby, moS)
+	c.cellAt(rstart+mW+10, tby, en)
 	_ = a.yearDay
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
@@ -889,10 +933,13 @@ func draw(c *canvas, a almanac) {
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
 	// "内乱""三三"这种残句 —— 两者互换 (用户建议)。
-	song2 := []rune(a.xiuSong)
-	half2 := (len(song2) + 1) / 2
-	c.vtextCols(ix0+sideW/2, my+4, mh-10, 12, 15, 17, string(song2[:half2]), 11)
-	c.vtextCols(ix1-sideW/2, my+4, mh-10, 12, 15, 17, string(song2[half2:]), 11)
+	// 按句分列: 星宿诗是八句七言, 每句一列 (7 字+标点), 前四句左侧、
+	// 后四句右侧, 读起来句读工整 —— 原按"每列 11 字"硬切, 句子拦腰断
+	// (用户看着以为没显示全)。
+	sents := splitSentences(a.xiuSong)
+	halfS := (len(sents) + 1) / 2
+	c.vtextColList(ix0+sideW/2, my+4, mh-10, 12, 15, 17, sents[:halfS])
+	c.vtextColList(ix1-sideW/2, my+4, mh-10, 12, 15, 17, sents[halfS:])
 	// 生肖剪纸: 左上"值日"、右下"冲", 对角摆放 (参考图就是这个构图)。
 	// 先画剪纸再写日号, 让巨大的数字压在剪纸之上, 层次和原版一致。
 	zSize := 62.0
