@@ -888,8 +888,10 @@ func draw(c *canvas, a almanac) {
 		ly, lw2 := ln[0], ln[1]
 		yn := (ly - scY) / scH
 		lx, rx := scrollEdgeAt(yn)
-		c.line(ix0+cs*0.5, ly, scX+lx*scH-1, ly, lw2)
-		c.line(scX+rx*scH+1, ly, ix1-cs*0.5, ly, lw2)
+		// 线端向轮廓内伸 1.5pt: 原先留 1pt 空隙, 在接缝处露出细小豁口
+		// (用户圈出两处)。墨色叠墨色只会融合, 伸进去才是"接上"。
+		c.line(ix0+cs*0.5, ly, scX+lx*scH+1.5, ly, lw2)
+		c.line(scX+rx*scH-1.5, ly, ix1-cs*0.5, ly, lw2)
 	}
 	c.drawVecDepth(scrollVec, scX, scY, scH)
 	flag := []string{}
