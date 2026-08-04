@@ -984,10 +984,26 @@ func (c *canvas) seal(cx, cy, size float64, s string) {
 }
 
 // circleLabel 圆圈内的标题字 (宜 / 忌)
+// circleLabel 宜/忌 圆标: 实心圆 + 反白加粗 (用户要求)。
+// gopdf 的 Oval 写死描边 (操作符 S), 实心圆改用 40 段多边形填充
+// (inkFill 带 R+1 偏移避填充去重坑); 反白字双设 SetTextColor 打断
+// 缓存, cellAt 自带 +0.35 双绘即粗体。
 func (c *canvas) circleLabel(cx, cy, r float64, s string) {
-	c.pdf.SetLineWidth(1.0)
-	c.pdf.Oval(cx-r, cy-r, cx+r, cy+r)
-	c.textCenter(cx-r, cy-r*0.72, 2*r, r*1.25, s)
+	c.inkFill()
+	pts := make([]gopdf.Point, 0, 40)
+	for i := 0; i < 40; i++ {
+		a := float64(i) / 40 * 2 * math.Pi
+		pts = append(pts, gopdf.Point{X: cx + r*math.Cos(a), Y: cy + r*math.Sin(a)})
+	}
+	c.pdf.Polygon(pts, "F")
+	c.pdf.SetTextColor(1, 1, 1)
+	c.pdf.SetTextColor(255, 255, 255)
+	size := r * 1.25
+	c.font(size)
+	tw, _ := c.pdf.MeasureTextWidth(s)
+	c.cellAt(cx-tw/2, cy-r*0.72, s)
+	c.pdf.SetTextColor(0, 0, 0)
+	c.pdf.SetTextColor(curTheme.r, curTheme.g, curTheme.b)
 }
 
 // ─── 角花 (中式回纹角饰) ────────────────────────────────────────────
