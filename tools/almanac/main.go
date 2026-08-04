@@ -608,17 +608,38 @@ func (c *canvas) drawTearBand(x, y, w, h float64) {
 			edge[i] = 0.92
 		}
 	}
-	poly := func(off float64) []gopdf.Point {
+	// 第二条独立撕痕 (更碎), 做多层纸残边
+	edge2 := make([]float64, n+1)
+	rng2 := rand.New(rand.NewSource(19990715))
+	for i := range edge2 {
+		if i == 0 {
+			edge2[i] = 0.80
+		} else {
+			edge2[i] = edge2[i-1] + (rng2.Float64()-0.5)*0.26
+		}
+		if edge2[i] < 0.66 {
+			edge2[i] = 0.66
+		}
+		if edge2[i] > 0.98 {
+			edge2[i] = 0.98
+		}
+	}
+	poly := func(e []float64, off float64) []gopdf.Point {
 		pts := []gopdf.Point{{X: x, Y: y}, {X: x + w, Y: y}}
 		for i := n; i >= 0; i-- {
-			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + (edge[i]+off)*h})
+			pts = append(pts, gopdf.Point{X: x + float64(i)*step, Y: y + (e[i]+off)*h})
 		}
 		return pts
 	}
-	c.pdf.SetFillColor(212, 208, 202) // 纸芯浅灰
-	c.pdf.Polygon(poly(0.10), "F")
-	c.inkFill()
-	c.pdf.Polygon(poly(0), "F")
+	// 装订条固定红色, 不随日历主题变 (这是"钉装部分", 用户参考手撕日历实物);
+	// 下缘三层: 最浅纸屑 → 纸芯灰 → 红色装订条。
+	// 红与主题红同值时会撞 gopdf 填色去重 (文字色可能正是主题红), R 偏移 1。
+	c.pdf.SetFillColor(232, 228, 222)
+	c.pdf.Polygon(poly(edge2, 0.14), "F")
+	c.pdf.SetFillColor(206, 202, 196)
+	c.pdf.Polygon(poly(edge, 0.09), "F")
+	c.pdf.SetFillColor(179, 34, 34)
+	c.pdf.Polygon(poly(edge, 0), "F")
 }
 
 // drawCloudFrame 顶栏如意云头框: 两端云头保形, 中段直线带按需拉伸 (三段式映射)。
