@@ -599,6 +599,10 @@ func (c *canvas) drawCloudFrame(x, y, w, h float64) {
 			return x + la + (u-cloudLeftW)/midSrc*(w-la-ra)
 		}
 	}
+	// 线条加粗: 云头框是填充带, 没有"线宽"可调 —— 每层多边形在填充之外
+	// 再用墨色描一圈边 (FD)。墨层外缘扩 0.6, 白层边缘也描墨 → 墨线内缘
+	// 同步加粗, 净效果线宽 +1.2 (用户: 顶栏花边线条太细)。
+	c.pdf.SetLineWidth(1.2)
 	for _, dp := range cloudVec {
 		if dp.depth%2 == 0 {
 			c.inkFill()
@@ -609,7 +613,7 @@ func (c *canvas) drawCloudFrame(x, y, w, h float64) {
 		for _, p := range dp.pts {
 			pts = append(pts, gopdf.Point{X: mapX(p.x), Y: y + p.y*h})
 		}
-		c.pdf.Polygon(pts, "F")
+		c.pdf.Polygon(pts, "FD")
 	}
 }
 
