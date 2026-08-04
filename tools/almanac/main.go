@@ -860,23 +860,36 @@ func draw(c *canvas, a almanac) {
 	ty, th := m+8, 40.0
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
-	c.textCal(ix0+endW+8, ty+11, 21, fmt.Sprintf("%d", a.year))
-	// 干支年·生肖 放年份右侧 (原来的独立副行删除, 空间还给版心)
-	c.text(ix0+endW+66, ty+16, 11, a.ganzhiY+"年·"+a.shengXiao+"年")
 	c.seal(pageW/2, ty+th/2, 25, "福")
-	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
-	// 右侧: 一月 JAN 第N天 (JAN 再加重一遍, 第N天原是独立副行)
-	dayN := "第" + fmt.Sprint(a.yearDay) + "天"
-	c.font(11)
-	dnW, _ := c.pdf.MeasureTextWidth(dayN)
-	c.text(ix1-endW-6-dnW, ty+16, 11, dayN)
-	en := enMonth(a.month)
+	// 左组: 2026 + 乙巳年·蛇年 —— 同字号 19, 组内 12pt 空白, 整组在
+	// [云头右缘, 福印左缘] 区域内居中 (用户版式要求)
+	tby := ty + 12.0
+	yearS := fmt.Sprintf("%d", a.year)
+	gzS := a.ganzhiY + "年·" + a.shengXiao + "年"
+	c.fontCalIf(yearS, 19)
+	w1, _ := c.pdf.MeasureTextWidth(yearS)
 	c.font(19)
-	enW, _ := c.pdf.MeasureTextWidth(en)
-	enX := ix1 - endW - 12 - dnW - enW
-	c.text(enX, ty+12, 19, en)
-	c.text(enX+0.4, ty+12, 19, en) // JAN 三重加粗
-	c.textRightCal(ix0, ty+12, enX-ix0-5, 19, monthLabel(a))
+	w2, _ := c.pdf.MeasureTextWidth(gzS)
+	lx0, lx1 := ix0+endW+4, pageW/2-24
+	lstart := lx0 + (lx1-lx0-(w1+12+w2))/2
+	c.textCal(lstart, tby, 19, yearS)
+	c.text(lstart+w1+12, tby, 19, gzS)
+	// 月份拆两段: 中文用日曆體, 英文缩写它没有字形, 用正文字体
+	// 右组: 一月大 JAN 第N天 —— 同字号 19, 组内 12pt 空白, 区域内居中。
+	// 月份带传统大小标注 (31 天为大, 其余为小, 二月也标小)
+	moS := monthLabel(a) + monthSize(a)
+	en := enMonth(a.month)
+	dayN := "第" + fmt.Sprint(a.yearDay) + "天"
+	c.font(19)
+	mW, _ := c.pdf.MeasureTextWidth(moS)
+	eW, _ := c.pdf.MeasureTextWidth(en)
+	dW, _ := c.pdf.MeasureTextWidth(dayN)
+	rx0, rx1 := pageW/2+24, ix1-endW-4
+	rstart := rx0 + (rx1-rx0-(mW+12+eW+12+dW))/2
+	c.text(rstart, tby, 19, moS)
+	c.text(rstart+mW+12, tby, 19, en)
+	c.text(rstart+mW+12.4, tby, 19, en) // JAN 三重加粗
+	c.text(rstart+mW+eW+24, tby, 19, dayN)
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
@@ -1197,6 +1210,15 @@ func truncRunes(s string, n int) string {
 func monthLabel(a almanac) string {
 	cn := []string{"", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"}
 	return cn[a.month] + "月"
+}
+
+// monthSize 公历月份的传统大小标注: 31 天为"大", 30/28/29 天为"小"
+func monthSize(a almanac) string {
+	days := time.Date(a.year, time.Month(a.month)+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if days == 31 {
+		return "大"
+	}
+	return "小"
 }
 
 func enMonth(m int) string {
