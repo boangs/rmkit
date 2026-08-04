@@ -487,6 +487,23 @@ func (c *canvas) drawCloudFrame(x, y, w, h float64) {
 	}
 }
 
+// drawVecDepth 等比绘制带深度分层的矢量图形 (x 坐标以"高"为单位的素材)。
+// 偶数层墨、奇数层背景白, 按数组顺序绘制 (生成时已排好)。
+func (c *canvas) drawVecDepth(shapes []depthPoly, x, y, h float64) {
+	for _, dp := range shapes {
+		if dp.depth%2 == 0 {
+			c.inkFill()
+		} else {
+			c.pdf.SetFillColor(255, 255, 255)
+		}
+		pts := make([]gopdf.Point, 0, len(dp.pts))
+		for _, p := range dp.pts {
+			pts = append(pts, gopdf.Point{X: x + p.x*h, Y: y + p.y*h})
+		}
+		c.pdf.Polygon(pts, "F")
+	}
+}
+
 // drawCorner 在 (x,y) 处画边长 size 的角花 (矢量, 三层)。
 // 主体 → 白色挖孔, 还原素材的 even-odd 镂空 (逐多边形 nonzero 填充画不出孔,
 // 曾渲染成两个实心疙瘩)。
@@ -785,16 +802,17 @@ func draw(c *canvas, a almanac) {
 	// 值神 + 黄道黑道
 	c.textCenter(ix0+sideW, my+mh-16, iw-2*sideW, 12, a.tianShen+" "+a.tianShenLuck)
 
-	// ── 吉神/凶煞 双框 (原版是风水提示 + 彩票号码的位置) ──
+	// ── 吉神宜趋 / 凶煞宜忌 (无框, 左右区域各自居中) ──
+	// 中间空出来给卷轴框的上探部分 —— 卷轴顶伸进这一行, 文字靠两侧就不打架。
 	by := my + mh
 	bh := 30.0
-	lw := iw*0.52 - 3
-	c.rect(ix0, by, lw, bh, 0.7)
-	c.text(ix0+6, by+5, 8.5, "吉神宜趋")
-	drawWrapped(c, ix0+6, by+16, lw-12, 8, 10, joinSpace(a.jishen), 1)
-	c.rect(ix0+lw+6, by, iw-lw-6, bh, 0.7)
-	c.text(ix0+lw+12, by+5, 8.5, "凶煞宜忌")
-	drawWrapped(c, ix0+lw+12, by+16, iw-lw-18, 8, 10, joinSpace(a.xiongsha), 1)
+	scH := 65.0 // 卷轴框高: 顶在吉神行内 (cy-14), 底刚好贴到主网格回纹带上沿
+	scW := scH * scrollAspect
+	sideW2 := (iw-scW)/2 - 10
+	c.textCenter(ix0, by+2, sideW2, 9, "吉神宜趋")
+	drawWrappedCenter(c, ix0+4, by+15, sideW2-8, 8, 10, joinSpace(a.jishen), 2)
+	c.textCenter(ix1-sideW2, by+2, sideW2, 9, "凶煞宜忌")
+	drawWrappedCenter(c, ix1-sideW2+4, by+15, sideW2-8, 8, 10, joinSpace(a.xiongsha), 2)
 
 	// ── 中带: 农历日 | 节气旗 | 星期 ──
 	cy := by + bh + 6
@@ -820,18 +838,19 @@ func draw(c *canvas, a almanac) {
 	// 顶部双线 = 角花自己两条横臂的延伸, 线宽和 y 都按素材归一坐标取:
 	// 顶臂 y∈[0, 0.0344] → 宽 cs*0.0344; 第二短线 y∈[0.1027, 0.1314] → 宽 cs*0.0287。
 	// 之前用 1.4/0.7 的固定线宽, 明显细于角花笔画, 接缝一眼看穿 (用户实测)。
-	// 在中间节气旗框处断开, 不横穿旗框内部 (旗框只描边不填充, 遮不住线)
-	fbx0, fbx1 := ix0+third+8, ix0+2*third-8
-	for _, ln := range [][3]float64{{fr0y + cs*0.0172, cs * 0.0344, 0}, {fr0y + cs*0.117, cs * 0.0287, 0}} {
-		c.line(ix0+cs*0.5, ln[0], fbx0, ln[0], ln[1])
-		c.line(fbx1, ln[0], ix1-cs*0.5, ln[0], ln[1])
-	}
+	// 双线横贯即可 —— 中间的卷轴框后画, 其白底会遮住穿过的部分,
+	// 视觉上"线从卷轴后面穿过", 与实体日历的图层效果一致
+	c.line(ix0+cs*0.5, fr0y+cs*0.0172, ix1-cs*0.5, fr0y+cs*0.0172, cs*0.0344)
+	c.line(ix0+cs*0.5, fr0y+cs*0.117, ix1-cs*0.5, fr0y+cs*0.117, cs*0.0287)
 
-	// 中间旗形框
-	fx, fw := ix0+third+8, third-16
-	c.rect(fx, cy+2, fw, ch-14, 0.7)
-	c.line(fx+6, cy+2, fx+6, cy+ch-12, 0.4)
-	c.line(fx+fw-6, cy+2, fx+fw-6, cy+ch-12, 0.4)
+	// 中间拱形卷轴框 (素材: 边框1-5.ai 第一款)。
+	// 高度故意超出中带 (上下各出头 4pt), 作为压在带上的立体装饰 —— 参考
+	// 实体日历的卷轴构图。白底后画, 遮住横贯的双线, 层次自然。
+	// 尺寸在吉神段已定 (scH/scW)。顶保持 cy-14 (探进吉神行),
+	// 高度拉到 65 → 底 = cy+51, 刚好落在主网格回纹带上沿 (cy+52) 之上。
+	scX := ix0 + (iw-scW)/2
+	scY := cy - 14
+	c.drawVecDepth(scrollVec, scX, scY, scH)
 	flag := []string{}
 	if a.shuJiu != "" {
 		flag = append(flag, a.shuJiu)
@@ -841,8 +860,9 @@ func draw(c *canvas, a almanac) {
 	} else if a.nextJieQi != "" {
 		flag = append(flag, a.nextJieQi)
 	}
+	fty := scY + (scH-float64(len(flag))*17)/2 - 4
 	for i, t := range flag {
-		c.textCenter(fx, cy+8+float64(i)*17, fw, 13, t)
+		c.textCenter(scX, fty+float64(i)*17, scW, 13.5, t)
 	}
 
 	// ── 主网格 (回纹花边) ──
@@ -955,6 +975,32 @@ func drawWordGrid(c *canvas, x, y, w, maxH float64, words []string, size float64
 		}
 		c.textCenter(x, y+float64(i)*lead, w, size, s)
 	}
+}
+
+// drawWrappedCenter 折行且每行水平居中
+func drawWrappedCenter(c *canvas, x, y, w, size, lead float64, s string, maxLines int) {
+	c.font(size)
+	line, ln := "", 0
+	flush := func() {
+		if line == "" {
+			return
+		}
+		c.textCenter(x, y+float64(ln)*lead, w, size, line)
+		ln++
+		line = ""
+	}
+	for _, r := range s {
+		try := line + string(r)
+		tw, _ := c.pdf.MeasureTextWidth(try)
+		if tw > w {
+			flush()
+			if ln >= maxLines {
+				return
+			}
+		}
+		line += string(r)
+	}
+	flush()
 }
 
 // drawWrapped 按宽度折行, 最多 maxLines 行
