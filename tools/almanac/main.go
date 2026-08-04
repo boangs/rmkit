@@ -420,6 +420,11 @@ func (c *canvas) vtextCols(cx, y0, h, size, lead, colGap float64, s string, perC
 			maxLen = len(c2)
 		}
 	}
+	// 内容超高时压缩行距, 而不是让居中公式算出负偏移把文字顶出区域
+	// (实测参宿长诗 11 字 × 16pt 行距 > 区高, 诗顶压进顶栏云头框)
+	if float64(maxLen)*lead > h {
+		lead = h / float64(maxLen)
+	}
 	y := y0 + (h-float64(maxLen)*lead)/2
 	totalW := float64(len(cols)-1) * colGap
 	for i, col := range cols {
@@ -930,7 +935,7 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 168.0 // 日号区再让 14pt 给吉神/凶煞行 (its 字号加大后两行压双线)
+	mh := 178.0 // 日号区宽裕些, 中带以下整块随之下移 (用户构图要求)
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
@@ -1105,7 +1110,7 @@ func draw(c *canvas, a almanac) {
 	// 今日提要 (占余下高度)
 	if y3+22 < bot2 {
 		c.pillTitle(mx0+4, y3+5, mw-8, 11, "今日提要")
-		drawWrapped(c, mx0+12, y3+27, mw-24, 11.5, 15,
+		drawWrapped(c, mx0+12, y3+26, mw-24, 11.5, 13.5,
 			"值神 "+a.tianShen+" "+a.tianShenLuck+"   星宿 "+a.xiu+" "+a.xiuLuck+
 				"   冲 "+a.chong+" 煞"+a.sha+"   九星 "+a.nineStar, 3)
 	}
