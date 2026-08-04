@@ -28,13 +28,18 @@ import (
 	"github.com/signintech/gopdf"
 )
 
-// 页面尺寸: rmpp 屏幕 1620x2160 px @229dpi → 510x679 pt, 比例 3:4。
-// rm2 (1404x1872) 比例相同, 同一份 PDF 两台都不变形。
-const (
-	pageW  = 510.0
-	pageH  = 679.0
-	margin = 16.0
+// 页面尺寸两种预设 (-page):
+//   pro  — RMPP 1620x2160 @229dpi → 510x679 pt (3:4), rm2 (1404x1872) 比例相同;
+//   move — RMPPM 帧缓冲实测 960x1696 (截图功能真机验证过) → 510x901 pt。
+// move 多出的高度**不按比例分配**: 各区块保持验证过的尺寸与间距, 主网格
+// 固定原高, 余量留作预留空白 (用户另有用途)。
+var (
+	pageW    = 510.0
+	pageH    = 901.0
+	pageMode string // -page: move | pro
 )
+
+const margin = 16.0
 
 const (
 	fontRegular = "wk"  // 正文中文字体
@@ -120,7 +125,12 @@ func main() {
 	flag.StringVar(&dispPath, "dispfont", "/Users/xurx/tmp/fonts/方正琥珀.TTF", "展示字体 TTF (农历日/星期, 需全 CJK)")
 	flag.StringVar(&assetDir, "assets", "assets/zodiac", "生肖剪纸 PNG 目录")
 	flag.StringVar(&inkMode, "ink", "color", "配色: color(平日绿/周末节假日红) | mono(灰阶屏) | keep(剪纸保留原色)")
+	flag.StringVar(&pageMode, "page", "move", "页面预设: move(RMPPM 960x1696 竖屏, 余量留白) | pro(RMPP/rm2 3:4, 压缩吸收)")
 	flag.Parse()
+
+	if pageMode == "pro" {
+		pageH = 679.0
+	}
 
 	t, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
@@ -1048,8 +1058,13 @@ func draw(c *canvas, a almanac) {
 	// 48.6 = 红条 37.2 (用户要求翻倍) + 纸层区 11.4 (不变)
 	c.drawTearBand(0, 0, pageW, 48.6)
 
-	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头
-	ty, th := m+43, 37.0
+	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头。
+	// move 用压缩前的原始尺寸 (页高够, 不挤); pro 页高小, 靠压缩吸收装订条。
+	ty := m + 43.0
+	th, mh, bh := 40.0, 166.0, 44.0
+	if pageMode == "pro" {
+		th, mh, bh = 37.0, 161.0, 41.0
+	}
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.seal(pageW/2, ty+th/2, 25, "福")
@@ -1084,7 +1099,6 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 161.0 // 装订条翻倍后让出 5pt (星宿诗行距随之微压, vtextCols 自动)
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
@@ -1131,7 +1145,6 @@ func draw(c *canvas, a almanac) {
 	// ── 吉神宜趋 / 凶煞宜忌 (无框, 左右区域各自居中) ──
 	// 中间空出来给卷轴框的上探部分 —— 卷轴顶伸进这一行, 文字靠两侧就不打架。
 	by := my + mh
-	bh := 41.0
 	// 卷轴框高由对齐关系解出: 端翼大台阶线要与中带双线下线**完全重合**
 	// (用户构图要求), 同时底部保持贴回纹带上沿。
 	// 台阶线在素材里是外沿 y=0.295 / 内沿 y=0.314 的描边带 → 中心 0.3045,
@@ -1207,7 +1220,12 @@ func draw(c *canvas, a almanac) {
 	// ── 主网格 (回纹花边) ──
 	gy := cy + ch
 	footH := 20.0
-	gh := pageH - m - 9 - footH - gy
+	// move: 主网格固定验证过的高度, 页高余量留作预留空白 (用户另有用途),
+	// 不按比例分配; pro: 页高小, 公式自动吸收装订条加高
+	gh := 286.0
+	if pageMode == "pro" {
+		gh = pageH - m - 9 - footH - gy
+	}
 	band := 11.0
 	c.fretFrame(ix0-2, gy, iw+4, gh, band)
 
