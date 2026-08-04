@@ -589,7 +589,7 @@ func (c *canvas) drawVecRaw(shapes [][]vpt, x, y, w, h float64, flipX, flipY, ro
 // 区域不会被撕烂), 其下露出被撕掉旧页的纸残边 —— 撕裂锯齿只属于纸层,
 // 不属于装订条 (用户对照实物澄清)。装订红固定, 不随日历主题变。
 func (c *canvas) drawTearBand(x, y, w, h float64) {
-	barH := h * 0.55 // 红色装订条 (平直矩形)
+	barH := h * 0.62 // 红色装订条 (平直矩形, 用户要求高一些)
 	n := int(w/6) + 1
 	step := w / float64(n)
 	mk := func(seed int64, base, jitter, lo, hi float64) []float64 {
@@ -617,12 +617,34 @@ func (c *canvas) drawTearBand(x, y, w, h float64) {
 		}
 		return pts
 	}
-	// 纸残边两层 (撕裂下缘), 从装订条下伸出
+	// 阴影 = 同形深色层向下偏移后被本色层盖住, 只露出下缘一线 (gopdf 无
+	// 真阴影/渐变, 这是零依赖的立体感做法; 用户要求装订条和纸边都带投影)。
+	shOff := 0.055
+	e1 := mk(19990715, 0.88, 0.24, 0.70, 0.99)
+	e2 := mk(20260101, 0.76, 0.20, 0.62, 0.90)
+	off := func(e []float64, d float64) []float64 {
+		o := make([]float64, len(e))
+		for i := range e {
+			o[i] = e[i] + d
+		}
+		return o
+	}
+	// 纸屑层 (带影)
+	c.pdf.SetFillColor(176, 172, 167)
+	c.pdf.Polygon(poly(off(e1, shOff)), "F")
 	c.pdf.SetFillColor(232, 228, 222)
-	c.pdf.Polygon(poly(mk(19990715, 0.88, 0.24, 0.70, 1.0)), "F")
+	c.pdf.Polygon(poly(e1), "F")
+	// 纸芯层 (带影)
+	c.pdf.SetFillColor(168, 164, 159)
+	c.pdf.Polygon(poly(off(e2, shOff)), "F")
 	c.pdf.SetFillColor(206, 202, 196)
-	c.pdf.Polygon(poly(mk(20260101, 0.76, 0.20, 0.62, 0.90)), "F")
-	// 红色装订条 (平直, 盖住纸层上半; R 偏移 1 避开与主题红文字的填色去重 bug)
+	c.pdf.Polygon(poly(e2), "F")
+	// 红色装订条: 先画加深的"投影矩形" (多出 2pt), 再画红条盖住 → 下缘露出
+	// 一条深色阴影线。R 偏移 1 避开与主题红文字的填色去重 bug。
+	c.pdf.SetFillColor(110, 20, 20)
+	c.pdf.Polygon([]gopdf.Point{
+		{X: x, Y: y}, {X: x + w, Y: y}, {X: x + w, Y: y + barH + 2.2}, {X: x, Y: y + barH + 2.2},
+	}, "F")
 	c.pdf.SetFillColor(179, 34, 34)
 	c.pdf.Polygon([]gopdf.Point{
 		{X: x, Y: y}, {X: x + w, Y: y}, {X: x + w, Y: y + barH}, {X: x, Y: y + barH},
@@ -1017,10 +1039,10 @@ func draw(c *canvas, a almanac) {
 
 	// ── 顶栏: 年份 | 福印 | 月份, 两端配回纹块 ──
 	// 手撕日历顶边: 贴页面最顶, 横贯全宽 (撕到纸边才像手撕)
-	c.drawTearBand(0, 0, pageW, 26)
+	c.drawTearBand(0, 0, pageW, 30)
 
 	// 如意云头框 (素材: 边框1-3.ai), 文字内缩避开两端云头
-	ty, th := m+20, 40.0
+	ty, th := m+24, 40.0
 	c.drawCloudFrame(ix0, ty, iw, th)
 	endW := cloudLeftW*th + 6
 	c.seal(pageW/2, ty+th/2, 25, "福")
@@ -1055,7 +1077,7 @@ func draw(c *canvas, a almanac) {
 
 	// ── 主区: 左右竖排 + 巨大日号 (副行已并入顶栏) ──
 	my := ty + th + 8
-	mh := 170.0 // 腾 8pt 给顶部撕边条
+	mh := 166.0 // 腾 12pt 给顶部撕边条
 	sideW := 70.0
 	// 星宿诗放这里: 日号区两侧空间大 (高 182), 长诗拆双列完整展示。
 	// 原来放彭祖百忌 (短句) 浪费空间, 星宿诗挤在主网格窄条里被截断出
