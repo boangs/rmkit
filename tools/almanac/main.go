@@ -110,7 +110,9 @@ var zodiacFile = map[string]string{
 
 func main() {
 	var dateStr, out, fontPath string
+	var yearAll int
 	flag.StringVar(&dateStr, "date", time.Now().Format("2006-01-02"), "日期 YYYY-MM-DD")
+	flag.IntVar(&yearAll, "year", 0, "生成整年 (365/366 页)")
 	flag.StringVar(&out, "out", "almanac.pdf", "输出 PDF 路径")
 	flag.StringVar(&fontPath, "font", os.Getenv("HOME")+"/Library/Fonts/LXGWWenKaiGBScreen.ttf", "中文 TTF 字体")
 	flag.StringVar(&calPath, "calfont", "assets/LahlitFont.ttf", "日曆體 TTF (年份/日号专用, 仅 32 字形)")
@@ -124,8 +126,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, "日期格式错误:", err)
 		os.Exit(1)
 	}
-
-	d := collect(t)
 
 	pdf := &gopdf.GoPdf{}
 	pdf.Start(gopdf.Config{PageSize: gopdf.Rect{W: pageW, H: pageH}})
@@ -148,21 +148,37 @@ func main() {
 			dispLoaded = true
 		}
 	}
-	pdf.AddPage()
-
-	// 全页统一墨色 (gopdf 的颜色是状态, 设一次即可)
-	curTheme = pickTheme(t)
-	pdf.SetTextColor(curTheme.r, curTheme.g, curTheme.b)
-	pdf.SetStrokeColor(curTheme.r, curTheme.g, curTheme.b)
-
 	c := &canvas{pdf: pdf}
-	draw(c, d)
+	drawDay := func(day time.Time) {
+		pdf.AddPage()
+		curTheme = pickTheme(day)
+		pdf.SetTextColor(curTheme.r, curTheme.g, curTheme.b)
+		pdf.SetStrokeColor(curTheme.r, curTheme.g, curTheme.b)
+		draw(c, collect(day))
+	}
 
+	if yearAll > 0 {
+		day := time.Date(yearAll, 1, 1, 0, 0, 0, 0, time.UTC)
+		n := 0
+		for day.Year() == yearAll {
+			drawDay(day)
+			day = day.AddDate(0, 0, 1)
+			n++
+		}
+		if err := pdf.WritePdf(out); err != nil {
+			fmt.Fprintln(os.Stderr, "写 PDF 失败:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("已生成 %s (%d 年全年 %d 页)\n", out, yearAll, n)
+		return
+	}
+
+	drawDay(t)
 	if err := pdf.WritePdf(out); err != nil {
 		fmt.Fprintln(os.Stderr, "写 PDF 失败:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("已生成 %s (%s %s)\n", out, dateStr, d.weekCN)
+	fmt.Printf("已生成 %s (%s)\n", out, dateStr)
 }
 
 // ─── 数据 ────────────────────────────────────────────────────────────
@@ -679,7 +695,59 @@ func (c *canvas) drawFretVecV(x, y, w, h float64) {
 // 素材本身是红色。rm2 是灰阶屏, 红色会被映射成中灰, 剪纸的细节 (镂空线条)
 // 直接糊掉 —— 所以默认转成纯黑, 只保留 alpha 通道决定形状。rmpp 是彩屏,
 // 想要年画感可以 -ink red 保留原色。
+// zodiacCache 按 (地支, 主题色) 缓存 tint 后的成品 —— 全年生成时每页 2~3 张,
+// 不缓存要重复读盘+逐像素染色上千次
+var zodiacCache = map[string]image.Image{}
+
+// downscale 盒式降采样到目标宽 (源图 800~900px, 页面上最大也就 ~78pt,
+// 280px 足够清晰, 嵌入体积缩一个量级)
+func downscale(src image.Image, target int) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= target {
+		return src
+	}
+	scale := float64(w) / float64(target)
+	nh := int(float64(h) / scale)
+	dst := image.NewRGBA(image.Rect(0, 0, target, nh))
+	for y := 0; y < nh; y++ {
+		for x := 0; x < target; x++ {
+			// 取块平均
+			x0, x1 := int(float64(x)*scale), int(float64(x+1)*scale)
+			y0, y1 := int(float64(y)*scale), int(float64(y+1)*scale)
+			var r, g, bl, a, n uint32
+			for yy := y0; yy < y1; yy++ {
+				for xx := x0; xx < x1; xx++ {
+					pr, pg, pb, pa := src.At(b.Min.X+xx, b.Min.Y+yy).RGBA()
+					r += pr >> 8
+					g += pg >> 8
+					bl += pb >> 8
+					a += pa >> 8
+					n++
+				}
+			}
+			if n > 0 {
+				dst.Set(x, y, color.RGBA{uint8(r / n), uint8(g / n), uint8(bl / n), uint8(a / n)})
+			}
+		}
+	}
+	return dst
+}
+
 func loadZodiac(zhi string) image.Image {
+	key := fmt.Sprintf("%s-%d-%d-%d", zhi, curTheme.r, curTheme.g, curTheme.b)
+	if img, ok := zodiacCache[key]; ok {
+		return img
+	}
+	img := loadZodiacUncached(zhi)
+	if img != nil {
+		img = downscale(img, 280)
+	}
+	zodiacCache[key] = img
+	return img
+}
+
+func loadZodiacUncached(zhi string) image.Image {
 	name, ok := zodiacFile[zhi]
 	if !ok || assetDir == "" {
 		return nil
@@ -1122,7 +1190,7 @@ func draw(c *canvas, a almanac) {
 	// 一直正常。文字放在色条上方而不是反白压在条上, 同时避开了反白字失效的问题。
 	fy := pageH - m - 4 - footH
 	c.text(ix0+4, fy+2, 11, fmt.Sprintf("干支  %s年 %s月 %s日", a.ganzhiY, a.ganzhiM, a.ganzhiD))
-	c.textCenter(ix0, fy+2, iw, 11, "rmkit-cn 黄历")
+	c.textCenter(ix0, fy+2, iw, 11, "铂昂士黄历")
 	c.textRight(ix0, fy+2, iw-4, 11, a.xiuLuck)
 	barY := fy + 16
 	c.line(ix0, barY+3, ix1, barY+3, 6)
