@@ -1024,7 +1024,7 @@ func draw(c *canvas, a almanac) {
 	c.fontCalIf(dayS, 190)
 	dw, _ := c.pdf.MeasureTextWidth(dayS)
 	dcx := ix0 + sideW + (iw-2*sideW)/2
-	zgap := 10.0
+	zgap := 30.0 // 10 时窄日号 (1) 生肖贴得太近, 用户定 30
 	zlx := dcx - dw/2 - zgap - zSize
 	if zlx < ix0+sideW-2 {
 		zlx = ix0 + sideW - 2
