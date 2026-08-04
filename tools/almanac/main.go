@@ -74,7 +74,10 @@ var (
 type theme struct{ r, g, b uint8 }
 
 var (
-	inkGreen = theme{20, 92, 58}
+	// 绿墨亮度是给彩色墨水屏定的: 最初用印刷绿 (20,92,58), 在 rmpp 的
+	// Kaleido 面板上直接显示为黑 —— 彩墨屏色域窄, 暗色一律趋黑, 亮度决定一切。
+	// (55,170,100) 是用户拿真机对着 7 档色卡挑出来的。
+	inkGreen = theme{55, 170, 100}
 	inkRed   = theme{178, 34, 34}
 	inkMono  = theme{0, 0, 0}
 )
