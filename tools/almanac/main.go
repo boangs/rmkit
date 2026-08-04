@@ -1026,8 +1026,10 @@ func draw(c *canvas, a almanac) {
 	if a.jieQi != "" {
 		c.textCenterDisp(scX, scY+scH*0.36, scW, 20, a.jieQi)
 	} else if img := loadZodiac(a.yearZhi); img != nil {
-		zs := scH * 0.62
-		c.drawZodiac(img, scX+(scW-zs)/2, scY+scH*0.40-zs/2, zs)
+		// 生肖剪纸多为横构图 (纵向只占图幅一半左右), 正方形框按卷高取
+		// 反而显小 —— 框放大到 1.15 倍卷高, 实际墨迹仍在拱面内 (实测)
+		zs := scH * 1.15
+		c.drawZodiac(img, scX+(scW-zs)/2, scY+scH*0.44-zs/2, zs)
 	}
 
 	// ── 主网格 (回纹花边) ──
