@@ -1,0 +1,19 @@
+[Unit]
+Description=rmkit-cn: rM2 冷启动后 /home 挂载完成时重启一次 xochitl 使 LD_PRELOAD 注入生效
+# rM2 的 /home 挂载 After=xochitl.service (fstab x-systemd.after), 冷启动时 xochitl
+# 先于 /home 起 → LD_PRELOAD 指向的 /home 上 .so 还不存在 → ld.so 静默跳过 → 注入
+# 落空 (中文/高级面板/IME 全没)。本单元在 /home 挂好后检查一次, 若注入没生效就重启
+# 一次 xochitl (此时 /home 已在, 注入成功)。fail-open: 最坏只是英文, 不变砖。
+After=home.mount xochitl.service
+Requires=home.mount
+ConditionPathExists=/home/root/rmkit-cn/active/xovi.so
+ConditionPathExists=/home/root/rmkit-cn/bin/precheck.sh
+
+[Service]
+Type=oneshot
+# 已注入则 exit 0 不动 (热重启/正常启动场景); 未注入才重启一次。
+# 重启前写 .intentional_restart, 让 precheck.sh 不把这次计入 crashloop 熔断计数。
+ExecStart=/bin/sh -c 'sleep 5; X=$(pidof xochitl); if [ -n "$X" ] && grep -q xovi.so /proc/$X/maps; then echo "注入已生效, 无需重启"; exit 0; fi; echo "注入未生效, 重启 xochitl"; date +%s > /home/root/rmkit-cn/.intentional_restart; systemctl restart xochitl.service'
+
+[Install]
+WantedBy=multi-user.target

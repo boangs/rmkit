@@ -674,6 +674,15 @@ for f in /tmp/rmkit-cn-systemd-staging/*.service /tmp/rmkit-cn-systemd-staging/*
       ln -sf /etc/systemd/system/$base /etc/systemd/system/multi-user.target.wants/$base
       ln -sf /etc/systemd/system/$base /tmp/lc/etc/systemd/system/multi-user.target.wants/$base
       ;;
+    rmkit-cn-rm2-reenable.service)
+      # 仅 rm2 (armv7) 启用: rm2 的 /home 挂载 After=xochitl.service, 冷启动注入
+      # 落空需本单元重启一次恢复。其它机型 /home 早于 xochitl, 用不上 (文件仍拷入
+      # /etc 但不建 wants symlink → 不启用)。
+      if [ "$(uname -m)" = "armv7l" ]; then
+        ln -sf /etc/systemd/system/$base /etc/systemd/system/multi-user.target.wants/$base
+        ln -sf /etc/systemd/system/$base /tmp/lc/etc/systemd/system/multi-user.target.wants/$base
+      fi
+      ;;
   esac
 done
 sync; umount -l /tmp/lc 2>/dev/null || true; rmdir /tmp/lc 2>/dev/null || true
