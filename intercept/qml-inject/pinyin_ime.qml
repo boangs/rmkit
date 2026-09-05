@@ -177,6 +177,29 @@ Item {
             console.warn("XOVI-PINYIN: 读键盘配置失败 " + e)
         }
     }
+
+    // 动态区分物理/虚拟键盘, 据此实时开/关"光标位移反推回车退格"旁路。
+    // hook 按来源写 /tmp/rmkit_phys_kbd (物理键盘按键建, 虚拟键盘按键删)。每词开头
+    // 读一次 (非每次光标变, 避免热路径磁盘 IO): 物理键盘 → 关旁路 (回车/退格走 hook
+    // 正路, 开着会在多字母编码上误判吐字); 虚拟键盘 → 开旁路 (其回车/退格绕过 hook,
+    // 唯一靠它)。RMPPM 插拔蓝牙键盘自动切换, 无需任何固定设置。
+    // _lastKbdTick 节流: 同一 tick 内多次调用只读一次。
+    property int _kbdSrcCheckedTick: -999
+    function _refreshKbdSource() {
+        try {
+            var xhr = new XMLHttpRequest()
+            xhr.open("GET", "file:///tmp/rmkit_phys_kbd", false)
+            xhr.send()
+            var phys = xhr.responseText && xhr.responseText.replace(/\s/g, "").length > 0
+            if (pinyinIME.cursorKeyInference === phys) {
+                pinyinIME.cursorKeyInference = !phys
+                console.warn("XOVI-PINYIN: 键盘来源=" + (phys ? "物理→关旁路" : "虚拟→开旁路"))
+            }
+        } catch (e) {
+            // 读不到 = 无物理标记 = 虚拟键盘 → 开旁路
+            if (!pinyinIME.cursorKeyInference) pinyinIME.cursorKeyInference = true
+        }
+    }
     // locale 可信时以它为准 (用户在虚拟键盘上切语言要能立刻生效);
     // locale 尚未初始化 (空 / 不含区域信息) 时才用配置兜底。
     // 注意: 不要在这里读文件。_cfgChinese 是启动时读一次的缓存 ——
@@ -500,6 +523,8 @@ Item {
         pinyinIME.refreshCursorPosition()
         var newPreedit = st.preedit || ""
         var hadPreedit = pinyinIME.pinyinBuffer !== ""
+        // 每词开头刷新键盘来源 (物理/虚拟), 动态开关光标推断旁路
+        if (newPreedit !== "" && !hadPreedit) pinyinIME._refreshKbdSource()
         if (newPreedit !== "" || (st.commit && st.commit.length > 0)) {
             pinyinIME._lastInputTick = pinyinIME.imeTick
             pinyinIME._inputBusy = true
@@ -1024,6 +1049,7 @@ Item {
     Component.onCompleted: {
         console.warn("XOVI-PINYIN: IME ready v62-runtime (event-filter)")
         _loadKeyboardCfg()
+        _refreshKbdSource()
         setMode("chinese", false)
         setMode("pinyin_active", false)
         // 快刷标记打在常驻整屏 fastZone 上 —— 会话期间几何零变化, 零抖动。

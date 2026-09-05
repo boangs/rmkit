@@ -79,6 +79,18 @@ static inline void set_pinyin_active() {
     if (fd >= 0) ::close(fd);
 }
 
+// ─── 键盘来源标记 (动态区分物理/虚拟键盘) ─────────────────────
+// 物理键盘 (含蓝牙/折叠) 的按键走 processKeyEvent (QKeyEvent) → 建标记;
+// 屏幕虚拟键盘走 setCommitString (QInputMethodEvent) → 删标记。
+// 前端 pinyin_ime.qml 每词开头读一次, 据此开/关"光标位移反推回车退格"旁路:
+// 物理键盘回车/退格走 hook 正路 → 关旁路 (开着会在多字母编码上误判吐字);
+// 虚拟键盘回车/退格绕过 hook → 开旁路 (唯一靠它)。RMPPM 插拔蓝牙键盘自动切换。
+static inline void set_phys_kbd() {
+    int fd = ::open("/tmp/rmkit_phys_kbd", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd >= 0) { ssize_t w = ::write(fd, "1", 1); (void)w; ::close(fd); }
+}
+static inline void clear_phys_kbd() { ::unlink("/tmp/rmkit_phys_kbd"); }
+
 // ─── ime-server 唤醒通知 (long-poll 0-延迟路径) ────────────────
 // 仅发送 1 字节信号；字符内容仍走 char_queue 文件。如果 socket 不存在
 // (ime-server 旧版/未运行) 静默失败，QML 的 500ms 兜底 polling 会接住。
@@ -247,7 +259,7 @@ void _ZN17QInputMethodEvent15setCommitStringERK7QStringii(
                                     ch == ':' || ch == ';' || ch == '(' || ch == ')' ||
                                     ch == '<' || ch == '>' || ch == '\\');
                 if (is_letter || is_space || is_enter || is_digit || is_cn_punct) {
-                    if (is_letter) set_pinyin_active();  // 前沿置位, 关空格竞态
+                    if (is_letter) { set_pinyin_active(); clear_phys_kbd(); }  // 虚拟键盘来源
                     enqueue_char(ch);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] queue 0x%02x\n", ch);
                     return;
@@ -309,7 +321,7 @@ void _ZN22QGuiApplicationPrivate15processKeyEventEPN29QWindowSystemInterfacePriv
             }
             if (is_letter || is_space || is_enter || is_digit || is_cn_punct || is_backspace) {
                 if (keyType == QEVENT_KEYPRESS) {
-                    if (is_letter) set_pinyin_active();  // 前沿置位, 关空格竞态
+                    if (is_letter) { set_pinyin_active(); set_phys_kbd(); }  // 物理键盘来源
                     uint16_t out = is_enter ? '\r' : (is_backspace ? '\b' : ch);
                     enqueue_char(out);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] key queue 0x%02x\n", out);
