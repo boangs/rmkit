@@ -74,12 +74,13 @@ Item {
     property bool hasAnchor: false
     property int anchorIdx: 0
     // 靠"光标位移"反推虚拟键盘的回车/退格 (onTextCursorIndexChanged 里那套)。
-    // 只对 reMarkable 虚拟键盘有意义——它的回车/退格键绕过 hook 和 setCommitString,
-    // 唯一线索就是光标动了没。物理键盘的回车/退格由 hook 直接送引擎, 根本不需要它;
-    // 而在五笔这种"短码 + 唯一码自动上屏"下, 上屏推动光标前移会被误判成回车,
-    // 触发 commitBufferAfterEnter 去 selectTextRange 替换, 把已上屏的字也吃掉。
-    // 默认关闭; 将来做虚拟键盘拦截时, 对应设备再置 true (且要先修准误判)。
-    property bool cursorKeyInference: false
+    // reMarkable 虚拟键盘的回车/退格键绕过 hook 和 setCommitString, 唯一线索就是
+    // 光标动了没, 所以这套必须保留 (虚拟键盘用户靠它)。默认开启, 兼顾物理+虚拟键盘。
+    // 曾经它在五笔"短码 + 唯一码自动上屏"下会把上屏推动的光标前移误判成回车 →
+    // 吐字母 + 吃字; 根因是"我们自己上屏后 Qt.callLater 异步挪光标, 复位 intercepting
+    // 却在挪之前同步做了"→ 那次异步挪光标不再被挡。已改由 insertToDoc 在挪光标落地后
+    // 才复位 intercepting (见 insertToDoc), 上屏动作全程被挡, 只有真的用户按键才触发。
+    property bool cursorKeyInference: true
     property bool _kbdDumped: false
     // long-poll 链状态: true 时表示 /pop-all-chars-blocking xhr 在挂,
     // 阻止 fallback 重复发起。响应到达后 chain 立即重发。
@@ -361,12 +362,13 @@ Item {
         // 拉取链彻底锁死 (250ms 心跳兜底也救不回来), 服务端 20 秒后判定 QML
         // 停止拉取清掉模式标志 —— 表现就是"没有候选框, 过几秒变成输出英文"。
         if (!ctrl) return
-        // 占位符只为"光标位移反推虚拟键盘按键"服务 (见 cursorKeyInference)。
-        // 那套关闭时, 占位符纯属多余: 组字期间往光标处插零宽空格再靠延后回调挪
-        // 光标, 一插一挪正是"光标落到中间"的来源。关闭推断时直接不插, 组字期间
-        // 文档保持原样, 上屏时汉字落在光标处。
-        if (!cursorKeyInference) return
+        if (!cursorKeyInference) return   // 关闭光标推断时占位符无读者, 不插
         if (hasAnchor) return
+        // ★ hasAnchor 必须同步置真: 快速连打时相邻两个按键的 preedit 更新都可能在
+        // 占位符落地前跑到这里, 若 hasAnchor 还在延后回调里置真, 第二次的 (hasAnchor)
+        // 守卫拦不住 → 插两个零宽空格 → 光标比锚点多两格 → 被"前移当回车"误判
+        // (RMPPM 实测单字母 buffer=n 仍偶发吐字的残留根因)。先占真, 再做插入。
+        hasAnchor = true
         intercepting = true
         anchorIdx = ctrl.textCursorIndex
         ctrl.beginInputMethodTransaction()
@@ -376,7 +378,6 @@ Item {
         ctrl.endInputMethodTransaction()
         Qt.callLater(function() {
             ctrl.setCursorIndex(anchorIdx + 1)
-            hasAnchor = true
             pinyinIME.intercepting = false
         })
     }
@@ -523,10 +524,14 @@ Item {
                     if (pinyinIME.pinyinBuffer !== "" && !pinyinIME.hasAnchor)
                         pinyinIME.placeAnchor(ctrl)
                 } : null)      // direct 模式: 走文档 API
+                // intercepting 由 insertToDoc 在"延后挪光标落地后"复位 —— 我们自己上屏后
+                // 挪光标是 Qt.callLater 异步的, 若在这里同步复位, 那次异步挪光标触发的
+                // onTextCursorIndexChanged 就不再被挡 → 被"前移当回车"误判 (五笔唯一码
+                // 上屏后吐字母的真凶)。text 模式无异步挪光标, 仍同步复位。
             } else {
                 pinyinIME.insertToTextInput(st.commit)      // text 模式: 直接改 TextInput
+                pinyinIME.intercepting = false
             }
-            pinyinIME.intercepting = false
         }
 
         // 编辑区文本: 非空时需要占位符吸收退格; 空了就撤掉。
@@ -585,8 +590,7 @@ Item {
         target: null
 
         function onTextCursorIndexChanged() {
-            // 光标位移反推回车/退格默认关闭 (见 cursorKeyInference 注释)。
-            // 物理键盘用户走 hook 正路, 开着只会在五笔上吃字。
+            // 光标位移反推回车/退格 (默认开, 兼顾虚拟键盘; 见 cursorKeyInference)。
             if (!pinyinIME.cursorKeyInference) return
             if (pinyinIME.intercepting || !pinyinIME.isChineseMode || !pinyinIME.useDirectCommit) return
             if (!pinyinIME.hasAnchor || pinyinIME.pinyinBuffer === "") return
@@ -740,8 +744,10 @@ Item {
     }
 
     // then: 可选回调, 在光标归位到上屏文本之后执行 (见 _applyState 的 deferAnchor)。
+    // 调用方进入前置 intercepting=true; 本函数在"延后挪光标落地后"才复位, 保证我们
+    // 自己挪光标触发的 onTextCursorIndexChanged 全程被挡, 不被"前移当回车"误判。
     function insertToDoc(ctrl, text, then) {
-        if (!text || !ctrl) return
+        if (!text || !ctrl) { pinyinIME.intercepting = false; return }
         try {
             var startIdx = ctrl.textCursorIndex
             ctrl.beginInputMethodTransaction()
@@ -751,12 +757,14 @@ Item {
             ctrl.endInputMethodTransaction()
             Qt.callLater(function() {
                 ctrl.setCursorIndex(startIdx + text.length)
-                // 再让事件循环走一拍, 确保光标归位已落地, 回调里读到的才是新位置
-                if (then) Qt.callLater(function() {
-                    try { then() } catch (e2) { console.warn("XOVI-PINYIN: insertToDoc then FAIL: " + e2) }
+                // 再让事件循环走一拍, 确保光标归位已落地, 才复位 intercepting + 放占位符
+                Qt.callLater(function() {
+                    pinyinIME.intercepting = false
+                    if (then) { try { then() } catch (e2) { console.warn("XOVI-PINYIN: insertToDoc then FAIL: " + e2) } }
                 })
             })
         } catch(e) {
+            pinyinIME.intercepting = false
             console.warn("XOVI-PINYIN: insertToDoc FAIL: " + e)
         }
     }

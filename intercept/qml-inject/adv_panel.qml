@@ -248,10 +248,20 @@ import QtQuick.Layouts
                     anchors.bottomMargin: 40
 
                     // ─── 主页 (设置图标卡 + 应用区) ──────────────────────────
-                    ColumnLayout {
+                    // RMPPM 等小屏横屏时高度只有 ~1404, 主页磁贴 + 应用区超出屏幕,
+                    // 套 Flickable 让它可滚动 (原来是 ColumnLayout anchors.fill, 截断且拖不动)。
+                    Flickable {
                         visible: _rmhAdvancedPanel._rmhPage === 0
                         anchors.fill: parent
-                        spacing: 32
+                        contentWidth: width
+                        contentHeight: _rmhHomeCol.implicitHeight
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        ColumnLayout {
+                            id: _rmhHomeCol
+                            width: parent.width
+                            spacing: 32
 
                         // 设置入口卡片网格 (3 列等分, 自适应竖屏 / 横屏)
                         GridLayout {
@@ -674,8 +684,7 @@ import QtQuick.Layouts
                                 }
                             }
                         }
-
-                        Item { Layout.fillHeight: true }
+                        }
                     }
 
                     // ─── 子页: 扫码上传 ──────────────────────────────────────
