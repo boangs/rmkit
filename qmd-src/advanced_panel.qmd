@@ -399,6 +399,39 @@ AFFECT /qml/device/view/navigator/Navigator.qml
                                     }
                                 }
                             }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 80
+                                        Layout.preferredHeight: 80
+                                        source: "qrc:/ark/icons/restore"
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Android"
+                                        font.pixelSize: 26
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        _rmhAdvancedPanel.visible = false
+                                        _rmhAdvancedPanel.launchAndroid()
+                                    }
+                                }
+                            }
                         }
 
                         // 分隔线
@@ -2447,6 +2480,13 @@ AFFECT /qml/device/view/navigator/Navigator.qml
                         x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/koreader/launch")
                         x.send()
                     }
+                }
+                function launchAndroid() {
+                    // 切到 Android 槽: upload-server 执行 rootdev --switch && reboot,
+                    // 与 Paper Home 的"原厂系统"按钮互为反向. ~40s 后进入 Android.
+                    var x = new XMLHttpRequest()
+                    x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/android/launch")
+                    x.send()
                 }
 
                 // ─── 五子棋逻辑 ─────────────────────────────────────────────

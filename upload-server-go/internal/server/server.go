@@ -94,6 +94,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /apply", s.applyAll)
 
 	mux.HandleFunc("POST /apps/koreader/launch", s.launchKoreader)
+	mux.HandleFunc("POST /apps/android/launch", s.launchAndroid)
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.cfg.StaticDir))))
 

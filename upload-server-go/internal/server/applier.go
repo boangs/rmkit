@@ -1,6 +1,7 @@
 package server
 
 import (
+	"syscall"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -670,4 +671,21 @@ func writeSleepScreenPath(confPath, value string) error {
 		return fmt.Errorf("rename: %w", err)
 	}
 	return nil
+}
+
+// launchAndroid 切换 eMMC 启动分区到 Android 槽并重启. rootdev --switch 封装的是
+// mmc bootpart enable, 与 Paper Home 侧"原厂系统"按钮走同一机制的反向.
+func (s *Server) launchAndroid(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat("/usr/sbin/rootdev"); err != nil {
+		httpError(w, http.StatusNotFound, "未检测到 rootdev, 无法切换分区")
+		return
+	}
+	cmd := exec.Command("/bin/sh", "-c", "sync; /usr/sbin/rootdev --switch && sleep 1 && reboot")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		httpError(w, http.StatusInternalServerError, "启动切换失败: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte("switching to android"))
 }
