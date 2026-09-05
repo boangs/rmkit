@@ -105,6 +105,7 @@ case "$ARCH" in
     # 运行时 QML 注入 (瘦 hook + 胖库), chiappa SDK cortexa55 交叉编译
     QML_INJECT_NAME="qml_inject-aarch64.so"
     QML_INJECT_IMPL_NAME="qml_inject_impl-aarch64.so"
+    RIME_BIN_NAME="ime-server-rime-aarch64"   # librime 版后端 (整句+五笔), 缺则回落纯 Go
     ;;
   armv7l)
     UPLOAD_BIN_NAME="upload-server-armv7"
@@ -117,6 +118,7 @@ case "$ARCH" in
     # dist 缺产物时自动跳过 → 那些功能回落 qmd 注入路径 (fail-open 不变)。
     QML_INJECT_NAME="qml_inject-armv7.so"
     QML_INJECT_IMPL_NAME="qml_inject_impl-armv7.so"
+    RIME_BIN_NAME="ime-server-rime-armv7"     # librime 版后端 (整句+五笔), 缺则回落纯 Go
     ;;
   *)
     echo "✗ 不支持的架构: $ARCH (本项目仅支持 aarch64 / armv7l)" >&2
@@ -158,6 +160,27 @@ if [ "$DIST_OK" = "0" ]; then
   chmod +x "$DIST_DIR_CHECK"/* 2>/dev/null || true
   rm -f "$TMP_TGZ"; trap - EXIT
   echo "  ✓ 预编译产物已就绪"
+fi
+
+# ─── 决定后端: librime 版 (整句 + 拼音/五笔) 还是纯 Go 回退 ─────────────
+# 只有本地已备齐 "带 /rime/schema 的新版 rime 二进制 + 两个词库包" 时才部署 librime。
+# 三条硬门槛缺一即回落纯 Go (IME_BIN_NAME 不变):
+#   ① dist/$RIME_BIN_NAME 存在 (对应架构的 librime 后端已交叉编译)
+#   ② 该二进制含 /rime/schema 路由 (是带方案切换的新版, 不是缺功能的旧构建)
+#   ③ 两个词库包 (prebuilt + runtime-data) 都在
+# rime 二进制/词库包体积大 (~60MB), 不进标准 dist.tar.gz release, 普通用户 git clone
+# 后没有它们 → 自动走纯 Go; 开发者本地 build 出来后才部署 librime。
+RIME_PREBUILT="$DIST_DIR_CHECK/rime-prebuilt.tar.gz"
+RIME_RUNTIME="$DIST_DIR_CHECK/rime-runtime-data.tar.gz"
+DEPLOY_RIME=0
+if [ -f "$DIST_DIR_CHECK/$RIME_BIN_NAME" ] \
+   && grep -a -q "/rime/schema" "$DIST_DIR_CHECK/$RIME_BIN_NAME" 2>/dev/null \
+   && [ -f "$RIME_PREBUILT" ] && [ -f "$RIME_RUNTIME" ]; then
+  IME_BIN_NAME="$RIME_BIN_NAME"   # 用 librime 二进制顶替纯 Go 作为 ime-server
+  DEPLOY_RIME=1
+  echo "  ✓ 检测到 librime 后端 + 词库包 → 部署整句输入 (拼音 + 五笔86)"
+else
+  echo "  · 未备齐 librime 后端/词库 (或为旧版无 /rime/schema) → 用纯 Go 回退引擎"
 fi
 
 # ─── xovi 自动部署 (全新设备 / 出厂 reset 后必备) ──────────────
@@ -351,12 +374,24 @@ done
 
 # ─── 校验所有需部署的 binary 在本地都存在 ───────────────────────
 DIST_DIR="$SCRIPT_DIR/dist"
+# librarian 只部署到 aarch64: rm2 (3.28) 上它永远 "Library not found", 每 200ms
+# 重试一次且每次漏 ~7KB 原生堆 (实测 32 位 xochitl 每分钟涨 2MB, 数小时后
+# std::bad_alloc 崩溃); 热导入在 rm2 上本来也不工作, 停用无功能损失。
+DEPLOY_LIBRARIAN=1
+[ "$EXT_ARCH" = "armv7" ] && DEPLOY_LIBRARIAN=0
 for f in "$DIST_DIR/$UPLOAD_BIN_NAME" "$DIST_DIR/$IME_BIN_NAME" "$DIST_DIR/$IME_HOOK_NAME" \
          "$DIST_DIR/$QMD_TOOL_NAME" \
-         "$SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" \
          "$SCRIPT_DIR/vendor/extensions/xovi-message-broker-${EXT_ARCH}.so"; do
   [ -f "$f" ] || { echo "✗ 缺失: $f" >&2; exit 1; }
 done
+[ "$DEPLOY_LIBRARIAN" = "1" ] && [ ! -f "$SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" ] && \
+  { echo "✗ 缺失: $SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" >&2; exit 1; }
+# 本地 dist/ 被 gitignore, 极易与源码脱节 (rm2 事故: 6 月的 ime-server-armv7 没有
+# /rime 路由 → 前端 404 死循环 → bad_alloc)。部署前硬校验后端带 /rime 路由。
+if ! grep -a -q "/rime/input" "$DIST_DIR/$IME_BIN_NAME" 2>/dev/null; then
+  echo "✗ $DIST_DIR/$IME_BIN_NAME 是旧版 (无 /rime 路由), 请先 make -C ime-go $( [ "$ARCH" = armv7l ] && echo armv7 || echo aarch64 )" >&2
+  exit 1
+fi
 
 # ─── 构造本地 staging (镜像设备文件树) ─────────────────────────
 # 把所有要部署的文件复制到 staging 临时目录, 按设备真实路径组织,
@@ -390,6 +425,11 @@ cp "$SCRIPT_DIR/installer/precheck.sh"    "$PAYLOAD/home/root/rmkit-cn/bin/prech
 cp "$SCRIPT_DIR/installer/qml-inject-lib.sh" "$PAYLOAD/home/root/rmkit-cn/bin/qml-inject-lib.sh"
 cp "$SCRIPT_DIR/installer/ota-watch.sh"   "$PAYLOAD/home/root/rmkit-cn/bin/ota-watch.sh"
 cp "$DIST_DIR/$IME_BIN_NAME"  "$PAYLOAD/home/root/rmkit-cn/bin/ime-server"
+# librime 词库包 → rime-stage/ (设备端解包见传输后的 rime setup 段); 纯 Go 时跳过
+if [ "${DEPLOY_RIME:-0}" = "1" ]; then
+  mkdir -p "$PAYLOAD/home/root/rmkit-cn/rime-stage"
+  cp "$RIME_PREBUILT" "$RIME_RUNTIME" "$PAYLOAD/home/root/rmkit-cn/rime-stage/"
+fi
 cp "$DIST_DIR/$IME_HOOK_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/ime_hook.so"
 cp "$DIST_DIR/$QMD_TOOL_NAME" "$PAYLOAD/home/root/rmkit-cn/bin/qmd-tool"
 
@@ -476,9 +516,10 @@ if [ -d "$SCRIPT_DIR/assets/chess" ]; then
      "$PAYLOAD/home/root/xovi/exthome/qt-resource-rebuilder/chess/" 2>/dev/null || true
 fi
 
-# /home/root/xovi/extensions.d/  librarian + xovi-message-broker
-cp "$SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" \
-   "$PAYLOAD/home/root/xovi/extensions.d/librarian.so"
+# /home/root/xovi/extensions.d/  librarian (仅 aarch64, 见上) + xovi-message-broker
+[ "$DEPLOY_LIBRARIAN" = "1" ] && \
+  cp "$SCRIPT_DIR/vendor/extensions/librarian-${EXT_ARCH}.so" \
+     "$PAYLOAD/home/root/xovi/extensions.d/librarian.so"
 cp "$SCRIPT_DIR/vendor/extensions/xovi-message-broker-${EXT_ARCH}.so" \
    "$PAYLOAD/home/root/xovi/extensions.d/xovi-message-broker.so"
 chmod +x "$PAYLOAD/home/root/xovi/extensions.d/"*.so
@@ -530,6 +571,45 @@ echo "  传输完成 (${ELAPSED}s)"
 # 跟主 xochitl 进程或 systemctl restart xochitl 冲突, 反复 fail → bootloader 切 slot → 砖。
 ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
 echo "✓ .last_fw_version 已写入 ($FW_VERSION) — 防止 fw-upgrade.sh 误触发"
+
+# ─── 设备端: 部署 librime 词库数据 (仅 DEPLOY_RIME=1) ──────────────────
+# 词库编译好随包下发 (rime-stage/*.tar.gz), 设备端只解包 + 盖时间戳, 永不本地编译
+# (设备冷编译 110s / 峰值 881MB, rm2 扛不住)。顺序见 tools/build-librime/DICT-PACKAGING.md:
+# 解包 → 预建 userdb/sync/trash → installation.yaml → user.yaml 时间戳 (>= data dir mtime,
+# 否则 librime 每次启动误判"需重编译")。按词库包 md5 幂等: 未变则跳过, 保留用户 userdb 词频。
+if [ "${DEPLOY_RIME:-0}" = "1" ]; then
+  echo "  → 部署 rime 词库 (整句输入)..."
+  ssh "$DEVICE_USER@$DEVICE_IP" 'bash -s' <<'RIME_EOF'
+set -e
+STAGE=/home/root/rmkit-cn/rime-stage
+SHARED=/home/root/rmkit-cn/rime
+USERD=/home/root/.rmkit-rime
+PKG="$STAGE/rime-prebuilt.tar.gz"
+[ -f "$PKG" ] || { echo "    (无词库包, 跳过)"; exit 0; }
+NEWMD5=$(md5sum "$PKG" | cut -d' ' -f1)
+OLDMD5=$(cat /home/root/rmkit-cn/.rime_pkg_md5 2>/dev/null || echo "")
+if [ "$NEWMD5" = "$OLDMD5" ] && [ -f "$USERD/build/rime_frost.table.bin" ]; then
+  echo "    词库未变, 跳过 (保留 userdb 词频)"; exit 0
+fi
+mkdir -p "$(dirname "$SHARED")" "$USERD"
+rm -rf "$SHARED"; tar xzf "$STAGE/rime-runtime-data.tar.gz" -C "$(dirname "$SHARED")"
+rm -rf "$USERD/build"; tar xzf "$PKG" -C "$USERD"
+[ -f "$USERD/build/rime_frost.table.bin" ] || { echo "    ✗ 词库解包失败"; exit 1; }
+mkdir -p "$USERD/rime_frost.userdb" "$USERD/sync" "$USERD/trash"
+[ -f "$USERD/installation.yaml" ] || cat > "$USERD/installation.yaml" <<YAML
+distribution_code_name: "rmkit-cn"
+distribution_name: "rmkit-cn"
+distribution_version: 1.0
+install_time: "$(date)"
+installation_id: "$(cat /proc/sys/kernel/random/uuid)"
+rime_version: 1.11.2
+YAML
+: > "$USERD/user.yaml"
+printf 'var:\n  last_build_time: %s\n' "$(date +%s)" > "$USERD/user.yaml"
+echo "$NEWMD5" > /home/root/rmkit-cn/.rime_pkg_md5
+echo "    ✓ 词库就绪 (拼音 + 五笔86)"
+RIME_EOF
+fi
 
 # ─── 设备端: 6 阶段防砖部署 (2026-05-14 重写, 砖机预防) ───────────────
 # 设计原则: xochitl 保持出厂状态直到所有 hash 都验证命中, 任何中间步骤失败都不影响默认启动

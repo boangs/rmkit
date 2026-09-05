@@ -73,6 +73,13 @@ Item {
     // 零宽空格占位符状态：anchorIdx 是占位符所在位置
     property bool hasAnchor: false
     property int anchorIdx: 0
+    // 靠"光标位移"反推虚拟键盘的回车/退格 (onTextCursorIndexChanged 里那套)。
+    // 只对 reMarkable 虚拟键盘有意义——它的回车/退格键绕过 hook 和 setCommitString,
+    // 唯一线索就是光标动了没。物理键盘的回车/退格由 hook 直接送引擎, 根本不需要它;
+    // 而在五笔这种"短码 + 唯一码自动上屏"下, 上屏推动光标前移会被误判成回车,
+    // 触发 commitBufferAfterEnter 去 selectTextRange 替换, 把已上屏的字也吃掉。
+    // 默认关闭; 将来做虚拟键盘拦截时, 对应设备再置 true (且要先修准误判)。
+    property bool cursorKeyInference: false
     property bool _kbdDumped: false
     // long-poll 链状态: true 时表示 /pop-all-chars-blocking xhr 在挂,
     // 阻止 fallback 重复发起。响应到达后 chain 立即重发。
@@ -96,6 +103,8 @@ Item {
     property int _lastInputTick: -999
     // 在途的长轮询 XHR。强制复位时必须 abort 它, 否则连接泄漏 (见下)。
     property var _charXhr: null
+    // 长轮询非 200/网络错误累计次数 (只用于限流日志)
+    property int _pollErrs: 0
     property int focusPing: 0
     onFocusPingChanged: {
         if (!active) enterDirectModeIfApplicable()
@@ -352,6 +361,11 @@ Item {
         // 拉取链彻底锁死 (250ms 心跳兜底也救不回来), 服务端 20 秒后判定 QML
         // 停止拉取清掉模式标志 —— 表现就是"没有候选框, 过几秒变成输出英文"。
         if (!ctrl) return
+        // 占位符只为"光标位移反推虚拟键盘按键"服务 (见 cursorKeyInference)。
+        // 那套关闭时, 占位符纯属多余: 组字期间往光标处插零宽空格再靠延后回调挪
+        // 光标, 一插一挪正是"光标落到中间"的来源。关闭推断时直接不插, 组字期间
+        // 文档保持原样, 上屏时汉字落在光标处。
+        if (!cursorKeyInference) return
         if (hasAnchor) return
         intercepting = true
         anchorIdx = ctrl.textCursorIndex
@@ -417,6 +431,10 @@ Item {
         if (pinyinIME.useDirectCommit && !ctrl) return
 
         pinyinIME._charXhrActive = true
+        // ★ 卡死计数按"当前这条请求"从零起算。原先只在某个 tick 恰好没有请求在飞时
+        // 才清零, 而健康的长轮询链永远有请求在飞 (回来就立刻续链), 于是每 121 tick
+        // (30.25s, 与 rm2 日志间隔严丝合缝) 误判一次, 把正常请求 abort 掉重发。
+        pinyinIME._xhrStuck = 0
         var xhr = new XMLHttpRequest()
         pinyinIME._charXhr = xhr
         xhr.timeout = 6000  // 略大于 ime-server blocking 5s timeout
@@ -438,8 +456,18 @@ Item {
                     }
                 }
             }
-            // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发
-            Qt.callLater(pinyinIME._pollChars)
+            // chain — Qt.callLater 避免栈深递归 + 让 QML 事件循环处理一轮再发。
+            // ★ 只有 200 才立即续链。非 200 (后端版本不带 /rime 路由 → 404、
+            // 后端重启中 → 503) 绝不能零延迟重发: 实测 rm2 上 404 让这里每秒打
+            // 上千次 XHR, 32 位 xochitl 几分钟就 std::bad_alloc 崩掉。
+            // 非 200 时放手, 由 onImeTickChanged (250ms) 兜底重新拉链 = 天然退避。
+            if (xhr.status === 200) {
+                Qt.callLater(pinyinIME._pollChars)
+            } else {
+                pinyinIME._pollErrs++
+                if (pinyinIME._pollErrs === 1 || pinyinIME._pollErrs % 200 === 0)
+                    console.warn("[rmkit-ime] 长轮询非 200 (status=" + xhr.status + ", 累计 " + pinyinIME._pollErrs + " 次), 交由 tick 退避重试")
+            }
         }
         // 超时/网络错误必须复位标志, 否则拉取链永久卡住:
         // 链一断 → 服务端看门狗判定"QML 停止拉取"清掉模式标志 → hook 不再拦截
@@ -449,8 +477,11 @@ Item {
             Qt.callLater(pinyinIME._pollChars)
         }
         xhr.onerror = function() {
+            // 连接被拒 (ime-server 未起/重启中) 同样不能零延迟重发, 交给 tick 退避
             pinyinIME._charXhrActive = false
-            Qt.callLater(pinyinIME._pollChars)
+            pinyinIME._pollErrs++
+            if (pinyinIME._pollErrs === 1 || pinyinIME._pollErrs % 200 === 0)
+                console.warn("[rmkit-ime] 长轮询网络错误 (累计 " + pinyinIME._pollErrs + " 次), 交由 tick 退避重试")
         }
         try {
             xhr.open("GET", rimeBase + "/rime/input")
@@ -474,13 +505,27 @@ Item {
         }
 
         // 上屏文本 (librime 在选词/整句成型/回车时产生)
+        // ★ 上屏与新编码可能在同一个状态里到达 (快速连打时服务端把积压按键一次
+        // 喂完: 例如五笔 "i␣d" 返回 commit=不 + preedit=d)。insertToDoc 插完字后
+        // 光标停在选区起点, 要靠延后回调才归位到字后面; 若此时立刻放占位符, 读到的
+        // 是归位前的旧光标 → 占位符插到"不"前面 → 真实光标比锚点多两格 → 被
+        // "前移超一格当回车"误判, 把编码原样上屏并把"不"替换掉。实测 rm2 五笔
+        // 快打 "你不在这里" 变成 "你id里这" 就是这条路。
+        // 对策: 有上屏时把占位符的放置排到光标归位之后 (deferAnchor), 而不是同步放。
+        var deferAnchor = false
         if (st.commit && st.commit.length > 0) {
             pinyinIME.intercepting = true
             pinyinIME.removeAnchor(ctrl)          // 先撤零宽空格占位符 (text 模式无占位符)
-            if (ctrl)
-                pinyinIME.insertToDoc(ctrl, st.commit)      // direct 模式: 走文档 API
-            else
+            if (ctrl) {
+                deferAnchor = newPreedit !== ""
+                pinyinIME.insertToDoc(ctrl, st.commit, deferAnchor ? function() {
+                    // 光标已归位到上屏文本之后, 此时再放占位符位置才正确
+                    if (pinyinIME.pinyinBuffer !== "" && !pinyinIME.hasAnchor)
+                        pinyinIME.placeAnchor(ctrl)
+                } : null)      // direct 模式: 走文档 API
+            } else {
                 pinyinIME.insertToTextInput(st.commit)      // text 模式: 直接改 TextInput
+            }
             pinyinIME.intercepting = false
         }
 
@@ -493,7 +538,7 @@ Item {
         // 虚拟键盘的退格既不走 setCommitString 也不走 processKeyEvent (探针实证),
         // 直接改文档, 所以占位符是唯一能感知它的手段, 必须持续维护。
         if (newPreedit !== "" && !pinyinIME.hasAnchor) {
-            pinyinIME.placeAnchor(ctrl)
+            if (!deferAnchor) pinyinIME.placeAnchor(ctrl)   // 有上屏时由 insertToDoc 回调延后放
         } else if (newPreedit === "" && hadPreedit) {
             pinyinIME.removeAnchor(ctrl)
             // 兜底: 候选框一消失就清服务端 session。即使还有没覆盖到的路径让
@@ -540,6 +585,9 @@ Item {
         target: null
 
         function onTextCursorIndexChanged() {
+            // 光标位移反推回车/退格默认关闭 (见 cursorKeyInference 注释)。
+            // 物理键盘用户走 hook 正路, 开着只会在五笔上吃字。
+            if (!pinyinIME.cursorKeyInference) return
             if (pinyinIME.intercepting || !pinyinIME.isChineseMode || !pinyinIME.useDirectCommit) return
             if (!pinyinIME.hasAnchor || pinyinIME.pinyinBuffer === "") return
             var ctrl = pinyinIME.focusTarget ? pinyinIME.focusTarget.controller : null
@@ -691,7 +739,8 @@ Item {
         }
     }
 
-    function insertToDoc(ctrl, text) {
+    // then: 可选回调, 在光标归位到上屏文本之后执行 (见 _applyState 的 deferAnchor)。
+    function insertToDoc(ctrl, text, then) {
         if (!text || !ctrl) return
         try {
             var startIdx = ctrl.textCursorIndex
@@ -700,7 +749,13 @@ Item {
             ctrl.commitInputMethod()
             ctrl.clearComposeRange()
             ctrl.endInputMethodTransaction()
-            Qt.callLater(function() { ctrl.setCursorIndex(startIdx + text.length) })
+            Qt.callLater(function() {
+                ctrl.setCursorIndex(startIdx + text.length)
+                // 再让事件循环走一拍, 确保光标归位已落地, 回调里读到的才是新位置
+                if (then) Qt.callLater(function() {
+                    try { then() } catch (e2) { console.warn("XOVI-PINYIN: insertToDoc then FAIL: " + e2) }
+                })
+            })
         } catch(e) {
             console.warn("XOVI-PINYIN: insertToDoc FAIL: " + e)
         }

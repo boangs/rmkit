@@ -134,4 +134,41 @@ func (b *rimeBackend) snapshot(committed string) inputState {
 }
 
 // newBackend 构造 librime 后端 (带 -tags librime 时选中此实现)。
+func (b *rimeBackend) Schemas() []schemaInfo {
+	var out []schemaInfo
+	for _, si := range rime.SchemaList() {
+		out = append(out, schemaInfo{ID: si.ID, Name: si.Name})
+	}
+	return out
+}
+
+func (b *rimeBackend) CurrentSchema() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sess.CurrentSchema()
+}
+
+// SelectSchema 切换方案并清掉半截输入 (两套编码的 preedit 互不兼容)。
+func (b *rimeBackend) SelectSchema(id string) bool {
+	// ★ librime 的 select_schema 对不存在的 id 也返回成功, 会话随即变成空方案
+	// (候选全空), 且被持久化到 user.yaml → 重启也救不回来。必须先对 schema_list 校验。
+	known := false
+	for _, si := range rime.SchemaList() {
+		if si.ID == id {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.sess.SelectSchema(id) {
+		return false
+	}
+	b.sess.Clear()
+	return true
+}
+
 func newBackend(sharedDir, userDir string) backend { return newRimeBackend(sharedDir, userDir) }

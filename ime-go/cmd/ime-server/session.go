@@ -29,6 +29,15 @@ type backend interface {
 	SelectCandidate(idx int) inputState
 	ChangePage(backward bool) inputState
 	Clear()
+	// 方案 (拼音/五笔) 查询与切换, 高级面板用; 回退引擎只有一个内置项且不可切。
+	Schemas() []schemaInfo
+	CurrentSchema() string
+	SelectSchema(id string) bool
+}
+
+type schemaInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 var ime backend

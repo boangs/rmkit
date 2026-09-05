@@ -7,7 +7,7 @@
 | 包 | 体积 | 解包目标 | 内容 |
 |---|---|---|---|
 | `rime-runtime-data.tar.gz` | 2.9 MB (解开 6.9 MB) | `/home/root/rmkit-cn/` → 得到 `rime/` | `opencc/`、`en_dicts/`、`custom_phrase.txt`、`LICENSE` |
-| `rime-prebuilt.tar.gz` | 31 MB (解开 72.4 MB) | `/home/root/.rmkit-rime/` → 得到 `build/` | `default.yaml` + 4 个方案各自的 `.schema.yaml`/`.table.bin`/`.prism.bin`/`.reverse.bin`，共 17 个文件 |
+| `rime-prebuilt.tar.gz` | 37 MB (解开 80.6 MB) | `/home/root/.rmkit-rime/` → 得到 `build/` | `default.yaml` + 5 个方案 (拼音 rime_frost、五笔 rime_frost_wubi86 及其依赖 melt_eng/radical_pinyin/rime_frost_aux) 各自的 `.schema.yaml`/`.table.bin`/`.prism.bin`/`.reverse.bin`，共 21 个文件 |
 
 设备磁盘占用合计 **79.3 MB**。
 
@@ -123,3 +123,18 @@ rime_deployer --build <user_data_dir> <shared_data_dir>
   若日后补编 octagram / lua 插件，需要把对应文件重新加回 `build-dict.sh` 的 `stage_source`，并重出两个包。
 - **`cn_dicts_cell/` 保留**（43 MB 源码，编进 `build/`）。实测有效：`jianaifeigong` → `兼爱非攻`（去掉则退化成 `简爱费工`）、`liangjiapeihe` → `量价配合`（去掉则是 `两家配合`）。
 - **验证候选质量要走 `/rime/input`**，不能用 `/candidates?pinyin=`——后者走的是旧的自研 Go 引擎，不经过 librime。喂词的方式是把拼音写进 `/tmp/rmkit_char_queue` 再 GET `/rime/input`。
+
+## 方案切换 (拼音 / 五笔 86)
+
+`default.custom.yaml` 的 `schema_list` 部署了 `rime_frost` 与 `rime_frost_wubi86` 两个方案。ime-server 提供 `GET /rime/schema` 查询当前方案与可选列表、`?id=<schema_id>` 切换（高级面板「输入法」页调用）。切换前会对 schema_list 校验——librime 的 `select_schema` 对不存在的 id 也返回成功，会话随即变成空方案且被持久化，必须挡在 Go 侧。
+
+持久化走 librime 自己的机制：写 `user.yaml` 的 `var/previously_selected_schema`，Switcher 建会话时据此恢复。`user.yaml` 被 `DetectModifications` 显式排除，改它不触发重编译（新建文件才会顶掉目录 mtime）。实测 rm2 上切换即时生效、服务重启后保持。
+
+五笔方案里 `lua_*` 组件（以词定字、日期、计算器等）因未编 librime-lua 被跳过；基本打码、`z` 临时拼音反查、四码上屏、简繁切换正常。
+
+## install.sh 集成 (2026-09-05)
+
+`installer/install.sh` 已内置 librime 部署。三条硬门槛全过才部署整句输入, 否则回落纯 Go:
+① `dist/ime-server-rime-<arch>` 存在; ② 该二进制含 `/rime/schema` 路由 (排除缺方案切换的旧构建); ③ `dist/rime-{prebuilt,runtime-data}.tar.gz` 都在。这些大文件不进标准 `dist.tar.gz` release, 普通用户 clone 后走纯 Go, 开发者本地 build 后才部署 librime。
+
+设备端解包按 `.rime_pkg_md5` 幂等: 词库包未变则跳过 (保留 `rime_frost.userdb` 词频), 变了才 `rm -rf build/` 重解包 + 重盖 `user.yaml` 时间戳。`ime-server` 的 `RIME_SHARED_DIR`/`RIME_USER_DIR` 默认就是 `/home/root/rmkit-cn/rime` 和 `/home/root/.rmkit-rime`, 无需改 service 文件。

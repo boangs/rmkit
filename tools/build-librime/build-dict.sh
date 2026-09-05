@@ -52,11 +52,13 @@ stage_source() {
   ( cd "$SRC"
     # 词库目录: 保留细胞词库 (实测有效, 如 jianaifeigong→兼爱非攻,
     # 去掉则退化成"简爱费工")
-    for d in cn_dicts cn_dicts_cell en_dicts opencc; do cp -r "$d" "$ST/"; done
+    # cn_dicts_wb: 五笔 86 码表 (chars + words, 4M), 供 rime_frost_wubi86 方案
+    for d in cn_dicts cn_dicts_cell cn_dicts_wb en_dicts opencc; do cp -r "$d" "$ST/"; done
     for f in rime_frost.schema.yaml rime_frost.dict.yaml \
              melt_eng.schema.yaml melt_eng.dict.yaml \
              radical_pinyin.schema.yaml radical_pinyin.dict.yaml \
              rime_frost_aux.schema.yaml rime_frost_aux.dict.yaml \
+             rime_frost_wubi86.schema.yaml rime_frost_wubi86.dict.yaml \
              symbols_v.yaml symbols.yaml \
              default.yaml punctuation.yaml key_bindings.yaml \
              custom_phrase.txt LICENSE; do
@@ -65,23 +67,27 @@ stage_source() {
   # tencent.dict.yaml 在 rime_frost.dict.yaml 的 import_tables 里是注释掉的,
   # 11M 纯废重量, 不进编译树。
   rm -f "$ST/cn_dicts/tencent.dict.yaml"
-  # 只部署 rime_frost 一个方案, 否则会把双拼/五笔/仓颉全编一遍。
+  # 只部署 rime_frost (拼音) + rime_frost_wubi86 (五笔 86) 两个方案, 否则会把
+  # 双拼/仓颉/注音全编一遍。方案由 ime-server 的 /rime/schema 接口切换 (高级面板)。
   # 放 shared dir 里的 default.custom.yaml 同样生效。
   cat > "$ST/default.custom.yaml" <<'YAML'
-# rmkit-cn: 只部署 rime_frost 一个方案
+# rmkit-cn: 只部署 拼音 + 五笔86 两个方案
 patch:
   schema_list:
     - schema: rime_frost
+    - schema: rime_frost_wubi86
   # 每页 5 个候选 (上游默认 8)。reMarkable 屏幕窄, 候选栏是一条横向单行,
   # 8 个会挤满甚至溢出; 5 个正好, 多的翻页。
   menu/page_size: 5
 YAML
   # schema 自己的 menu/page_size 会覆盖 default 的, 所以也要 patch 方案级配置。
-  cat > "$ST/rime_frost.custom.yaml" <<'YAML'
+  for sc in rime_frost rime_frost_wubi86; do
+    cat > "$ST/$sc.custom.yaml" <<'YAML'
 # rmkit-cn: 候选每页 5 个 (方案级, 覆盖 schema 里的 page_size: 8)
 patch:
   menu/page_size: 5
 YAML
+  done
   # 不带的东西, 都是实测确认无效的:
   #   essay.txt          已无引用
   #   zh-moqi.gram (7M)  schema 里的 grammar: 需要 librime-octagram 插件,

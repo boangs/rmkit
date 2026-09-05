@@ -68,6 +68,17 @@ static inline bool file_exists(const char* path) {
     return ::stat(path, &st) == 0;
 }
 
+// ─── pinyin_active 前沿置位 ──────────────────────────────────
+// 拦下字母时同步建 /tmp/rmkit_pinyin_active, 不等服务端往返回写。
+// 空格/回车/退格/选词键的拦截都以这个标志为门槛, 若等服务端回写, 五笔这种
+// "一个字母就成字、空格紧跟" 的输入会让空格赶在标志生效前落进文档 (光标多走
+// 一格 → 被前端 "前移超一格当回车" 误判)。字母与随后的空格是两次独立按键,
+// 字母这次同步建好, 空格那次就一定看得到。清除仍由服务端在 preedit 空时负责。
+static inline void set_pinyin_active() {
+    int fd = ::open("/tmp/rmkit_pinyin_active", O_WRONLY | O_CREAT, 0644);
+    if (fd >= 0) ::close(fd);
+}
+
 // ─── ime-server 唤醒通知 (long-poll 0-延迟路径) ────────────────
 // 仅发送 1 字节信号；字符内容仍走 char_queue 文件。如果 socket 不存在
 // (ime-server 旧版/未运行) 静默失败，QML 的 500ms 兜底 polling 会接住。
@@ -236,6 +247,7 @@ void _ZN17QInputMethodEvent15setCommitStringERK7QStringii(
                                     ch == ':' || ch == ';' || ch == '(' || ch == ')' ||
                                     ch == '<' || ch == '>' || ch == '\\');
                 if (is_letter || is_space || is_enter || is_digit || is_cn_punct) {
+                    if (is_letter) set_pinyin_active();  // 前沿置位, 关空格竞态
                     enqueue_char(ch);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] queue 0x%02x\n", ch);
                     return;
@@ -297,6 +309,7 @@ void _ZN22QGuiApplicationPrivate15processKeyEventEPN29QWindowSystemInterfacePriv
             }
             if (is_letter || is_space || is_enter || is_digit || is_cn_punct || is_backspace) {
                 if (keyType == QEVENT_KEYPRESS) {
+                    if (is_letter) set_pinyin_active();  // 前沿置位, 关空格竞态
                     uint16_t out = is_enter ? '\r' : (is_backspace ? '\b' : ch);
                     enqueue_char(out);
                     if (g_debug) fprintf(stderr, "[rmkit-hook] key queue 0x%02x\n", out);

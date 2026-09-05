@@ -33,6 +33,7 @@ package rime
 #cgo LDFLAGS: -Wl,-Bstatic -lrime -lyaml-cpp -lleveldb -lmarisa -lopencc -lboost_regex -lstdc++ -Wl,-Bdynamic -lm -lpthread
 #include <rime_api.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 // rime_get_api() 返回的 API 分发表, 首次调用缓存。
@@ -124,10 +125,49 @@ static const char *bctx_cand_text(bridge_ctx *bc, int i)    { return bc->ctx.men
 static const char *bctx_cand_comment(bridge_ctx *bc, int i) { return bc->ctx.menu.candidates[i].comment; }
 
 static void rime_bridge_finalize(void) { if (g_api) api()->finalize(); }
+
+// ── 方案切换 (拼音 / 五笔), 供高级面板 ────────────────────────────
+static int rime_bridge_select_schema(RimeSessionId s, const char *id) {
+    return (int)api()->select_schema(s, id);
+}
+static char *rime_bridge_current_schema(RimeSessionId s) {
+    char buf[128] = {0};
+    if (!api()->get_current_schema(s, buf, sizeof(buf))) return NULL;
+    return strdup(buf);
+}
+// 方案列表拼成 "id\tname\n..." 一次跨 cgo 边界, Go 侧再拆。
+static char *rime_bridge_schema_list(void) {
+    RimeSchemaList list;
+    if (!api()->get_schema_list(&list)) return NULL;
+    size_t cap = 256 + list.size * 192, len = 0;
+    char *out = (char *)malloc(cap);
+    out[0] = 0;
+    for (size_t i = 0; i < list.size; i++) {
+        const char *id = list.list[i].schema_id ? list.list[i].schema_id : "";
+        const char *name = list.list[i].name ? list.list[i].name : "";
+        size_t need = strlen(id) + strlen(name) + 3;
+        if (len + need >= cap) { cap = (len + need) * 2; out = (char *)realloc(out, cap); }
+        len += (size_t)snprintf(out + len, cap - len, "%s\t%s\n", id, name);
+    }
+    api()->free_schema_list(&list);
+    return out;
+}
+// 持久化: 写进 user.yaml 的 var/previously_selected_schema —— 这正是 librime
+// Switcher 建会话时恢复上次方案读的键, 重启后自然保持。user.yaml 被
+// DetectModifications 显式排除, 改它不会触发设备端重编译 (新建文件才会)。
+static int rime_bridge_save_schema(const char *id) {
+    RimeConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    if (!api()->user_config_open("user", &cfg)) return 0;
+    int ok = (int)api()->config_set_string(&cfg, "var/previously_selected_schema", id);
+    api()->config_close(&cfg);  // user config 自动保存
+    return ok;
+}
 */
 import "C"
 
 import (
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -243,3 +283,48 @@ func (s *Session) Clear() { C.rime_bridge_clear(s.id) }
 
 // Close 销毁会话。
 func (s *Session) Close() { C.rime_bridge_destroy_session(s.id) }
+
+// SchemaInfo 是 schema_list 里的一项 (id 如 rime_frost_wubi86, name 如 白霜五笔86)。
+type SchemaInfo struct {
+	ID   string
+	Name string
+}
+
+// SchemaList 返回 default.yaml schema_list 里部署好的全部方案。
+func SchemaList() []SchemaInfo {
+	c := C.rime_bridge_schema_list()
+	if c == nil {
+		return nil
+	}
+	defer C.free(unsafe.Pointer(c))
+	var out []SchemaInfo
+	for _, line := range strings.Split(C.GoString(c), "\n") {
+		id, name, ok := strings.Cut(line, "\t")
+		if !ok || id == "" {
+			continue
+		}
+		out = append(out, SchemaInfo{ID: id, Name: name})
+	}
+	return out
+}
+
+// CurrentSchema 返回会话当前方案 id。
+func (s *Session) CurrentSchema() string {
+	c := C.rime_bridge_current_schema(s.id)
+	if c == nil {
+		return ""
+	}
+	defer C.free(unsafe.Pointer(c))
+	return C.GoString(c)
+}
+
+// SelectSchema 切换会话方案并持久化 (写 user.yaml), 成功返回 true。
+func (s *Session) SelectSchema(id string) bool {
+	cid := C.CString(id)
+	defer C.free(unsafe.Pointer(cid))
+	if C.rime_bridge_select_schema(s.id, cid) == 0 {
+		return false
+	}
+	C.rime_bridge_save_schema(cid)
+	return true
+}

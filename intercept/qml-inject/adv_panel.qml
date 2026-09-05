@@ -29,6 +29,10 @@ import QtQuick.Layouts
                 // 关闭可显著加速响应; 对其它模型 (gpt-4o-mini / claude-haiku 等) 无影响.
                 property bool _rmhAiThinking: true
                 property string _rmhAiTestStatus: ""           // 测试连接结果文本
+                // 输入法方案 (拼音/五笔): 从 ime-server /rime/schema 读, 见 imeLoadSchema
+                property var _rmhImeSchemas: []
+                property string _rmhImeSchema: ""
+                property string _rmhImeStatus: ""
                 property bool _rmhAiTesting: false
 
                 // 大屏 (rmpp Ferrari 11 寸 ~2160px) vs 小屏 (rmppm Move 8 寸 ~1696px)
@@ -224,6 +228,7 @@ import QtQuick.Layouts
                         if (_rmhAdvancedPanel._rmhPage === 6) return "\u5feb\u8247\u9aa8\u5b50"
                         if (_rmhAdvancedPanel._rmhPage === 7) return "\u51fd\u6570\u7ed8\u56fe"
                         if (_rmhAdvancedPanel._rmhPage === 8) return "AI \u8bbe\u7f6e"
+                        if (_rmhAdvancedPanel._rmhPage === 9) return "\u8f93\u5165\u6cd5"
                         return "\u9ad8\u7ea7"
                     }
                     font.pixelSize: 56
@@ -357,6 +362,74 @@ import QtQuick.Layouts
                                     onClicked: {
                                         _rmhAdvancedPanel._rmhPage = 8
                                         _rmhAdvancedPanel._rmhAiTestStatus = ""
+                                    }
+                                }
+                            }
+
+                            // 卡片 4: 输入法 (拼音 / 五笔 方案切换)
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 80
+                                        Layout.preferredHeight: 80
+                                        source: "qrc:/ark/icons/sliders_horizontal"
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "\u8f93\u5165\u6cd5"
+                                        font.pixelSize: 26
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        _rmhAdvancedPanel._rmhPage = 9
+                                        _rmhAdvancedPanel.imeLoadSchema()
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 80
+                                        Layout.preferredHeight: 80
+                                        source: "qrc:/ark/icons/restore"
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "Android"
+                                        font.pixelSize: 26
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        _rmhAdvancedPanel.visible = false
+                                        _rmhAdvancedPanel.launchAndroid()
                                     }
                                 }
                             }
@@ -2409,6 +2482,12 @@ import QtQuick.Layouts
                         x.send()
                     }
                 }
+                function launchAndroid() {
+                    // 切到 Android 槽: upload-server 执行 rootdev --switch \&\& reboot
+                    var x = new XMLHttpRequest()
+                    x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/android/launch")
+                    x.send()
+                }
 
                 // ─── 五子棋逻辑 ─────────────────────────────────────────────
                 function gomokuReset() {
@@ -3205,6 +3284,42 @@ import QtQuick.Layouts
                 readonly property string _rmhAiConfigPath:
                     "http://127.0.0.1:8080/ai-config"
 
+                // ─── 输入法方案 (直连 ime-server, 不经 upload-server) ─────
+                function imeLoadSchema() {
+                    var x = new XMLHttpRequest()
+                    x.onreadystatechange = function() {
+                        if (x.readyState !== XMLHttpRequest.DONE) return
+                        if (x.status !== 200) {
+                            _rmhAdvancedPanel._rmhImeStatus = "\u8f93\u5165\u6cd5\u670d\u52a1\u672a\u54cd\u5e94"
+                            return
+                        }
+                        try {
+                            var r = JSON.parse(x.responseText)
+                            _rmhAdvancedPanel._rmhImeSchemas = r.available || []
+                            _rmhAdvancedPanel._rmhImeSchema = r.schema || ""
+                            _rmhAdvancedPanel._rmhImeStatus = ""
+                        } catch (e) {
+                            _rmhAdvancedPanel._rmhImeStatus = "\u89e3\u6790\u5931\u8d25"
+                        }
+                    }
+                    x.open("GET", "http://127.0.0.1:19876/rime/schema")
+                    x.send()
+                }
+                function imeSelectSchema(id) {
+                    if (!id || id === _rmhAdvancedPanel._rmhImeSchema) return
+                    _rmhAdvancedPanel._rmhImeStatus = "\u5207\u6362\u4e2d..."
+                    var x = new XMLHttpRequest()
+                    x.onreadystatechange = function() {
+                        if (x.readyState !== XMLHttpRequest.DONE) return
+                        var ok = false
+                        try { ok = x.status === 200 && JSON.parse(x.responseText).ok === true } catch (e) {}
+                        _rmhAdvancedPanel._rmhImeStatus = ok ? "" : "\u5207\u6362\u5931\u8d25"
+                        _rmhAdvancedPanel.imeLoadSchema()
+                    }
+                    x.open("GET", "http://127.0.0.1:19876/rime/schema?id=" + encodeURIComponent(id))
+                    x.send()
+                }
+
                 function aiLoadConfig() {
                     var x = new XMLHttpRequest()
                     x.open("GET", _rmhAiConfigPath)
@@ -3909,6 +4024,101 @@ import QtQuick.Layouts
                             }
                         }
                         ctx.stroke()
+                    }
+                }
+
+                // ─── 子页: 输入法方案 (page=9) ───────────────────────────
+                Item {
+                    visible: _rmhAdvancedPanel._rmhPage === 9
+                    onVisibleChanged: { if (visible) _rmhAdvancedPanel.imeLoadSchema() }
+                    anchors.top: _rmhTitle.bottom
+                    anchors.topMargin: 48
+                    anchors.left: parent.left
+                    anchors.leftMargin: 80
+                    anchors.right: parent.right
+                    anchors.rightMargin: 80
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 40
+
+                    ColumnLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        spacing: 24
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: "\u8f93\u5165\u65b9\u6848"
+                                font.pixelSize: 32
+                                font.weight: Font.Medium
+                            }
+                            Item { Layout.fillWidth: true }
+                            IconButton {
+                                iconSource: "qrc:/ark/icons/restore"
+                                title: "\u5237\u65b0"
+                                onClicked: _rmhAdvancedPanel.imeLoadSchema()
+                            }
+                        }
+
+                        Text {
+                            visible: _rmhAdvancedPanel._rmhImeStatus !== ""
+                            text: _rmhAdvancedPanel._rmhImeStatus
+                            font.pixelSize: 24
+                            Layout.fillWidth: true
+                        }
+
+                        Repeater {
+                            model: _rmhAdvancedPanel._rmhImeSchemas
+                            delegate: Item {
+                                id: _rmhImeRow
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 96
+                                readonly property bool rowApplied:
+                                    _rmhAdvancedPanel._rmhImeSchema === modelData.id
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 6
+                                    color: _rmhImeRow.rowApplied ? "#eeeeee" : "transparent"
+                                    border.color: _rmhImeRow.rowApplied ? "#333333" : "#e0e0e0"
+                                    border.width: 1
+                                }
+                                RowLayout {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 24
+                                    anchors.rightMargin: 24
+                                    spacing: 16
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: _rmhImeRow.modelData.name + "  (" + _rmhImeRow.modelData.id + ")"
+                                        font.pixelSize: 26
+                                        font.weight: _rmhImeRow.rowApplied ? Font.Medium : Font.Normal
+                                        elide: Text.ElideMiddle
+                                    }
+                                    Text {
+                                        visible: _rmhImeRow.rowApplied
+                                        text: "\u5f53\u524d\u751f\u6548"
+                                        font.pixelSize: 22
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: _rmhAdvancedPanel.imeSelectSchema(_rmhImeRow.modelData.id)
+                                }
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 22
+                            color: "#555555"
+                            text: "\u70b9\u9009\u5373\u5207\u6362\uff0c\u7acb\u5373\u751f\u6548\uff0c\u91cd\u542f\u540e\u4fdd\u6301\u3002\u4e94\u7b14\u4e3a\u767d\u971c 86 \u7248\u7801\u8868\uff1b\u4e94\u7b14\u4e0b\u8f93\u5165 z \u53ef\u4e34\u65f6\u62fc\u97f3\u53cd\u67e5\u3002"
+                        }
                     }
                 }
 

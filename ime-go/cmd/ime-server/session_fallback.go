@@ -103,3 +103,10 @@ func (b *fallbackBackend) snapshot(committed string) inputState {
 // newBackend 构造回退后端 (未带 -tags librime 时选中此实现)。
 // 参数保留同签名以便两个实现可互换, 自研引擎不需要词库目录。
 func newBackend(_, _ string) backend { return newFallbackBackend() }
+
+// 回退引擎没有方案概念: 只报一个内置拼音项, 切换一律失败。
+func (b *fallbackBackend) Schemas() []schemaInfo {
+	return []schemaInfo{{ID: "pinyin_go", Name: "拼音 (内置回退引擎)"}}
+}
+func (b *fallbackBackend) CurrentSchema() string    { return "pinyin_go" }
+func (b *fallbackBackend) SelectSchema(string) bool { return false }

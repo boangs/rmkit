@@ -227,6 +227,29 @@ func startHookNotifyListener() {
 	}
 }
 
+// schemaHandler — GET /rime/schema 查当前方案与可选列表; ?id=xxx 切换 (高级面板用)。
+// 切换由 librime 持久化到 user.yaml, 重启后保持。
+func schemaHandler(w http.ResponseWriter, r *http.Request) {
+	ok := true
+	if id := r.URL.Query().Get("id"); id != "" {
+		ok = ime.SelectSchema(id)
+		if ok {
+			log.Printf("[schema] 已切换到 %s", id)
+		} else {
+			log.Printf("[schema] 切换失败: %s", id)
+		}
+	}
+	avail := ime.Schemas()
+	if avail == nil {
+		avail = []schemaInfo{}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok": ok, "schema": ime.CurrentSchema(), "available": avail,
+	})
+}
+
 // setModeHandler creates or deletes mode flag files used by the LD_PRELOAD hook.
 // GET /set-mode?chinese=1  → create /tmp/rmkit_chinese_mode
 // GET /set-mode?chinese=0  → delete /tmp/rmkit_chinese_mode
@@ -277,6 +300,7 @@ func main() {
 	http.HandleFunc("/rime/page", changePageHandler)
 	http.HandleFunc("/rime/clear", clearHandler)
 	http.HandleFunc("/rime/key", keyHandler)
+	http.HandleFunc("/rime/schema", schemaHandler)
 
 	// 旧接口: 保留供灰度回滚 / 外部调试
 	http.HandleFunc("/candidates", candidatesHandler)
