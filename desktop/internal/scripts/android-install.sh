@@ -50,7 +50,7 @@ mkdir -p $LOWER && mount --bind / $LOWER && mount -o remount,rw,bind $LOWER
 for base in $LOWER/etc /etc; do
   mkdir -p $base/paperhome $base/systemd/system/sysinit.target.wants
   cp "$STAGE/udhcpd-usb.conf" $base/paperhome/udhcpd-usb.conf
-  sed "s|@STOCK_KERNEL@|$STOCK|g" "$STAGE/android-kernel-revert.service" > $base/systemd/system/android-kernel-revert.service
+  sed "s|@STOCK_KERNEL@|$STOCK|g" "$STAGE/android-kernel-revert.service.tmpl" > $base/systemd/system/android-kernel-revert.service
   ln -sf /etc/systemd/system/android-kernel-revert.service $base/systemd/system/sysinit.target.wants/android-kernel-revert.service
 done
 sync; umount $LOWER; rmdir $LOWER
