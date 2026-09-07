@@ -16,6 +16,7 @@ import (
 
 	"github.com/rmkit-cn/desktop/internal/android"
 	"github.com/rmkit-cn/desktop/internal/bundle"
+	"github.com/rmkit-cn/desktop/internal/netx"
 	"github.com/rmkit-cn/desktop/internal/probe"
 	"github.com/rmkit-cn/desktop/internal/rmkit"
 	"github.com/rmkit-cn/desktop/internal/sshx"
@@ -185,21 +186,32 @@ func (a *App) OpenBundle(path string) (*BundleInfo, error) {
 		Created: b.Manifest.Created, Notes: b.Manifest.Notes, Files: len(b.Manifest.Files), Bytes: total}, nil
 }
 
+// DetectProxy 探测可用代理 (环境变量 / macOS 系统代理 / Windows 注册表), 给前端预填。
+func (a *App) DetectProxy() string { return netx.DetectProxy() }
+
 // DownloadBundle 从 URL 下载载荷包到本机缓存目录 (进度走事件 "progress"), 然后打开校验。
-// 可选 sha256 与整个 zip 比对 (Release 页公布的值)。
-func (a *App) DownloadBundle(url, sha string) (*BundleInfo, error) {
+// proxy 为空则直连; 可选 sha256 与整个 zip 比对 (Release 页公布的值)。
+func (a *App) DownloadBundle(url, sha, proxy string) (*BundleInfo, error) {
 	dir, _ := os.UserCacheDir()
 	dir = filepath.Join(dir, "rmkit-assistant")
 	_ = os.MkdirAll(dir, 0o755)
 	dst := filepath.Join(dir, filepath.Base(strings.Split(url, "?")[0]))
-	a.log("下载 " + url)
+	if strings.TrimSpace(proxy) != "" {
+		a.log("下载 " + url + " (经代理 " + strings.TrimSpace(proxy) + ")")
+	} else {
+		a.log("下载 " + url + " (直连)")
+	}
+	client, err := netx.Client(proxy)
+	if err != nil {
+		return nil, fmt.Errorf("代理地址无效: %w", err)
+	}
 	req, err := http.NewRequestWithContext(a.ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("下载失败: %w", err)
+		return nil, fmt.Errorf("下载失败: %w。GitHub 直连在国内常超时: 可在上方填代理地址 (如 http://127.0.0.1:7890), 或用浏览器下载后点\"选择本地载荷包\"", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {

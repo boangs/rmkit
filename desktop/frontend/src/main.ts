@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -26,6 +26,7 @@ const state = {
   busy: false,
   replaceSystem: false,
   removeData: false,
+  proxy: '',
 }
 
 const RELEASE_BASE = 'https://github.com/boangs/rmkit/releases/latest/download/'
@@ -99,8 +100,10 @@ function renderActions(i: Info) {
       <h3>载荷包</h3>
       <div class="row">
         <button id="btn-download" class="secondary" ${busy}>从 GitHub Release 下载 ${bundleName}</button>
+        <label>代理 <input id="proxy" value="${esc(state.proxy)}" placeholder="如 http://127.0.0.1:7890, 留空直连" size="26" ${busy}></label>
         <button id="btn-choose" class="secondary" ${busy}>选择本地载荷包…</button>
       </div>
+      <p class="hint">GitHub 在国内直连常常超时。用了代理软件就把它的地址填在这里（助手会自动探测系统代理）；也可以用浏览器下载载荷包后选本地文件。</p>
       <div id="dl-progress" class="progress hidden"><div></div></div>
       ${b ? `<p class="hint">已加载：${esc(b.path)}<br>组件 ${b.component}，版本 ${b.version}，${b.files} 个文件，${mb(b.bytes)}${bundleOk ? '' : '<b class="warn"> —— 与当前选择的操作不匹配</b>'}</p>` : '<p class="hint">还没有载荷包。载荷包是 rmkit 发布的 zip，助手会逐文件校验 sha256。</p>'}
 
@@ -196,10 +199,12 @@ function bind() {
   $('#btn-probe')?.addEventListener('click', async () => { try { state.info = (await Probe()) as Info; render() } catch (e) { appendLog('✗ ' + String(e)) } })
   document.querySelectorAll<HTMLButtonElement>('.tab').forEach((t) => t.addEventListener('click', () => { state.action = t.dataset.action as Action; render() }))
   $('#btn-choose')?.addEventListener('click', async () => { try { const b = (await ChooseBundle()) as BundleInfo | null; if (b) { state.bundle = b; render() } } catch (e) { appendLog('✗ ' + String(e)) } })
+  $('#proxy')?.addEventListener('change', (e) => { state.proxy = (e.target as HTMLInputElement).value.trim(); try { localStorage.setItem('proxy', state.proxy) } catch { /* 忽略 */ } })
   $('#btn-download')?.addEventListener('click', () => guarded(async () => {
     const name = state.action === 'rmkit' ? 'rmkit-cn-bundle.zip' : 'android-rmppm-bundle.zip'
+    state.proxy = (($('#proxy') as HTMLInputElement)?.value || '').trim()
     $('#dl-progress').classList.remove('hidden')
-    state.bundle = (await DownloadBundle(RELEASE_BASE + name, '')) as BundleInfo
+    state.bundle = (await DownloadBundle(RELEASE_BASE + name, '', state.proxy)) as BundleInfo
   }))
   $('#chk-replace')?.addEventListener('change', (e) => { state.replaceSystem = (e.target as HTMLInputElement).checked })
   $('#chk-removedata')?.addEventListener('change', (e) => { state.removeData = (e.target as HTMLInputElement).checked })
@@ -240,5 +245,7 @@ EventsOn('progress', (p: { done: number; total: number }) => {
   if (bar && p.total > 0) bar.style.width = Math.min(100, (p.done / p.total) * 100).toFixed(1) + '%'
 })
 
+try { state.proxy = localStorage.getItem('proxy') || '' } catch { /* 忽略 */ }
 render()
 LogDir().then((d) => appendLog('审计日志目录: ' + d))
+if (!state.proxy) DetectProxy().then((p) => { if (p) { state.proxy = p; appendLog('探测到代理: ' + p); render() } })
