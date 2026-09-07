@@ -1,7 +1,6 @@
 package server
 
 import (
-	"syscall"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -673,9 +673,30 @@ func writeSleepScreenPath(confPath, value string) error {
 	return nil
 }
 
-// launchAndroid 切换 eMMC 启动分区到 Android 槽并重启. rootdev --switch 封装的是
-// mmc bootpart enable, 与 Paper Home 侧"原厂系统"按钮走同一机制的反向.
+// singleSlotAndroidLauncher 是单槽 Android 的启动器 (2026-09-06 起): 不切槽, 在本槽置
+// /.boot-android-mode 标志 + 把 /boot/fitImage.ahab 指向 android 内核后重启,
+// /sbin/init 包装见到标志就先复位再 exec rm-android-init-ss。脚本自带本槽组件齐全性检查。
+const singleSlotAndroidLauncher = "/home/root/boot-android.sh"
+
+// launchAndroid 进入 Android. 优先单槽启动器 (本槽重启, 不切槽); 没有单槽启动器时
+// 退回旧的双槽机制: rootdev --switch 切到 Android 槽并重启.
 func (s *Server) launchAndroid(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat(singleSlotAndroidLauncher); err == nil {
+		// 前置检查同步跑 (--check 只验组件不重启), 失败原因直接回给面板
+		if out, err := exec.Command("/bin/sh", singleSlotAndroidLauncher, "--check").CombinedOutput(); err != nil {
+			httpError(w, http.StatusConflict, "本槽 Android 组件检查未通过: "+strings.TrimSpace(string(out)))
+			return
+		}
+		cmd := exec.Command("/bin/sh", singleSlotAndroidLauncher)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			httpError(w, http.StatusInternalServerError, "启动单槽 Android 失败: "+err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("booting android on current slot"))
+		return
+	}
 	if _, err := os.Stat("/usr/sbin/rootdev"); err != nil {
 		httpError(w, http.StatusNotFound, "未检测到 rootdev, 无法切换分区")
 		return
