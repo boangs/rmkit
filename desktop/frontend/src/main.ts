@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, Cancel, OpenLogDir, LogDir,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -119,6 +119,8 @@ function renderActions(i: Info) {
           ? `<button id="btn-uninstall" class="danger" ${busy || !i.rmkitInstalled ? 'disabled' : ''}>卸载 rmkit-cn</button>`
           : `<button id="btn-boot-android" class="secondary" ${busy || !i.androidInstalled || i.inAndroidMode ? 'disabled' : ''}>重启进 Android</button>
              <button id="btn-stock" class="secondary" ${busy || !i.inAndroidMode ? 'disabled' : ''}>回 reMarkable 系统</button>
+             <button id="btn-apks" class="secondary" ${busy || !i.inAndroidMode ? 'disabled' : ''} title="需要设备在 Android 模式">安装 APK 到 Android…</button>
+             <button id="btn-reset-data" class="danger" ${busy || !i.androidInstalled || i.inAndroidMode ? 'disabled' : ''} title="清空 Android 应用与设置, 下次进 Android 重新首启">重置 Android 数据</button>
              <label class="check"><input type="checkbox" id="chk-removedata" ${state.removeData ? 'checked' : ''} ${busy}> 卸载时连同 /home 里的 Android 系统与数据一起删</label>
              <button id="btn-uninstall-android" class="danger" ${busy || !i.androidInstalled || i.inAndroidMode ? 'disabled' : ''}>卸载 Android</button>`}
       </div>
@@ -221,6 +223,13 @@ function bind() {
   $('#btn-uninstall-android')?.addEventListener('click', () => { if (confirm(state.removeData ? '确定卸载 Android 并删除 /home 里的系统与数据？' : '确定卸载 Android（保留 /home 数据）？')) guarded(() => UninstallAndroid(state.removeData)) })
   $('#btn-boot-android')?.addEventListener('click', () => { if (confirm('设备将重启进入 Android，约 1 到 3 分钟。回来时可在 Android 桌面点“原厂系统”。继续？')) guarded(() => BootAndroid()) })
   $('#btn-stock')?.addEventListener('click', () => guarded(() => ReturnToStock()))
+  $('#btn-reset-data')?.addEventListener('click', () => { if (confirm('清空 Android 的全部应用与设置？下次进 Android 会重新首次开机（约 5 分钟）。')) guarded(() => ResetAndroidData()) })
+  $('#btn-apks')?.addEventListener('click', async () => {
+    let paths: string[] = []
+    try { paths = (await ChooseAPKs()) || [] } catch (e) { appendLog('✗ ' + String(e)); return }
+    if (!paths.length) return
+    guarded(() => InstallAPKs(paths))
+  })
   $('#btn-cancel')?.addEventListener('click', () => Cancel())
   $('#btn-logdir')?.addEventListener('click', () => OpenLogDir())
 }

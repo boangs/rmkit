@@ -309,6 +309,26 @@ func (a *App) ReturnToStock() error {
 	return a.runTask("回 reMarkable 系统", func(ctx context.Context) error { return android.ReturnToStock(ctx, a.client) })
 }
 
+// ResetAndroidData 清空 Android 数据目录 (reMarkable 模式下)。
+func (a *App) ResetAndroidData() error {
+	return a.runTask("重置 Android 数据", func(ctx context.Context) error { return android.ResetData(ctx, a.client) })
+}
+
+// ChooseAPKs 弹多选框选本机 APK。
+func (a *App) ChooseAPKs() ([]string, error) {
+	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "选择要安装到 Android 的 APK",
+		Filters: []runtime.FileFilter{{DisplayName: "Android 应用 (*.apk)", Pattern: "*.apk"}},
+	})
+}
+
+// InstallAPKs 在 Android 模式下安装 APK。
+func (a *App) InstallAPKs(paths []string) error {
+	return a.runTask(fmt.Sprintf("安装 %d 个 APK", len(paths)), func(ctx context.Context) error {
+		return android.InstallAPKs(ctx, a.client, paths, a.log)
+	})
+}
+
 // Cancel 取消正在执行的任务 (只是中断 SSH 会话; 设备端脚本自带 abort_safe 回退)。
 func (a *App) Cancel() {
 	a.mu.Lock()

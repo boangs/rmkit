@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -158,6 +160,88 @@ func BootAndroid(ctx context.Context, c *sshx.Client) error {
 // ReturnToStock 在 Android 模式下请求优雅回 reMarkable。
 func ReturnToStock(ctx context.Context, c *sshx.Client) error {
 	return c.RunLogged(ctx, "touch /run/paper-stock-orderly-requested && echo '已请求回 reMarkable 系统 (约 30 秒)'", nil)
+}
+
+// ResetData 清空 Android 数据目录 (应用/设置全部重置, 下次进 Android 重新首启, 约 5 分钟)。
+// 只允许在 reMarkable 模式下做 (Android 模式下该目录正被使用)。
+func ResetData(ctx context.Context, c *sshx.Client) error {
+	return c.RunLogged(ctx, `set -e
+[ "$(cat /proc/1/comm)" = systemd ] || { echo '请先回到 reMarkable 系统'; exit 1; }
+D=/home/root/native-android-data-v1
+rm -rf "$D.old"; [ -d "$D" ] && mv "$D" "$D.old"
+mkdir -p "$D"; chmod 771 "$D"
+echo "provisioned $(date -u +%FT%TZ) rmkit-desktop reset" > "$D/.paper-expanded-data-v1"
+rm -rf "$D.old"; sync
+echo '  ✓ Android 数据已清空, 下次进 Android 将重新首次开机 (约 5 分钟)'`, nil)
+}
+
+// InstallAPKs 在 Android 模式下安装本机 APK: 上传到 Android 的 /data/local/tmp/apks, 经宿主→Android
+// 命令通道 (propset 按 property_service 协议 setprop paper.exec → init 跑 /data/local/tmp/exec.sh)
+// 执行 pm install -r -g, 轮询结果文件。
+func InstallAPKs(ctx context.Context, c *sshx.Client, paths []string, log sshx.Logger) error {
+	if len(paths) == 0 {
+		return errors.New("没有选择 APK")
+	}
+	res, err := c.Run(ctx, "[ -d /android ] && [ \"$(cat /proc/1/comm)\" != systemd ] && [ -x /home/root/propset ] && echo ok")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(res.Stdout) != "ok" {
+		return errors.New("设备不在 Android 模式 (或缺 propset), 请先重启进 Android")
+	}
+	const tmp = "/android-data/local/tmp"
+	var names []string
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		name := filepath.Base(p)
+		err = c.WriteFile(ctx, tmp+"/apks/"+name, f, "644")
+		_ = f.Close()
+		if err != nil {
+			return err
+		}
+		names = append(names, name)
+		log("已上传 " + name)
+	}
+	var sb strings.Builder
+	sb.WriteString("#!/system/bin/sh\n{\n")
+	for _, n := range names {
+		sb.WriteString(fmt.Sprintf("echo \"== install %s\"; pm install -r -g /data/local/tmp/apks/%s 2>&1 | tail -n 2\n", n, n))
+	}
+	sb.WriteString("echo ALL_DONE\n} > /data/local/tmp/out.txt 2>&1\n")
+	if err := c.WriteFile(ctx, tmp+"/exec.sh", strings.NewReader(sb.String()), "755"); err != nil {
+		return err
+	}
+	trigger := `rm -f ` + tmp + `/out.txt
+ADBD=""; for p in /proc/[0-9]*; do [ "$(cat $p/comm 2>/dev/null)" = "adbd" ] && ADBD=${p#/proc/} && break; done
+[ -n "$ADBD" ] || { echo 'Android 还没起完 (无 adbd), 稍后再试'; exit 1; }
+/home/root/propset /proc/$ADBD/root/dev/socket/property_service paper.exec install-$(date +%s) >/dev/null && echo '安装任务已交给 Android'`
+	if err := c.RunLogged(ctx, trigger, nil); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(15 * time.Minute)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+		r, err := c.Run(ctx, "cat "+tmp+"/out.txt 2>/dev/null")
+		if err != nil {
+			return err
+		}
+		if strings.Contains(r.Stdout, "ALL_DONE") {
+			for _, line := range strings.Split(strings.TrimSpace(r.Stdout), "\n") {
+				if line != "ALL_DONE" {
+					log("  " + line)
+				}
+			}
+			return nil
+		}
+	}
+	return errors.New("等待安装结果超时 (15 分钟)")
 }
 
 func writeTar(w io.Writer, b *bundle.Bundle, files []string) error {
