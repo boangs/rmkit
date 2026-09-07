@@ -92,7 +92,7 @@ if [ -L /sbin/init ] && [ ! -e /sbin/init.systemd-orig ]; then
   cp -P /sbin/init /sbin/init.systemd-orig
 fi
 [ -e /sbin/init.systemd-orig ] || fail "/sbin/init 不是 symlink 且没有备份, 拒绝覆盖"
-sed "s|@STOCK_KERNEL@|$STOCK|g" "$STAGE/init-wrapper.sh" > /sbin/init.new
+sed "s|@STOCK_KERNEL@|$STOCK|g" "$STAGE/init-wrapper.tmpl.sh" > /sbin/init.new
 chmod 755 /sbin/init.new
 sh -n /sbin/init.new || fail "init 包装语法错误"
 grep -q "exec /lib/systemd/systemd" /sbin/init.new || fail "init 包装缺 systemd 回落路径"
