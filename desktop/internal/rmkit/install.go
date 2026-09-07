@@ -82,6 +82,7 @@ func NewPlan(info probe.Info, b *bundle.Bundle) (*Plan, error) {
 		return nil, err
 	}
 	p := &Plan{Arch: info.Arch, ModelKey: info.ModelKey, FWVersion: info.FWVersion, NeedXovi: !info.HaveXovi,
+		Files: []FileEntry{}, Warnings: []string{}, // 保证 JSON 是 [] 而不是 null (前端直接 .map)
 		xoviArch: ar.xovi, uploadBin: ar.uploadBin, imeBin: ar.imeBin}
 	if info.ModelKey == "unknown" {
 		p.Warnings = append(p.Warnings, "未识别的机型 (分辨率 "+info.Resolution+"), 按架构 "+info.Arch+" 部署; 未适配固件会由 fail-open 预检自动降级为不注入")

@@ -52,7 +52,8 @@ func NewPlan(info probe.Info, b *bundle.Bundle, systemPresent, replaceSystem boo
 	if b.Manifest.Component != bundle.ComponentAndroid {
 		return nil, fmt.Errorf("载荷包组件是 %s, 不是 android-rmppm", b.Manifest.Component)
 	}
-	p := &Plan{FWVersion: info.FWVersion, Slot: info.ActiveSlot, SystemPresent: systemPresent, ReplaceSystem: replaceSystem}
+	p := &Plan{FWVersion: info.FWVersion, Slot: info.ActiveSlot, SystemPresent: systemPresent, ReplaceSystem: replaceSystem,
+		Files: []string{}, Warnings: []string{}, Blockers: []string{}} // JSON 保证 [] 而非 null
 	block := func(s string) { p.Blockers = append(p.Blockers, s) }
 	warn := func(s string) { p.Warnings = append(p.Warnings, s) }
 

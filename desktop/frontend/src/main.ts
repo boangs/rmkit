@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -139,20 +139,20 @@ function renderRmkitPlan(p: RmkitPlan) {
     p.librarian ? '文件热导入 librarian' : '不装 librarian（rm2）',
   ]
   return `
-    <p>将写入 <b>${p.files.length}</b> 个文件，共 ${mb(p.totalBytes)}。${flags.map((f) => `<span class="pill">${f}</span>`).join('')}</p>
-    ${p.warnings.map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
+    <p>将写入 <b>${(p.files ?? []).length}</b> 个文件，共 ${mb(p.totalBytes)}。${flags.map((f) => `<span class="pill">${f}</span>`).join('')}</p>
+    ${(p.warnings ?? []).map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
     <p class="hint">写入后设备端会执行六阶段防砖部署：装服务 → 按固件重生 hashtab → 编译注入文件 → 全部命中才写 xochitl 配置 → 启动并观察 10 秒，任一步失败自动回退到出厂启动。</p>
-    <details><summary>文件清单</summary><pre class="files">${p.files.map((f) => `${esc(f.device)}  ←  ${esc(f.source)}  (${(f.size / 1024).toFixed(0)} KB)`).join('\n')}</pre></details>
+    <details><summary>文件清单</summary><pre class="files">${(p.files ?? []).map((f) => `${esc(f.device)}  ←  ${esc(f.source)}  (${(f.size / 1024).toFixed(0)} KB)`).join('\n')}</pre></details>
   `
 }
 
 function renderAndroidPlan(p: AndroidPlan) {
   return `
-    ${p.blockers.map((b) => `<p class="error">✗ ${esc(b)}</p>`).join('')}
-    ${p.warnings.map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
-    <p>本槽 ${esc(p.slot)}，固件 ${esc(p.fwVersion)}。将上传 <b>${p.files.length}</b> 个文件，共 ${mb(p.totalBytes)}。${p.hasSystemPkg ? (p.systemPresent && !p.replaceSystem ? '设备已有 Android 系统，本次不覆盖。' : '包含 Android 系统包（解包到 /home）。') : '载荷不含系统包，沿用设备上已有的。'}</p>
+    ${(p.blockers ?? []).map((b) => `<p class="error">✗ ${esc(b)}</p>`).join('')}
+    ${(p.warnings ?? []).map((w) => `<p class="warn">⚠ ${esc(w)}</p>`).join('')}
+    <p>本槽 ${esc(p.slot)}，固件 ${esc(p.fwVersion)}。将上传 <b>${(p.files ?? []).length}</b> 个文件，共 ${mb(p.totalBytes)}。${p.hasSystemPkg ? (p.systemPresent && !p.replaceSystem ? '设备已有 Android 系统，本次不覆盖。' : '包含 Android 系统包（解包到 /home）。') : '载荷不含系统包，沿用设备上已有的。'}</p>
     <p class="hint">写入位置：/boot 里新增 android 内核（出厂内核链接不动）、/lib/modules 新增一个模块目录、/usr/bin 四个宿主程序、/sbin/init 换成带回落的包装脚本（原链接备份为 /sbin/init.systemd-orig）。Android 系统与数据在 /home，重启不切槽。</p>
-    <details><summary>文件清单</summary><pre class="files">${p.files.map((f) => esc(f)).join('\n')}</pre></details>
+    <details><summary>文件清单</summary><pre class="files">${(p.files ?? []).map((f) => esc(f)).join('\n')}</pre></details>
   `
 }
 
@@ -218,17 +218,17 @@ function bind() {
     if (state.action === 'android') {
       const p = (await PlanAndroid(state.replaceSystem).catch((e) => { appendLog('✗ ' + String(e)); return null })) as AndroidPlan | null
       if (!p) return
-      if (p.blockers.length) { $('#plan').innerHTML = renderAndroidPlan(p); return }
+      if ((p.blockers ?? []).length) { $('#plan').innerHTML = renderAndroidPlan(p); return }
     }
     const what = state.action === 'rmkit' ? 'rmkit-cn' : '单槽 Android'
-    if (!confirm(`确定要在这台设备上安装 ${what} 吗？安装过程中请不要拔线。`)) return
+    if (!(await Confirm('确认', `确定要在这台设备上安装 ${what} 吗？安装过程中请不要拔线。`))) return
     guarded(async () => { if (state.action === 'rmkit') await RunRmkit(); else await RunAndroid(state.replaceSystem) })
   })
-  $('#btn-uninstall')?.addEventListener('click', () => { if (confirm('确定卸载 rmkit-cn？设备会恢复出厂启动配置。')) guarded(() => UninstallRmkit()) })
-  $('#btn-uninstall-android')?.addEventListener('click', () => { if (confirm(state.removeData ? '确定卸载 Android 并删除 /home 里的系统与数据？' : '确定卸载 Android（保留 /home 数据）？')) guarded(() => UninstallAndroid(state.removeData)) })
-  $('#btn-boot-android')?.addEventListener('click', () => { if (confirm('设备将重启进入 Android，约 1 到 3 分钟。回来时可在 Android 桌面点“原厂系统”。继续？')) guarded(() => BootAndroid()) })
+  $('#btn-uninstall')?.addEventListener('click', async () => { if (await Confirm('确认', '确定卸载 rmkit-cn？设备会恢复出厂启动配置。')) guarded(() => UninstallRmkit()) })
+  $('#btn-uninstall-android')?.addEventListener('click', async () => { if (await Confirm('确认', state.removeData ? '确定卸载 Android 并删除 /home 里的系统与数据？' : '确定卸载 Android（保留 /home 数据）？')) guarded(() => UninstallAndroid(state.removeData)) })
+  $('#btn-boot-android')?.addEventListener('click', async () => { if (await Confirm('确认', '设备将重启进入 Android，约 1 到 3 分钟。回来时可在 Android 桌面点“原厂系统”。继续？')) guarded(() => BootAndroid()) })
   $('#btn-stock')?.addEventListener('click', () => guarded(() => ReturnToStock()))
-  $('#btn-reset-data')?.addEventListener('click', () => { if (confirm('清空 Android 的全部应用与设置？下次进 Android 会重新首次开机（约 5 分钟）。')) guarded(() => ResetAndroidData()) })
+  $('#btn-reset-data')?.addEventListener('click', async () => { if (await Confirm('确认', '清空 Android 的全部应用与设置？下次进 Android 会重新首次开机（约 5 分钟）。')) guarded(() => ResetAndroidData()) })
   $('#btn-apks')?.addEventListener('click', async () => {
     let paths: string[] = []
     try { paths = (await ChooseAPKs()) || [] } catch (e) { appendLog('✗ ' + String(e)); return }

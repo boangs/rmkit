@@ -341,6 +341,18 @@ func (a *App) InstallAPKs(paths []string) error {
 	})
 }
 
+// Confirm 弹原生确认框 (Wails 的 WebView 不支持 window.confirm)。
+func (a *App) Confirm(title, message string) bool {
+	r, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type: runtime.QuestionDialog, Title: title, Message: message,
+		Buttons: []string{"继续", "取消"}, DefaultButton: "继续", CancelButton: "取消",
+	})
+	if err != nil {
+		return false
+	}
+	return r == "继续" || r == "Yes" || r == "Ok"
+}
+
 // Cancel 取消正在执行的任务 (只是中断 SSH 会话; 设备端脚本自带 abort_safe 回退)。
 func (a *App) Cancel() {
 	a.mu.Lock()
