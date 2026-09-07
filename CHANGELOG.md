@@ -5,6 +5,36 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-07
+
+### Added
+
+- **桌面助手 `desktop/` (Go + Wails)**: Mac / Windows 双击即用的安装器。只走 USB / 局域网直连,
+  没有服务器、没有遥测; 连接后只读探测机型/固件/槽位/空间, 不进用户文档目录; 每条远端命令与
+  写入的文件都记在本机审计日志。功能: 安装/更新/卸载 rmkit-cn, RMPPM 单槽 Android 安装/卸载/
+  进出 Android/重置数据/安装 APK。载荷包为 zip + manifest, 逐文件校验 sha256。
+  同一内核另有命令行版 `assistant-cli`。
+- **RMPPM 单槽 Android**: reMarkable 与 Android 共用当前槽, 重启不切槽; Android 系统与数据放
+  共享的 /home, rootfs 只多 ~27MB; `/sbin/init` 包装按开机标志分流, 任何失败都回到 reMarkable。
+  高级面板的 Android 按钮改走单槽启动器 (缺组件时拒绝并列出缺失, 不再 `rootdev --switch`)。
+- **rm2 整句输入 (librime) + 五笔 86**: armv7 交叉编译的 librime 后端; 高级面板设置区可切换
+  拼音 / 五笔方案; 物理键盘五笔连打修复 (光标反推旁路默认关)。
+- 动态区分物理 / 虚拟键盘, 自动开关光标推断; rm2 冷启动注入自动恢复的 systemd 单元。
+- 高级面板横屏跟随设备方向; 小屏可滚动。
+
+### Changed
+
+- 显示桥 v55 适配固件 3.28 (5.8.x) 的 libqsgepaper (去掉 EPContentMap, 成员偏移 -0x20)。
+
+### Fixed
+
+- **install.sh 不再 `chown -R root:root /home/root`** (收窄为 rmkit / xovi 目录): 单槽 Android 的
+  系统与 /data 也在 /home/root 下, 整树 chown 会毁掉应用数据属主并清 setuid 位。
+- rm2 输入法无候选框 + bad_alloc: 陈旧 dist 后端无 /rime 路由导致 404 死循环; 前端加退避。
+- rm2 3.28 上 librarian 漏堆, 不再部署到 armv7。
+
+### 之前累积在 Unreleased 的改动
+
 ### Changed
 
 - **`tools/hash-qmd.py` + `tools/qmd_hash_check.py` Go 重写为 `tools/qmd-tool/`**:

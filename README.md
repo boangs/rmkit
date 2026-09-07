@@ -1,213 +1,94 @@
 # rmkit-cn
 
-reMarkable 平板的中文化、AI、IME 与扩展工具集。
+让 reMarkable 平板说中文：系统中文界面、拼音 / 五笔输入法、AI 助手、手机扫码传文件，
+以及 Paper Pro Move 上可选的 Android。
 
-通过 [xovi](https://github.com/asivery/xovi) 的 `LD_PRELOAD` + qmldiff 机制注入，
-不修改 ROM、不破坏 OTA、与系统 A/B 分区机制兼容。
+不改系统固件，不影响官方升级。装上之后不喜欢，一键卸载，设备恢复原样。
 
----
+## 你会得到什么
 
-## 功能
+- **中文界面**：设置、文件夹、工具栏都是中文。
+- **中文输入**：任意输入框点一下键盘上的“中文”，拼音整句输入，也可切换五笔 86。
+- **AI 助手**：选中文字或手写笔迹，点“AI”，润色 / 翻译 / 总结 / 问答（需要自己填一个 OpenAI 兼容接口）。
+- **手机传文件**：设置里显示二维码，手机扫码就能把 PDF、字体、壁纸推到设备上。
+- **高级面板**：字体、壁纸、启动器、AI 配置，还有几个小游戏。
+- **Android**（仅 Paper Pro Move）：重启进 Android 用微信读书、KOReader 等应用，用完一键回到 reMarkable，两边互不影响。
 
-- 🇨🇳 **系统中文化**：UI 文字翻译（设置 / 文件夹 / 工具栏）+ 中文键盘
-- ⌨️ **拼音输入法**：手写键盘 → 拼音浮动候选栏，FST 词库 (rime-frost)
-- 🤖 **文本 AI**：选中文字 → 润色 / 翻译 / 总结 / 问答（OpenAI 兼容）
-- ✍️ **手写 AI**：选中手写笔迹 → 视觉识别 → AI 回答 → 文字插入 OR 模拟笔迹回写
-- 📥 **手机扫码上传**：reMarkable 网页二维码 → 手机推送 PDF/字体/壁纸 → 设备自动应用
-- 🎨 **高级面板**：字体管理、壁纸切换、自定义启动器、AI 配置
-- 🎮 **小游戏**：象棋、五子棋、华容道、跳棋
-- 📚 **KOReader 启动器**：通过 [appload](https://github.com/asivery/rm-appload) 集成
+## 支持的设备
 
----
+| 机型 | 状态 |
+|---|---|
+| reMarkable Paper Pro Move | 主力机型，全部功能 |
+| reMarkable Paper Pro | 支持（同一架构，测试较少） |
+| reMarkable 2 | 支持（Android 除外） |
 
-## 设备支持
+固件 3.26 以上。遇到没适配过的新固件，中文化会自动暂时关闭而不是让设备出问题，等适配后重新安装即可。
 
-| 代号 | 机型 | 架构 | 验证状态 |
-|---|---|---|---|
-| `rmpp-chiappa` | **reMarkable Paper Pro Move** | aarch64 | ✅ 主力测试 |
-| `rmpp-ferrari` | reMarkable Paper Pro | aarch64 | ⚠️ 同 aarch64 路径，未单独验证 |
-| `rm2` | reMarkable 2 | armv7l | ⚠️ 代码支持，未近期实测 |
+## 安装
 
-所有功能依赖 [xovi](https://github.com/asivery/xovi)（已自动检测安装）。
+### 准备（只需做一次）
 
----
+1. 在设备上打开开发者模式：设置 → 通用 → 软件 → 启用开发者模式。**注意：这一步会清空设备上的数据，先把笔记同步到云端。**
+2. 记下 SSH 密码：设置 → 帮助 → 版权与许可，翻到最底部。
+3. 用 USB 线把设备连到电脑。
 
-## 安装方式
+### 方式一：rmkit 助手（推荐，Mac / Windows 双击即用）
 
-**前置条件**：
-1. reMarkable 设备已开启 Developer Mode（**注意：这会清空设备所有数据**）
-   - Settings → General → About → Copyrights → 最底部记录 SSH 密码
-   - Settings → General → Software → Enable Developer mode
-2. 设备已 USB-C 连接电脑，能 `ssh root@10.11.99.1`
-3. **建议先跑一次 `ssh-copy-id root@10.11.99.1`**（输入上一步看到的密码）。脚本内部会发起 10+ 次 ssh/scp 调用，没配公钥的话每次都要重新输密码，体验很糟
+1. 到 [Releases](https://github.com/boangs/rmkit/releases/latest) 下载 `rmkit-assistant-mac.zip` 或 `rmkit-assistant-windows.exe`，以及载荷包 `rmkit-cn-bundle.zip`。
+2. 打开助手，填入 SSH 密码，点“连接并检测”。
+3. 选择载荷包，点“安装 rmkit-cn”。助手会先列出将写入的内容，装完自动检查设备是否正常。
 
-### 推荐：下载 Release 完整包（无需 git / Go 工具链）
+助手只通过 USB 线和你的设备通信，没有服务器，不上传任何东西，也不会读你的笔记。它做过的每一步都记在电脑上的日志里，随时可以查看。
+
+Mac 第一次打开如果提示“无法验证开发者”，在应用上右键 → 打开。Windows 第一次连接可能需要安装 reMarkable 的 USB 网卡驱动，设备连上电脑时系统会提示。
+
+### 方式二：命令行脚本（Mac / Linux / WSL）
 
 ```bash
-curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.1.1.tar.gz
-tar -xzf rmkit-cn-v1.1.1.tar.gz
-cd rmkit-cn-v1.1.1
+curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.2.0.tar.gz
+tar -xzf rmkit-cn-v1.2.0.tar.gz && cd rmkit-cn-v1.2.0
 bash installer/install.sh
 ```
 
-完整包 (~77MB) 包含 install.sh、所有架构预编译产物 (`dist/`)、xovi 依赖 (`vendor/`)。
+## 装好之后
 
-### 开发者：git clone
+- 输入框里点键盘上的“中文”开始打字；五笔在“设置 → 高级 → 输入法”里切换。
+- 选中文字或手写内容，点“AI”。第一次要先配置：设置 → 高级 → 显示二维码 → 手机扫码填入接口地址、密钥、模型名。
+- 手机扫同一个二维码可以传 PDF、字体、壁纸。
 
-```bash
-git clone https://github.com/boangs/rmkit
-cd rmkit
-bash installer/install.sh
-```
+**官方系统升级后**中文化会消失，用助手或脚本重新安装一次即可，数据不受影响。
 
-`dist/` 在 .gitignore 里 (80MB 二进制不入 git)。install.sh 检测到缺失时自动从最新 Release 下载 `dist.tar.gz` (~34MB) 补齐。
+## Android（仅 Paper Pro Move）
 
-`install.sh` 自动完成 7 步：
-1. 检测设备架构 + 固件版本
-2. 检查 xovi（缺失时自动解压 `vendor/xovi/xovi-{arch}.tar.gz` 部署）
-3. 编译 `qmd-src/*.qmd` 到对应固件 hashtab
-4. tar 流式推送 31MB payload（含 IME / AI / 字体 / 高级面板）
-5. 写入 systemd unit + xochitl drop-in（**双写 ext4 lower 持久化**，含 wants symlink）
-6. 第一次启动：临时 `LD_PRELOAD xochitl` 生成 hashtab → 设备端在线编译 .qmd
-7. `systemctl restart xochitl` 让 LD_PRELOAD 立即生效
+在助手里切到“Android”页，下载或选择 `android-rmppm-bundle.zip`，点“安装 Android”。
+装好后点“重启进 Android”，用完在 Android 桌面点“原厂系统”回来。安装 APK 也在这一页。
 
-整个过程 **0 砖机**（详见下文砖机修复历史）。
+Android 和 reMarkable 用同一个系统分区，不占用另一个备用分区；Android 的应用和数据放在
+设备的存储区，reMarkable 的笔记不会被动到。
 
-安装完成后几秒内可用：
-- 任意输入框点击 → 切换 "中文" 布局 → 拼音输入
-- 选中文字 → "AI" 按钮 → 选操作（润色/翻译/总结/问答）
-- 选中手写笔迹 → "AI" 按钮 → 同上
-- Settings 顶部多了 "高级" 入口（字体、壁纸、AI 配置）
+## 卸载
 
-**OTA 升级后**：reMarkable 固件升级会重刷 rootfs，需要重跑一次 `bash installer/install.sh`。
-
-### 卸载
+助手里点“卸载 rmkit-cn”（或“卸载 Android”），或者：
 
 ```bash
 bash installer/install.sh --uninstall
 ```
 
----
+## 遇到问题
 
-## AI 功能配置
+- 装完没变化：重启设备一次。还不行就在助手里点“重新检测”，把日志发到 [Issues](https://github.com/boangs/rmkit/issues)。
+- 手写 AI 时真笔离屏幕近会画出杂线：写字时把笔拿远一点，这是设备单笔状态机的限制。
+- 更多说明见 [docs/](docs/)。
 
-安装完成后默认 AI 配置为空。需要配置 OpenAI 兼容服务（dashscope / 千问 / OpenAI 等）：
+## 给开发者
 
-**方法 1：扫码 Web UI（最简单）**
+代码结构、安全规则、构建方法见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [docs/development.md](docs/development.md)。
+桌面助手在 [desktop/](desktop/)。
 
-设备 Settings → 高级 → 显示二维码 → 手机扫码 → 网页填入：
-- API URL：如 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- API Key：`sk-...`
-- Model：`qwen3.6-plus`（或你的 vision 兼容模型）
+## 致谢与许可
 
-**方法 2：SSH 直接改**
+基于 [xovi](https://github.com/asivery/xovi)、[rm-appload](https://github.com/asivery/rm-appload)、
+[ghostwriter](https://github.com/awwaiid/ghostwriter)、[xovi-extensions](https://github.com/FouzR/xovi-extensions)、
+[rime-frost](https://github.com/gaboolic/rime-frost) 等开源项目，详见 [NOTICE.md](NOTICE.md)。
 
-```bash
-ssh root@10.11.99.1 'cat > /home/root/rmkit-cn/upload-server/ai-config.json' <<EOF
-{
-  "kind": "openai",
-  "url": "https://api.openai.com/v1",
-  "key": "sk-...",
-  "model": "gpt-4o-mini"
-}
-EOF
-ssh root@10.11.99.1 'systemctl restart rmkit-cn-upload'
-```
-
----
-
-## 已知问题与限制
-
-| 问题 | 现象 | 状态 |
-|---|---|---|
-| 手写 AI 多行选区文字插入位置 | typingMode 默认把光标放第一行底部，多行选区时文字插入跟剩余行重叠 | 待修（reMarkable 没公开 view→scene API 转换） |
-| 手写过程中真笔靠近屏幕画 ghost 射线 | 真笔 hover events 跟我们虚拟笔 events 共享 event2，xochitl 状态机混淆 | 写字时建议笔放屏幕 10cm 外（reMarkable 单笔状态机的硬限制） |
-| OTA 升级后所有修改丢失 | rootfs 重刷 | 重跑 `install.sh` 一键恢复 |
-| 启用 Developer Mode 强制清数据 | reMarkable 安全设计 | 笔记建议先 cloud sync 备份 |
-
----
-
-## 代码架构
-
-```
-.
-├── installer/           部署脚本
-│   ├── install.sh        macOS 端开发者部署（7 阶段，含砖机修复）
-│   ├── uninstall.sh
-│   ├── reenable.sh       OTA 后一键恢复
-│   ├── fw-upgrade.sh     固件升级触发的 qmd 重编
-│   └── diagnose.sh       预检脚本
-├── qmd-src/              qmldiff 注入源代码
-│   ├── advanced_panel.qmd     高级面板（字体/AI/华容道/...）
-│   ├── ai_text_button.qmd     文字选区 AI 按钮
-│   ├── glyph_selection_ai.qmd 手写选区 AI 按钮 + 笔迹模拟
-│   └── language_zh_cn.qmd     系统中文化
-├── qmd/                  不经编译的 qmldiff
-│   ├── pinyin_interceptor.qmd
-│   └── zh_CN.rcc
-├── ime-go/               拼音 IME 引擎（Go + rime-frost FST）
-├── intercept/            xochitl IME hook（C++ → ime_hook.so）
-├── upload-server-go/     文件上传 + AI 后端 + 截图（Go）
-│   ├── internal/handwriting/   笔迹模拟引擎（hover 状态机）
-│   ├── internal/server/        ai_glyph / screenshot_rmpp / evdev_input
-│   └── static/                 Web UI（qr.html / index.html）
-├── tools/qmd-tool/       qmd 编译 + hash 校验（Go）
-├── systemd/              *.service / *.path
-├── assets/chess/         游戏图标资源
-├── vendor/
-│   ├── xovi/             上游 xovi tarball
-│   └── extensions/       librarian / xovi-message-broker
-└── docs/                 architecture / upgrade-sop / devices
-```
-
----
-
-## 升级安全规则（铁律）
-
-历史 N 次砖机事故全部源于**不当的部署+重启时序**。规则：
-
-1. **永远不要**在同一个 SSH session 里"部署 + 立即 restart xochitl"
-2. install.sh 先写 `.last_fw_version`，**再**调 reenable.sh（防 fw-upgrade.sh race）
-3. 所有 .qmd 部署前用 `qmd-tool check` 校验 hash 命中
-4. xochitl drop-in 用 `After=home.mount` + `ConditionPathExists=` 守卫
-5. systemd unit + `multi-user.target.wants/` symlink **双写 ext4 lower**（mount --bind / 后必须 remount,rw）
-6. `daemon-reload` 必须在 `umount /tmp/lc` **之后**（mount 期间会 dbus race）
-7. tar 推 payload 用 `--uid 0 --gid 0` + `--no-same-owner` + chown 兜底（防 /home/root owner 被 macOS uid 502 污染）
-
-详见 [`docs/upgrade-sop.md`](docs/upgrade-sop.md) 和 [`docs/architecture.md`](docs/architecture.md)。
-
----
-
-## 贡献
-
-详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)：
-
-- 改 `.qmd`：先 `dist/qmd-tool check` 校验 hash 命中
-- 改 Go：`cd ime-go && go vet ./... && go test ./...`（或 upload-server-go / tools/qmd-tool）
-- 改 systemd unit：`systemd-analyze verify systemd/*.service`
-- 提交前 `bash -n` + `shellcheck`
-
----
-
-## 第三方代码致谢
-
-本项目使用了以下开源代码，详细 license 标注与归属见 [`NOTICE.md`](NOTICE.md)：
-
-| 项目 | License | 用途 |
-|---|---|---|
-| [asivery/xovi](https://github.com/asivery/xovi) | GPL-3.0 | LD_PRELOAD + qmldiff 注入框架 |
-| [asivery/rm-appload](https://github.com/asivery/rm-appload) | GPL-3.0 | 应用加载器 + qtfb-shim（KOReader） |
-| [awwaiid/ghostwriter](https://github.com/awwaiid/ghostwriter) | MIT | 笔迹模拟参考 + handstrokes.json 字体源 |
-| [FouzR/xovi-extensions](https://github.com/FouzR/xovi-extensions) | GPL-3.0 | qmldiff 注入参考代码 |
-| [gaboolic/rime-frost](https://github.com/gaboolic/rime-frost) | GPL-3.0 | 雾凇拼音词库 (FST 转换源) |
-
-各上游 LICENSE 全文存放在 [`third-party-licenses/`](third-party-licenses/) 目录。
-
----
-
-## License
-
-本项目采用 [**GNU General Public License v3.0**](LICENSE)。
-
-选择 GPL-3.0 的原因：我们的项目通过 `LD_PRELOAD` 装载 GPL-3.0 协议的 xovi.so，
-根据 GPL "传染"条款衍生作品也必须使用兼容协议。
+本项目采用 [GNU GPL v3.0](LICENSE)。
