@@ -46,6 +46,8 @@ cp "$STAGE/propset" /home/root/propset; chmod 755 /home/root/propset
 
 echo "  → 4/8 rootfs 下层 /etc (Android 模式没有 overlay, 必须写到 ext4 本体)"
 LOWER=/tmp/rmkit-lower
+# 上次中途失败可能留下叠层挂载, 先清干净再挂
+while mountpoint -q $LOWER 2>/dev/null; do umount -l $LOWER || break; done
 mkdir -p $LOWER && mount --bind / $LOWER && mount -o remount,rw,bind $LOWER
 for base in $LOWER/etc /etc; do
   mkdir -p $base/paperhome $base/systemd/system/sysinit.target.wants
@@ -53,7 +55,7 @@ for base in $LOWER/etc /etc; do
   sed "s|@STOCK_KERNEL@|$STOCK|g" "$STAGE/android-kernel-revert.service.tmpl" > $base/systemd/system/android-kernel-revert.service
   ln -sf /etc/systemd/system/android-kernel-revert.service $base/systemd/system/sysinit.target.wants/android-kernel-revert.service
 done
-sync; umount $LOWER; rmdir $LOWER
+sync; umount -l $LOWER 2>/dev/null || true; rmdir $LOWER 2>/dev/null || true
 systemctl daemon-reload
 
 echo "  → 5/8 挂载点与扩展数据目录"

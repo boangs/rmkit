@@ -13,13 +13,15 @@ STOCK=$(ls /boot/ | grep '^fitImage.ahab-6' | grep -v android | head -n 1)
 rm -f /boot/fitImage.ahab-android /usr/bin/rm-android-init-ss /usr/bin/rm-touch-relay /usr/bin/rm-epd-bridge /usr/bin/rm-native-controls
 rm -rf /lib/modules/6.12.49+git+f21cbcc9ed9a
 LOWER=/tmp/rmkit-lower
+# 上次中途失败可能留下叠层挂载, 先清干净再挂
+while mountpoint -q $LOWER 2>/dev/null; do umount -l $LOWER || break; done
 mkdir -p $LOWER && mount --bind / $LOWER && mount -o remount,rw,bind $LOWER
 for base in $LOWER/etc /etc; do
   rm -f $base/paperhome/udhcpd-usb.conf $base/systemd/system/android-kernel-revert.service \
         $base/systemd/system/sysinit.target.wants/android-kernel-revert.service
   rmdir $base/paperhome 2>/dev/null || true
 done
-sync; umount $LOWER; rmdir $LOWER
+sync; umount -l $LOWER 2>/dev/null || true; rmdir $LOWER 2>/dev/null || true
 systemctl daemon-reload
 rmdir /android /android-data 2>/dev/null || true
 rm -f /home/root/boot-android.sh /home/root/propset
