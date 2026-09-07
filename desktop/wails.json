@@ -1,0 +1,11 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "rmkit-assistant",
+  "outputfilename": "rmkit-assistant",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": { "name": "rmkit-cn" },
+  "info": { "productName": "rmkit 助手", "productVersion": "0.1.0", "comments": "reMarkable 中文化与 Android 安装助手 (仅走 USB/局域网直连, 无服务器)" }
+}
