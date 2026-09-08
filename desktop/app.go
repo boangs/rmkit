@@ -29,6 +29,8 @@ type App struct {
 	ctx    context.Context
 	mu     sync.Mutex
 	client *sshx.Client
+	host   string // 本次会话的地址与密码, 连接断开 (设备重启) 时用来自动重连
+	pass   string
 	info   *probe.Info
 	bundle *bundle.Bundle
 	logF   *os.File
@@ -121,7 +123,44 @@ func (a *App) Connect(host, password string, remember bool) (*probe.Info, error)
 		return nil, err
 	}
 	a.client = c
+	a.host, a.pass = host, password
 	return a.probeLocked()
+}
+
+// ensureAlive 检查连接是否还活着 (设备重启/切换 Android 模式后旧连接会 EOF), 断了就用本次
+// 会话记住的地址和密码自动重连一次。调用方须持有 a.mu。
+func (a *App) ensureAlive() error {
+	if a.client == nil {
+		return errors.New("未连接设备")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 8*time.Second)
+	defer cancel()
+	if _, err := a.client.Run(ctx, "true"); err == nil {
+		return nil
+	}
+	if a.host == "" {
+		return errors.New("连接已断开, 请重新连接")
+	}
+	a.log("连接已断开 (设备可能重启过), 自动重连 " + a.host + " ...")
+	_ = a.client.Close()
+	a.client = nil
+	var last error
+	for i := 0; i < 6; i++ { // 设备重启中时多等一会, 最多约 1 分钟
+		dctx, dcancel := context.WithTimeout(a.ctx, 15*time.Second)
+		c, err := sshx.Dial(dctx, a.host, a.pass, a.log)
+		dcancel()
+		if err == nil {
+			a.client = c
+			return nil
+		}
+		last = err
+		select {
+		case <-a.ctx.Done():
+			return a.ctx.Err()
+		case <-time.After(8 * time.Second):
+		}
+	}
+	return fmt.Errorf("自动重连失败: %w", last)
 }
 
 // Probe 重新探测已连接设备。
@@ -132,8 +171,9 @@ func (a *App) Probe() (*probe.Info, error) {
 }
 
 func (a *App) probeLocked() (*probe.Info, error) {
-	if a.client == nil {
-		return nil, errors.New("未连接设备")
+	if err := a.ensureAlive(); err != nil {
+		a.log("探测失败: " + err.Error())
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
 	defer cancel()
@@ -160,6 +200,7 @@ func (a *App) Disconnect() {
 		_ = a.client.Close()
 		a.client = nil
 		a.info = nil
+		a.host, a.pass = "", ""
 		a.log("已断开")
 	}
 }
@@ -312,6 +353,9 @@ func (a *App) PlanAndroid(replaceSystem bool) (*android.Plan, error) {
 }
 
 func (a *App) androidSystemPresent() (bool, error) {
+	if err := a.ensureAlive(); err != nil {
+		return false, err
+	}
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 	res, err := a.client.Run(ctx, "[ -e /home/root/android-system/system/bin/init ] && echo yes || echo no")
@@ -397,6 +441,11 @@ func (a *App) runTask(name string, fn func(ctx context.Context) error) error {
 	if a.client == nil || a.info == nil {
 		a.mu.Unlock()
 		return errors.New("未连接设备")
+	}
+	if err := a.ensureAlive(); err != nil {
+		a.mu.Unlock()
+		a.log("✗ " + name + ": " + err.Error())
+		return err
 	}
 	ctx, cancel := context.WithCancel(a.ctx)
 	a.cancel = cancel
