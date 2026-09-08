@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm, LoadPassword, ForgetPassword,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -27,6 +27,8 @@ const state = {
   replaceSystem: false,
   removeData: false,
   proxy: '',
+  remember: true,
+  password: '',
 }
 
 const RELEASE_BASE = 'https://github.com/boangs/rmkit/releases/latest/download/'
@@ -47,11 +49,13 @@ function render() {
       <h2>1. 连接设备</h2>
       <div class="row">
         <label>地址 <input id="host" value="10.11.99.1" size="14" ${state.info ? 'disabled' : ''}></label>
-        <label>SSH 密码 <input id="password" type="password" size="16" ${state.info ? 'disabled' : ''}></label>
+        <label>SSH 密码 <input id="password" type="password" size="16" value="${esc(state.password)}" ${state.info ? 'disabled' : ''}></label>
+        <label class="check"><input type="checkbox" id="chk-remember" ${state.remember ? 'checked' : ''} ${state.info ? 'disabled' : ''}> 记住密码</label>
         ${state.info
           ? `<button id="btn-disconnect" class="secondary">断开</button><button id="btn-probe" class="secondary">重新检测</button>`
-          : `<button id="btn-connect" class="primary">连接并检测</button>`}
+          : `<button id="btn-connect" class="primary">连接并检测</button><button id="btn-forget" class="secondary" ${state.password ? '' : 'disabled'}>忘记密码</button>`}
       </div>
+      <p class="hint">勾选“记住密码”后密码存在系统钥匙串里（Mac 钥匙串 / Windows 凭据管理器），不会写进文件。Android 模式下的密码和 reMarkable 系统的一样。</p>
       <p class="hint">用 USB 线连上后，设备默认地址是 10.11.99.1。密码在设备 <b>设置 → 帮助 → 版权与许可</b> 页面最底部（Windows 首次连接可能需要装 reMarkable 的 USB 网卡驱动）。</p>
       ${state.info ? renderInfo(state.info) : ''}
     </section>
@@ -185,12 +189,20 @@ async function guarded(fn: () => Promise<void>) {
 }
 
 function bind() {
+  $('#host')?.addEventListener('change', async (e) => {
+    const host = (e.target as HTMLInputElement).value.trim()
+    const saved = await LoadPassword(host)
+    if (saved) { state.password = saved; ($('#password') as HTMLInputElement).value = saved; appendLog('已从钥匙串读到 ' + host + ' 的密码') }
+  })
+  $('#chk-remember')?.addEventListener('change', (e) => { state.remember = (e.target as HTMLInputElement).checked })
+  $('#btn-forget')?.addEventListener('click', async () => { await ForgetPassword(($('#host') as HTMLInputElement).value); state.password = ''; render() })
   $('#btn-connect')?.addEventListener('click', async () => {
     const host = ($('#host') as HTMLInputElement).value
     const pw = ($('#password') as HTMLInputElement).value
-    if (!pw) { appendLog('请先填 SSH 密码'); return }
+    state.password = pw
+    if (!pw) { appendLog('请先填 SSH 密码') }
     try {
-      state.info = (await Connect(host, pw)) as Info
+      state.info = (await Connect(host, pw, state.remember)) as Info
       if (state.info.modelKey !== 'rmppm') state.action = 'rmkit'
       render()
     } catch (e) { appendLog('✗ ' + String(e)) }
@@ -247,5 +259,6 @@ EventsOn('progress', (p: { done: number; total: number }) => {
 
 try { state.proxy = localStorage.getItem('proxy') || '' } catch { /* 忽略 */ }
 render()
+LoadPassword('10.11.99.1').then((pw) => { if (pw) { state.password = pw; render(); appendLog('已从钥匙串读到保存的密码') } })
 LogDir().then((d) => appendLog('审计日志目录: ' + d))
 if (!state.proxy) DetectProxy().then((p) => { if (p) { state.proxy = p; appendLog('探测到代理: ' + p); render() } })

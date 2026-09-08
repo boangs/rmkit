@@ -21,6 +21,7 @@ import (
 	"github.com/rmkit-cn/desktop/internal/rmkit"
 	"github.com/rmkit-cn/desktop/internal/sshx"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/zalando/go-keyring"
 )
 
 // App 是 Wails 绑定层: 前端只能通过这里的方法与设备交互, 每个动作都会写审计日志。
@@ -76,8 +77,32 @@ func (a *App) LogDir() string { return a.logDir }
 // OpenLogDir 用系统文件管理器打开日志目录。
 func (a *App) OpenLogDir() { runtime.BrowserOpenURL(a.ctx, "file://"+a.logDir) }
 
-// Connect 连接设备并探测。密码只保存在本次连接的内存里。
-func (a *App) Connect(host, password string) (*probe.Info, error) {
+const keyringService = "rmkit-assistant"
+
+// LoadPassword 从系统钥匙串 (macOS Keychain / Windows 凭据管理器) 取该地址保存过的密码。
+func (a *App) LoadPassword(host string) string {
+	pw, err := keyring.Get(keyringService, strings.TrimSpace(host))
+	if err != nil {
+		return ""
+	}
+	return pw
+}
+
+// ForgetPassword 删除钥匙串里保存的密码。
+func (a *App) ForgetPassword(host string) {
+	_ = keyring.Delete(keyringService, strings.TrimSpace(host))
+	a.log("已从系统钥匙串删除 " + host + " 的密码")
+}
+
+// Connect 连接设备并探测。remember=true 时把密码存进系统钥匙串 (不写明文文件)。
+func (a *App) Connect(host, password string, remember bool) (*probe.Info, error) {
+	if remember && password != "" {
+		if err := keyring.Set(keyringService, strings.TrimSpace(host), password); err != nil {
+			a.log("保存密码到系统钥匙串失败: " + err.Error())
+		} else {
+			a.log("密码已保存到系统钥匙串 (" + strings.TrimSpace(host) + ")")
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.client != nil {
@@ -205,7 +230,12 @@ func (a *App) DownloadBundle(url, sha, proxy string) (*BundleInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("代理地址无效: %w", err)
 	}
-	req, err := http.NewRequestWithContext(a.ctx, http.MethodGet, url, nil)
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.mu.Lock()
+	a.cancel = cancel
+	a.mu.Unlock()
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
