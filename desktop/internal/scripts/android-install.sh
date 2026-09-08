@@ -103,6 +103,13 @@ if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q 'chmod 666 /dev/ashmem' $S/
 # [rmkit] ashmem 节点权限兜底 (CursorWindow 分配失败 = 微信读书秒退)\
 [ -c /dev/ashmem ] \&\& chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh
 fi
+# Android 的联网探测默认打 google, 国内不可达会判 partialConnectivity 不走 Wi-Fi; 换国内 URL
+if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q captive_portal_http_url $S/system/bin/paper-tuning.sh; then
+  printf '%s\n' '' '# [rmkit] 联网探测换国内可达 URL' \
+    '/system/bin/settings put global captive_portal_http_url http://connect.rom.miui.com/generate_204' \
+    '/system/bin/settings put global captive_portal_https_url https://connect.rom.miui.com/generate_204' \
+    '/system/bin/settings put global captive_portal_fallback_url http://www.google.cn/generate_204' >> $S/system/bin/paper-tuning.sh
+fi
 echo "    post-fs-data 自愈: $(grep -c '^# \[ -c /dev/ashmem' $S/vendor/bin/post-fs-data.redroid.sh 2>/dev/null) 处已关; paper-tuning chmod: $(grep -c 'chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh 2>/dev/null)"
 
 echo "  → 7/8 /sbin/init 包装"
