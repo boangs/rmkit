@@ -35,7 +35,9 @@ MODDIR=$(dirname "$DEP"); MODNAME=$(basename "$MODDIR")
 rm -rf "/lib/modules/$MODNAME"
 mv "$MODDIR" "/lib/modules/$MODNAME"
 rm -rf "$T"
-echo "    /lib/modules/$MODNAME ($(find /lib/modules/$MODNAME -name '*.ko*' | wc -l) 个模块)"
+# extra/ 里有随包附带的模块 (ashmem_linux: 微信读书等自带旧 CursorWindow 的应用需要), 重算依赖表
+depmod "$MODNAME" 2>/dev/null || depmod -b / "$MODNAME" 2>/dev/null || true
+echo "    /lib/modules/$MODNAME ($(find /lib/modules/$MODNAME -name '*.ko*' | wc -l) 个模块, ashmem=$(grep -c ashmem /lib/modules/$MODNAME/modules.dep))"
 
 echo "  → 3/8 宿主二进制"
 for b in rm-android-init-ss rm-touch-relay rm-epd-bridge rm-native-controls; do
@@ -88,6 +90,20 @@ else
   [ -e /home/root/android-system/system/bin/init ] || fail "载荷不含 Android 系统包, 设备上也没有 /home/root/android-system"
   echo "    载荷不含系统包, 沿用设备上已有的"
 fi
+
+echo "  → 6b/8 Android 系统内的两处修补 (幂等)"
+S=/home/root/android-system
+# redroid 自带的 memfd 自愈会在 ashmem 节点晚出现时把 sys.use_memfd 翻回 1 → 微信读书秒退; ashmem 由宿主提供, 关掉自愈
+if grep -q '^\[ -c /dev/ashmem \] || setprop sys.use_memfd 1' $S/vendor/bin/post-fs-data.redroid.sh 2>/dev/null; then
+  sed -i 's|^\[ -c /dev/ashmem \] \|\| setprop sys.use_memfd 1|# [rmkit] memfd 自愈已关闭 (ashmem 由宿主 modprobe 提供)\n# [ -c /dev/ashmem ] \|\| setprop sys.use_memfd 1|' $S/vendor/bin/post-fs-data.redroid.sh
+fi
+# devtmpfs 把 /dev/ashmem 建成 0600, 应用打不开同样分配失败; 调优脚本开机兜底放开
+if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q 'chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh; then
+  sed -i '1a\
+# [rmkit] ashmem 节点权限兜底 (CursorWindow 分配失败 = 微信读书秒退)\
+[ -c /dev/ashmem ] \&\& chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh
+fi
+echo "    post-fs-data 自愈: $(grep -c '^# \[ -c /dev/ashmem' $S/vendor/bin/post-fs-data.redroid.sh 2>/dev/null) 处已关; paper-tuning chmod: $(grep -c 'chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh 2>/dev/null)"
 
 echo "  → 7/8 /sbin/init 包装"
 if [ -L /sbin/init ] && [ ! -e /sbin/init.systemd-orig ]; then
