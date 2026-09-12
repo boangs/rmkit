@@ -45,8 +45,8 @@ Mac 第一次打开如果提示“无法验证开发者”，在应用上右键 
 ### 方式二：命令行脚本（Mac / Linux / WSL）
 
 ```bash
-curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.2.0.tar.gz
-tar -xzf rmkit-cn-v1.2.0.tar.gz && cd rmkit-cn-v1.2.0
+curl -fLO https://github.com/boangs/rmkit/releases/latest/download/rmkit-cn-v1.2.1.tar.gz
+tar -xzf rmkit-cn-v1.2.1.tar.gz && cd rmkit-cn-v1.2.1
 bash installer/install.sh
 ```
 

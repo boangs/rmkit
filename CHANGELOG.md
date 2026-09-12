@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-12
+
+### Added
+
+- 助手: Android 启动诊断按钮 (固件/槽位/错误计数/内核链接/包装状态 + /native-boot.log + 内核日志摘要, 保存为文件方便发 Issue); 进 Android 前自动打开内核日志采集。
+- 助手: 记住密码 (系统钥匙串)、连接断开自动重连、下载支持代理与取消。
+
+### Fixed
+
+- 助手: 计划空列表序列化为 null 导致预览报错; WebView 不支持 confirm() 导致按钮无反应, 改原生对话框。
+- Android 安装脚本: 模板文件名 (.tmpl) 引用错误; rootfs 下层绑定挂载残留导致二次安装失败。
+- 单槽 Android: rm-native-controls 三处 `mmc bootpart enable 1 0` 会把设备切到另一个槽 (PaperHome 回原厂 / 健康探针 / 定时返回), 已移除; rm-android-init-ss 改基于 v8 重建 (宿主接管 Wi-Fi 用 reMarkable 已保存网络、ashmem、去 memfd 标志)。
+- 微信读书秒退: 模块包补 ashmem_linux + depmod, 关 redroid memfd 自愈, /dev/ashmem 权限兜底。
+- 联网探测 URL 改国内可达, 避免 Android 判定网络受限。
+
 ## [1.2.0] - 2026-09-07
 
 ### Added
