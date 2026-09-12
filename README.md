@@ -87,8 +87,9 @@ bash installer/install.sh --uninstall
 
 ## 致谢与许可
 
-基于 [xovi](https://github.com/asivery/xovi)、[rm-appload](https://github.com/asivery/rm-appload)、
-[ghostwriter](https://github.com/awwaiid/ghostwriter)、[xovi-extensions](https://github.com/FouzR/xovi-extensions)、
-[rime-frost](https://github.com/gaboolic/rime-frost) 等开源项目，详见 [NOTICE.md](NOTICE.md)。
+基于以下开源项目，详见 [NOTICE.md](NOTICE.md)：
+
+- 中文化与输入法：[xovi](https://github.com/asivery/xovi)、[rm-appload](https://github.com/asivery/rm-appload)、[ghostwriter](https://github.com/awwaiid/ghostwriter)、[xovi-extensions](https://github.com/FouzR/xovi-extensions)、[rime-frost](https://github.com/gaboolic/rime-frost)。
+- Android：[paper-pro-move-dualboot-installer](https://github.com/skdlzlvk/paper-pro-move-dualboot-installer)（Android 宿主运行时、显示桥、触摸中继与 PaperHome 桌面的原作，我们做了单槽改造与新固件适配）、[reDroid](https://github.com/remote-android/redroid-doc)（Android 系统镜像）、[Oxide](https://github.com/Eeems-Org/oxide)（墨水屏库接口声明）、anbox 移植的 ashmem 内核模块。
 
 本项目采用 [GNU GPL v3.0](LICENSE)。

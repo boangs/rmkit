@@ -111,6 +111,7 @@ GPL-3.0 与本项目 LICENSE 兼容。
 - `android/rm-epd-bridge/rm-epd-bridge.cpp` — 派生自上游显示桥
 - `android/rm-touch-relay/rm-touch-relay.c` — 派生自上游触摸中继
 - `android/host/rm-native-controls` 等脚本 — 派生自上游宿主脚本
+- Android 系统包里的 PaperHome 桌面（`com.android.launcher3`）— 派生自上游 `paper-home`，我们用 platform 密钥重编并修改了刷新与窗口逻辑
 - 上游自己的第三方声明保留在 `android/UPSTREAM-THIRD_PARTY-NOTICES.md`
 
 **项目地址**：https://github.com/skdlzlvk/paper-pro-move-dualboot-installer
@@ -127,7 +128,16 @@ GPL-3.0 与本项目 LICENSE 兼容。
 
 ---
 
-## 9. ashmem（anbox 移植）— GPL-2.0
+## 9. reDroid — GPL-3.0（镜像内容为 AOSP，Apache-2.0）
+
+**用途**：Android 载荷包里的 `android-system.tar.gz` 基于 reDroid 12 arm64 镜像（AOSP 12 + reDroid 的
+容器化补丁），加上 `android/android-system/` 里我们的调优文件。镜像本身不入 git，只在 Release 附件中分发。
+
+**项目地址**：https://github.com/remote-android/redroid-doc
+
+---
+
+## 10. ashmem（anbox 移植）— GPL-2.0
 
 **用途**：`android/ashmem/` 是 Android ashmem 内核模块的树外移植（Google 原作，anbox 项目维护），
 随 Android 载荷里的内核模块包分发，供自带旧 CursorWindow 的应用使用。文件头保留 SPDX 与版权声明。
