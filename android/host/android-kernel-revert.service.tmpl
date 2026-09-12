@@ -1,0 +1,12 @@
+[Unit]
+Description=rmkit: 开机把 Android 单槽启动标志与内核链接复位回出厂 (安全网, 幂等)
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c "mount -o remount,rw / 2>/dev/null; rm -f /.boot-android-mode; ln -sf @STOCK_KERNEL@ /boot/fitImage.ahab; sync"
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,144 @@
+on early-init
+    mount debugfs debugfs /sys/kernel/debug mode=755
+
+    # ueventd fix
+    chmod 0666 /dev/null
+    chmod 0666 /dev/zero
+    chmod 0666 /dev/full
+    chmod 0666 /dev/ptmx
+    chmod 0666 /dev/pts/ptmx
+    chmod 0666 /dev/tty
+    chmod 0666 /dev/random
+    chmod 0666 /dev/urandom
+    chmod 0666 /dev/ashmem
+    chmod 0666 /dev/ion
+
+    chmod 0444 /dev/dma_heap/system
+    chown system system /dev/dma_heap/system
+
+    # used to place domain sockets
+    mkdir /ipc 0777
+
+    # [rmkit] 删掉这行：它会清空宿主共享的输入节点
+    # inputflinger require this dir
+    mkdir /dev/input
+
+    # disable codec2 by default, DMA Heap required
+    setprop debug.stagefright.ccodec 0
+
+    # disable some verbose logs
+    setprop log.tag.libprocessgroup F
+
+    # assume GLES 3.2 supported
+    setprop ro.opengles.version 196610
+
+# setup overlay data partition
+on early-init && property:ro.boot.use_redroid_overlayfs=1
+    trigger use_redroid_overlayfs
+
+
+on use_redroid_overlayfs
+    mkdir /data-diff/upper
+    rmdir /data-diff/work
+    mkdir /data-diff/work
+    mount overlay overlay /data lowerdir=/data-base,upperdir=/data-diff/upper,workdir=/data-diff/work
+
+
+on early-init && property:ro.boot.redroid_dpi=*
+    setprop ro.sf.lcd_density ${ro.boot.redroid_dpi}
+
+
+on property:ro.zygote=zygote64_32
+    write /proc/sys/kernel/pid_max 65535
+
+
+# use memfd (ashmem removed in 5.18), memfd is disabled in post-fs-data (init.rc)
+on post-fs-data && property:ro.boot.use_memfd=*
+    # [rmkit] 微信读书等旧版 CursorWindow 会对 fd 做 ashmem ioctl, memfd 上返回 ENOTTY → 崩; 走 ashmem_linux 模块
+    setprop sys.use_memfd false
+
+
+on init
+    # lxcfs better
+    write /data/.empty 0
+    mount none /data/.empty /proc/vmallocinfo bind
+
+    # fix suspend host system?
+    mount none /data/.empty /sys/power/state bind
+
+    setprop debug.renderengine.backend skiaglthreaded
+    # [rmkit] 无 GPU 设备上"硬件加速"= SwiftShader 软件模拟 GPU，每帧多一整套 GL 管线；
+    # PaperHome 用纯软件 Canvas 所以快，系统应用默认硬件加速所以慢。改 HWUI 用 CPU 后端。
+    # [rmkit] 停用 SystemUI 导航栏窗口 (返回/回桌面手势由宿主触摸中继识别)
+    setprop qemu.hw.mainkeys 1
+    setprop debug.hwui.renderer skiagl
+    setprop debug.hwui.disable_vsync true
+    setprop ro.hw_timeout_multiplier 3
+
+    # set dpi if missing
+    setprop ro.sf.lcd_density 320
+
+
+on post-fs-data
+    # fix for static IP, must after post-fs-data and before netd
+    # rm apex config (use legacy path)
+    rm /data/misc/apexdata/com.android.tethering/misc/ethernet/ipconfig.txt
+    # [rmkit] 宿主接管 Wi-Fi 后 eth0 走 DHCP; ipconfigstore 会写一个无 IP 的 STATIC 配置阻止 DHCP
+    rm /data/misc/ethernet/ipconfig.txt
+
+    # no need to mount, and encryption not supported yet
+    trigger nonencrypted
+
+    exec -- /vendor/bin/post-fs-data.redroid.sh
+
+
+on early-boot
+
+    # before HAL / SurfaceFlinger
+    exec -- /vendor/bin/gpu_config.sh
+
+# [rmkit] 宿主的健康探针靠这个文件判断框架是否起来；没人写它就会被误判成启动失败
+service paper-logcat /system/bin/logcat -f /data/local/tmp/logcat.txt -r 8192 -n 2
+    class late_start
+    user root
+    group root log system
+
+on property:sys.boot_completed=1
+    start paper-logcat
+
+
+
+# [rmkit] 放行 adb 端口并留下诊断快照
+service paper-adbfw /system/bin/sh /system/bin/paper-adbfw.sh
+    class late_start
+    user root
+    group root net_admin net_raw
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    setprop service.adb.listen_addrs tcp:0.0.0.0:5555
+    start paper-adbfw
+    restart adbd
+
+# [rmkit] 开机后关闭全部动画特效
+service paper-tuning /system/bin/sh /system/bin/paper-tuning.sh
+    class late_start
+    user root
+    group root system
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start paper-tuning
+
+# [rmkit] 通用执行入口：setprop paper.exec 1 即运行 /data/local/tmp/exec.sh
+service paper-exec /system/bin/sh /data/local/tmp/exec.sh
+    class late_start
+    user root
+    group root system
+    oneshot
+    disabled
+
+on property:paper.exec=*
+    start paper-exec

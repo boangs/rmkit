@@ -101,6 +101,39 @@ GPL-3.0 与本项目 LICENSE 兼容。
 
 ---
 
+## 7. skdlzlvk/paper-pro-move-dualboot-installer — GPL-3.0
+
+**用途**：Paper Pro Move 上运行 Android 的宿主运行时（Android 的 PID 1、HWC→墨水屏显示桥、
+触摸中继、PaperHome 侧宿主控制脚本）。我们在其公开的运行时源码上做了单槽改造与 3.28 固件适配。
+
+**包含的文件**：
+- `android/rm-android-init/rm-android-init.c` — 派生自上游 `src/runtime/rm-android-init.c`
+- `android/rm-epd-bridge/rm-epd-bridge.cpp` — 派生自上游显示桥
+- `android/rm-touch-relay/rm-touch-relay.c` — 派生自上游触摸中继
+- `android/host/rm-native-controls` 等脚本 — 派生自上游宿主脚本
+- 上游自己的第三方声明保留在 `android/UPSTREAM-THIRD_PARTY-NOTICES.md`
+
+**项目地址**：https://github.com/skdlzlvk/paper-pro-move-dualboot-installer
+**License 全文**：[`third-party-licenses/paper-pro-move-dualboot-installer-LICENSE`](third-party-licenses/paper-pro-move-dualboot-installer-LICENSE)
+
+---
+
+## 8. Eeems-Org/oxide — MIT
+
+**用途**：`android/rm-epd-bridge/third_party/oxide/epframebuffer.h` 是对设备自带 `libqsgepaper.so`
+的接口声明（我们按固件 3.28 的导出符号修订了签名与成员偏移）。库本身在设备上，不重分发。
+
+**项目地址**：https://github.com/Eeems-Org/oxide
+
+---
+
+## 9. ashmem（anbox 移植）— GPL-2.0
+
+**用途**：`android/ashmem/` 是 Android ashmem 内核模块的树外移植（Google 原作，anbox 项目维护），
+随 Android 载荷里的内核模块包分发，供自带旧 CursorWindow 的应用使用。文件头保留 SPDX 与版权声明。
+
+---
+
 ## 我们项目本身的 License
 
 本项目整体采用 **GNU General Public License v3.0** —— 见 [`LICENSE`](LICENSE)。
