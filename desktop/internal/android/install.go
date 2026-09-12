@@ -145,8 +145,32 @@ func Uninstall(ctx context.Context, c *sshx.Client, removeData bool) error {
 	return c.RunScript(ctx, scripts.AndroidUninstall, env)
 }
 
-// BootAndroid 让设备重启进 Android (本槽, 不切槽)。
+// Diagnose 收集一次 Android 启动诊断 (给用户复制发到 Issue): 固件/槽位/计数/内核链接/包装状态
+// + /native-boot.log 最后一轮 + 内核日志摘要 (若开过采集)。只读, 任何模式下可用。
+func Diagnose(ctx context.Context, c *sshx.Client) (string, error) {
+	res, err := c.Run(ctx, `echo "== 基本 =="
+echo "fw=$(cat /etc/version 2>/dev/null) pid1=$(cat /proc/1/comm) uptime=$(cut -d. -f1 /proc/uptime)s"
+echo "slot=$(rootdev 2>/dev/null) boot_part=$(cat /sys/bus/mmc/devices/mmc0:0001/boot_part 2>/dev/null) errcnt a/b=$(cat /sys/devices/platform/lpgpr/roota_errcnt 2>/dev/null)/$(cat /sys/devices/platform/lpgpr/rootb_errcnt 2>/dev/null) secboot=$(cat /sys/devices/platform/lpgpr/secboot 2>/dev/null)"
+echo "kernel_link=$(readlink /boot/fitImage.ahab 2>/dev/null) android_kernel=$(stat -c %s /boot/fitImage.ahab-android 2>/dev/null)B flag=$([ -e /.boot-android-mode ] && echo present || echo absent)"
+echo "init_wrapper=$(grep -c boot-android-mode /sbin/init 2>/dev/null) init_ss=$(stat -c %s /usr/bin/rm-android-init-ss 2>/dev/null)B bridge=$(stat -c %s /usr/bin/rm-epd-bridge 2>/dev/null)B relay=$(stat -c %s /usr/bin/rm-touch-relay 2>/dev/null)B"
+echo "modules=$(ls /lib/modules/ 2>/dev/null | tr '\n' ' ') ashmem=$(grep -c ashmem /lib/modules/6.12.49+git+f21cbcc9ed9a/modules.dep 2>/dev/null)"
+echo "system=$([ -e /home/root/android-system/system/bin/init ] && echo ok || echo missing) data_sentinel=$([ -e /home/root/native-android-data-v1/.paper-expanded-data-v1 ] && echo ok || echo missing) udhcpd=$([ -e /etc/paperhome/udhcpd-usb.conf ] && echo ok || echo missing)"
+echo "root_free=$(df -kP / | awk 'END{print $4}')KB home_free=$(df -kP /home | awk 'END{print $4}')KB"
+echo "== boot-android.sh --check =="; sh /home/root/boot-android.sh --check 2>&1
+echo "== /native-boot.log 最后一轮 =="
+if [ -f /native-boot.log ]; then awk '/native Android boot wrapper started/{n++} {l[NR]=$0; s[NR]=n} END{for(i=1;i<=NR;i++) if(s[i]==n) print l[i]}' /native-boot.log | tail -n 60; else echo "(没有 /native-boot.log: android 内核从未起来过, 或包装脚本没进 Android 分支)"; fi
+echo "== /native-kmsg.log 摘要 =="
+if [ -f /native-kmsg.log ]; then sed 's/^[0-9]*,[0-9]*,\([0-9]*\),-;/\1 /' /native-kmsg.log | grep -iE "Linux version|Machine model|lpspi|lpi2c|elants|rm-android-init|panic|Oops|watchdog|init: Service .zygote|symbol lookup" | tail -n 40; else echo "(无内核日志; 下次进 Android 前助手会自动打开采集)"; fi`)
+	if err != nil {
+		return "", err
+	}
+	return res.Stdout + res.Stderr, nil
+}
+
+// BootAndroid 让设备重启进 Android (本槽, 不切槽)。进入前打开一次性内核日志采集
+// (/enable-native-kmsg), 失败时诊断里就有 android 内核的 dmesg。
 func BootAndroid(ctx context.Context, c *sshx.Client) error {
+	_, _ = c.Run(ctx, "mount -o remount,rw / 2>/dev/null; touch /enable-native-kmsg; rm -f /native-kmsg.log")
 	res, err := c.Run(ctx, "sh /home/root/boot-android.sh --check")
 	if err != nil {
 		return err

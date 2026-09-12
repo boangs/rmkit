@@ -427,6 +427,25 @@ func (a *App) Confirm(title, message string) bool {
 	return r == "继续" || r == "Yes" || r == "Ok"
 }
 
+// DiagnoseAndroid 收集 Android 启动诊断文本, 同时写进日志目录一个文件方便发 Issue。
+func (a *App) DiagnoseAndroid() (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.ensureAlive(); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
+	defer cancel()
+	text, err := android.Diagnose(ctx, a.client)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(a.logDir, "android-diag-"+time.Now().Format("20060102-150405")+".txt")
+	_ = os.WriteFile(path, []byte(text), 0o644)
+	a.log("Android 启动诊断已保存: " + path)
+	return text, nil
+}
+
 // Cancel 取消正在执行的任务 (只是中断 SSH 会话; 设备端脚本自带 abort_safe 回退)。
 func (a *App) Cancel() {
 	a.mu.Lock()
