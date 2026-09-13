@@ -20,6 +20,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// ExtraSigners 是应用层注入的密钥 (助手自己的密钥), Dial 时优先尝试。
+var ExtraSigners []ssh.Signer
+
 // Logger 接收人类可读的进度行 (面板实时显示 + 写本地日志)。
 type Logger func(line string)
 
@@ -40,9 +43,12 @@ func Dial(ctx context.Context, host, password string, log Logger) (*Client, erro
 	if !strings.Contains(host, ":") {
 		host += ":22"
 	}
-	// 认证顺序: 用户本机已有的 SSH 密钥 (~/.ssh/id_ed25519 / id_rsa, 老玩家常已给设备装过公钥) → 密码。
+	// 认证顺序: 助手自己的密钥 (Android 模式唯一可用的方式, 见 appkey.go) → 用户本机已有的
+	// SSH 密钥 (~/.ssh/id_ed25519 / id_rsa, 老玩家常已给设备装过公钥) → 密码。
 	var auth []ssh.AuthMethod
-	if signers := localKeys(); len(signers) > 0 {
+	signers := append([]ssh.Signer{}, ExtraSigners...)
+	signers = append(signers, localKeys()...)
+	if len(signers) > 0 {
 		auth = append(auth, ssh.PublicKeys(signers...))
 	}
 	if password != "" {

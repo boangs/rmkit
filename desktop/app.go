@@ -22,6 +22,7 @@ import (
 	"github.com/rmkit-cn/desktop/internal/sshx"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"github.com/zalando/go-keyring"
+	"golang.org/x/crypto/ssh"
 )
 
 // App 是 Wails 绑定层: 前端只能通过这里的方法与设备交互, 每个动作都会写审计日志。
@@ -35,6 +36,7 @@ type App struct {
 	bundle *bundle.Bundle
 	logF   *os.File
 	logDir string
+	appKey *sshx.AppKey
 	cancel context.CancelFunc
 }
 
@@ -51,6 +53,12 @@ func (a *App) startup(ctx context.Context) {
 	_ = os.MkdirAll(a.logDir, 0o755)
 	a.logF, _ = os.Create(filepath.Join(a.logDir, time.Now().Format("20060102-150405")+".log"))
 	a.log("rmkit 助手启动; 审计日志目录 " + a.logDir)
+	if k, err := sshx.LoadOrCreateAppKey(filepath.Join(dir, "rmkit-assistant")); err != nil {
+		a.log("助手密钥不可用: " + err.Error())
+	} else {
+		a.appKey = k
+		sshx.ExtraSigners = []ssh.Signer{k.Signer}
+	}
 }
 
 func (a *App) shutdown(context.Context) {
@@ -124,7 +132,16 @@ func (a *App) Connect(host, password string, remember bool) (*probe.Info, error)
 	}
 	a.client = c
 	a.host, a.pass = host, password
-	return a.probeLocked()
+	info, err := a.probeLocked()
+	if err == nil && a.appKey != nil && !info.InAndroidMode {
+		// Android 模式下密码登录不可用 (rootfs 本体的 /etc/shadow 锁定), 趁在 reMarkable 模式把助手公钥装进去
+		kctx, kcancel := context.WithTimeout(a.ctx, 15*time.Second)
+		if kerr := c.InstallAuthorizedKey(kctx, a.appKey.Public); kerr != nil {
+			a.log("安装助手公钥失败 (Android 模式下可能连不上): " + kerr.Error())
+		}
+		kcancel()
+	}
+	return info, err
 }
 
 // ensureAlive 检查连接是否还活着 (设备重启/切换 Android 模式后旧连接会 EOF), 断了就用本次
