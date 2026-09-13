@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm, LoadPassword, ForgetPassword, DiagnoseAndroid,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm, LoadPassword, ForgetPassword, DiagnoseAndroid, Version,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -27,6 +27,7 @@ const state = {
   replaceSystem: false,
   removeData: false,
   proxy: '',
+  version: '',
   remember: true,
   password: '',
 }
@@ -41,7 +42,7 @@ function render() {
   const app = $('#app')
   app.innerHTML = `
     <header>
-      <h1>rmkit 助手</h1>
+      <h1>rmkit 助手 <span class="ver">${esc(state.version)}</span></h1>
       <p class="sub">只走 USB 线直连你的 reMarkable。没有服务器，不读你的笔记，每一步都记在本机日志里。</p>
     </header>
 
@@ -265,4 +266,5 @@ try { state.proxy = localStorage.getItem('proxy') || '' } catch { /* 忽略 */ }
 render()
 LoadPassword('10.11.99.1').then((pw) => { if (pw) { state.password = pw; render(); appendLog('已从钥匙串读到保存的密码') } })
 LogDir().then((d) => appendLog('审计日志目录: ' + d))
+Version().then((v) => { state.version = v; render(); appendLog('版本 ' + v) })
 if (!state.proxy) DetectProxy().then((p) => { if (p) { state.proxy = p; appendLog('探测到代理: ' + p); render() } })

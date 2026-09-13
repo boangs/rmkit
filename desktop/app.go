@@ -81,6 +81,14 @@ func (a *App) log(line string) {
 	}
 }
 
+// Version 返回版本与构建时间 (界面右上角显示, 便于确认拿到的是新版)。
+func (a *App) Version() string {
+	if buildTime == "" {
+		return version
+	}
+	return version + " (" + buildTime + ")"
+}
+
 // LogDir 返回审计日志目录。
 func (a *App) LogDir() string { return a.logDir }
 

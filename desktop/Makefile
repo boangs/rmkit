@@ -6,7 +6,9 @@
 #   make cli               构建命令行版 (无 GUI, 同一套内核)
 WAILS ?= $(HOME)/go/bin/wails
 ANDROID_DIR ?= ../../paper-move-android/android-bundle
-VERSION ?= $(shell git -C .. rev-parse --short HEAD 2>/dev/null || echo dev)
+VERSION ?= $(shell git -C .. describe --tags --always 2>/dev/null || echo dev)
+BUILD_TIME := $(shell date +%Y-%m-%d\ %H:%M)
+LDFLAGS := -X main.version=$(VERSION) -X "main.buildTime=$(BUILD_TIME)"
 
 .PHONY: bundle-rmkit bundle-android build-mac build-win cli dev vet
 
@@ -17,10 +19,13 @@ bundle-android:
 	go run ./cmd/mkbundle -component android-rmppm -android-dir $(ANDROID_DIR) -version $(VERSION) -out dist/android-rmppm-bundle.zip
 
 build-mac:
-	$(WAILS) build -clean -platform darwin/universal
+	$(WAILS) build -clean -platform darwin/universal -ldflags '$(LDFLAGS)'
+	touch build/bin/rmkit-assistant.app
+	cd build/bin && rm -f ../../dist/rmkit-assistant-mac.zip && zip -qry ../../dist/rmkit-assistant-mac.zip rmkit-assistant.app
 
 build-win:
-	$(WAILS) build -clean -platform windows/amd64 -o rmkit-assistant.exe
+	$(WAILS) build -clean -platform windows/amd64 -o rmkit-assistant.exe -ldflags '$(LDFLAGS)'
+	cp build/bin/rmkit-assistant.exe dist/rmkit-assistant-windows.exe
 
 cli:
 	GOOS=darwin GOARCH=arm64 go build -trimpath -o dist/assistant-cli-darwin-arm64 ./cmd/assistant-cli

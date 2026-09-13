@@ -45,3 +45,4 @@ details summary { cursor: pointer; color: var(--muted); margin: 6px 0; }
 .progress { height: 6px; background: #eee; border-radius: 3px; margin: 6px 0; overflow: hidden; }
 .progress div { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
 .hidden { display: none; }
+.ver { font-size: 12px; font-weight: 400; color: var(--muted); margin-left: 8px; }

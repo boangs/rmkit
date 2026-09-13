@@ -16,6 +16,12 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// 由构建时 -ldflags "-X main.version=... -X main.buildTime=..." 注入 (见 Makefile)
+var (
+	version   = "dev"
+	buildTime = ""
+)
+
 func main() {
 	app := NewApp()
 	err := wails.Run(&options.App{

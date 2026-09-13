@@ -7,5 +7,5 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": { "name": "rmkit-cn" },
-  "info": { "productName": "rmkit 助手", "productVersion": "0.1.0", "comments": "reMarkable 中文化与 Android 安装助手 (仅走 USB/局域网直连, 无服务器)" }
+  "info": { "productName": "rmkit 助手", "productVersion": "1.2.1", "comments": "reMarkable 中文化与 Android 安装助手 (仅走 USB/局域网直连, 无服务器)" }
 }
