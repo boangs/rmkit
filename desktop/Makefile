@@ -24,7 +24,7 @@ build-mac:
 	cd build/bin && rm -f ../../dist/rmkit-assistant-mac.zip && zip -qry ../../dist/rmkit-assistant-mac.zip rmkit-assistant.app
 
 build-win:
-	$(WAILS) build -clean -platform windows/amd64 -o rmkit-assistant.exe -ldflags '$(LDFLAGS)'
+	$(WAILS) build -platform windows/amd64 -o rmkit-assistant.exe -ldflags '$(LDFLAGS)'
 	cp build/bin/rmkit-assistant.exe dist/rmkit-assistant-windows.exe
 
 cli:
