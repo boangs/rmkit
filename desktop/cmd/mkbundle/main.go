@@ -47,7 +47,7 @@ func wantDist(name string) bool {
 
 var androidFiles = []string{"fitImage.ahab-android", "modules.tar.gz", "rm-android-init-ss", "rm-touch-relay",
 	"rm-epd-bridge", "rm-native-controls", "propset", "boot-android.sh", "init-wrapper.tmpl.sh",
-	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf"}
+	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf", "udhcpd-usb1.conf"}
 
 func main() {
 	component := flag.String("component", "rmkit-cn", "rmkit-cn | android-rmppm")

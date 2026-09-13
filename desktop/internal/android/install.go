@@ -32,7 +32,7 @@ const minFW = 20260702000000
 // 需要的载荷 (bundle 内 android/ 下的名字); android-system.tar.gz 可选 (设备已有时可省)。
 var required = []string{"fitImage.ahab-android", "modules.tar.gz", "rm-android-init-ss", "rm-touch-relay",
 	"rm-epd-bridge", "rm-native-controls", "propset", "boot-android.sh", "init-wrapper.tmpl.sh",
-	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf"}
+	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf", "udhcpd-usb1.conf"}
 
 // Plan 是一次单槽 Android 安装的计划。
 type Plan struct {
