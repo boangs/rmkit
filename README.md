@@ -66,6 +66,10 @@ bash installer/install.sh
 Android 和 reMarkable 用同一个系统分区，不占用另一个备用分区；Android 的应用和数据放在
 设备的存储区，reMarkable 的笔记不会被动到。
 
+**Android 里的 Wi-Fi**：进 Android 时自动使用 reMarkable 里已经连过的 Wi-Fi，不需要也不能在
+Android 里设置（Android 的 Wi-Fi 开关和桌面的 Wi-Fi 页在这套方案里不起作用）。所以第一次进
+Android 之前，先在 reMarkable 的设置里把 Wi-Fi 连上一次。
+
 ## 卸载
 
 助手里点“卸载 rmkit-cn”（或“卸载 Android”），或者：
