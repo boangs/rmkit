@@ -335,3 +335,18 @@ func FWNumber(fw string) int64 {
 	n, _ := strconv.ParseInt(strings.TrimSpace(fw), 10, 64)
 	return n
 }
+
+// RepairPanel 清除 rmkit-cn 的 crashloop 熔断与启动计数并重启一次 xochitl (高级面板凭空消失时用)。
+// 熔断误判的典型场景: 进 Android 再回原厂 = 600 秒内两次启动, 再多一次就被当成崩溃循环。
+func RepairPanel(ctx context.Context, c *sshx.Client) error {
+	return c.RunLogged(ctx, `set -e
+R=/home/root/rmkit-cn
+[ "$(cat /proc/1/comm)" = systemd ] || { echo '请先回到 reMarkable 系统'; exit 1; }
+echo "熔断标记: $(cat $R/.fuse_tripped 2>/dev/null || echo 无)  600s 内启动次数: $(awk -v n=$(date +%s) 'n-$1<600' $R/.starts 2>/dev/null | wc -l)"
+rm -f $R/.fuse_tripped; : > $R/.starts
+date +%s > $R/.intentional_restart
+systemctl restart xochitl.service
+sleep 10
+if pidof xochitl >/dev/null; then echo "  ✓ xochitl 已重启 (PID $(pidof xochitl)), 注入: xovi=$(grep -c xovi /proc/$(pidof xochitl)/maps) ime_hook=$(grep -c ime_hook /proc/$(pidof xochitl)/maps)"; else echo '  ✗ xochitl 没起来, 看 journalctl -u xochitl'; exit 1; fi`, nil)
+}
+

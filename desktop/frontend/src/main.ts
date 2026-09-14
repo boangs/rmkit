@@ -1,7 +1,7 @@
 import './style.css'
 import {
   Connect, Disconnect, Probe, ChooseBundle, DownloadBundle, PlanRmkit, RunRmkit, UninstallRmkit,
-  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm, LoadPassword, ForgetPassword, DiagnoseAndroid, Version,
+  PlanAndroid, RunAndroid, UninstallAndroid, BootAndroid, ReturnToStock, ResetAndroidData, ChooseAPKs, InstallAPKs, Cancel, OpenLogDir, LogDir, DetectProxy, Confirm, LoadPassword, ForgetPassword, DiagnoseAndroid, Version, RepairPanel,
 } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 
@@ -124,7 +124,8 @@ function renderActions(i: Info) {
       <h3>其他操作</h3>
       <div class="row">
         ${state.action === 'rmkit'
-          ? `<button id="btn-uninstall" class="danger" ${busy || !i.rmkitInstalled ? 'disabled' : ''}>卸载 rmkit-cn</button>`
+          ? `<button id="btn-repair" class="secondary" ${busy || !i.rmkitInstalled || i.inAndroidMode ? 'disabled' : ''} title="高级面板/中文突然消失时用: 清除防砖熔断并重启一次 xochitl">恢复高级面板</button>
+             <button id="btn-uninstall" class="danger" ${busy || !i.rmkitInstalled ? 'disabled' : ''}>卸载 rmkit-cn</button>`
           : `<button id="btn-boot-android" class="secondary" ${busy || !i.androidInstalled || i.inAndroidMode ? 'disabled' : ''}>重启进 Android</button>
              <button id="btn-stock" class="secondary" ${busy || !i.inAndroidMode ? 'disabled' : ''}>回 reMarkable 系统</button>
              <button id="btn-diag" class="secondary" ${busy} title="收集固件/槽位/内核链接/启动日志, 进不了 Android 时把结果发给开发者">Android 启动诊断</button>
@@ -238,6 +239,7 @@ function bind() {
     if (!(await Confirm('确认', `确定要在这台设备上安装 ${what} 吗？安装过程中请不要拔线。`))) return
     guarded(async () => { if (state.action === 'rmkit') await RunRmkit(); else await RunAndroid(state.replaceSystem) })
   })
+  $('#btn-repair')?.addEventListener('click', () => guarded(() => RepairPanel()))
   $('#btn-uninstall')?.addEventListener('click', async () => { if (await Confirm('确认', '确定卸载 rmkit-cn？设备会恢复出厂启动配置。')) guarded(() => UninstallRmkit()) })
   $('#btn-uninstall-android')?.addEventListener('click', async () => { if (await Confirm('确认', state.removeData ? '确定卸载 Android 并删除 /home 里的系统与数据？' : '确定卸载 Android（保留 /home 数据）？')) guarded(() => UninstallAndroid(state.removeData)) })
   $('#btn-boot-android')?.addEventListener('click', async () => { if (await Confirm('确认', '设备将重启进入 Android，约 1 到 3 分钟。回来时可在 Android 桌面点“原厂系统”。继续？')) guarded(() => BootAndroid()) })

@@ -358,6 +358,11 @@ func (a *App) RunRmkit() error {
 	})
 }
 
+// RepairPanel 恢复高级面板 (清熔断 + 重启 xochitl)。
+func (a *App) RepairPanel() error {
+	return a.runTask("恢复高级面板", func(ctx context.Context) error { return rmkit.RepairPanel(ctx, a.client) })
+}
+
 // UninstallRmkit 卸载 rmkit-cn。
 func (a *App) UninstallRmkit() error {
 	return a.runTask("卸载 rmkit-cn", func(ctx context.Context) error { return rmkit.Uninstall(ctx, a.client) })

@@ -18,6 +18,9 @@ if [ -n "$missing" ]; then
 fi
 [ "$1" = "--check" ] && { echo "ok: 本槽 $(rootdev 2>/dev/null) 单槽 Android 组件齐全"; exit 0; }
 set -e
+# rmkit-cn 的 crashloop 熔断按 600 秒内 xochitl 启动次数判定; 进 Android 再回来算两次启动,
+# 会把正常的来回误判成崩溃循环而摘掉高级面板。这里先清零计数 (回原厂那次也会清)。
+: > /home/root/rmkit-cn/.starts 2>/dev/null || true
 mount -o remount,rw / 2>/dev/null || true
 touch /.boot-android-mode
 ln -sf fitImage.ahab-android /boot/fitImage.ahab

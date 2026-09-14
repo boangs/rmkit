@@ -897,6 +897,8 @@ while :; do
         rm -f "$stock_request"
         rm -f "$stock_committed" "$stock_failed"
         log "stock OS reboot requested"
+        # [rmkit] 回原厂那次启动不该累进 rmkit-cn 的 crashloop 熔断计数 (见 boot-android.sh)
+        : > /home/root/rmkit-cn/.starts 2>/dev/null || true
         if select_stock_boot; then
             committed_tmp="$stock_committed.tmp.$$"
             if printf '%s\n' "$(date +%s)" >"$committed_tmp" &&
