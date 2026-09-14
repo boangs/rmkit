@@ -156,6 +156,14 @@ echo "init_wrapper=$(grep -c boot-android-mode /sbin/init 2>/dev/null) init_ss=$
 echo "modules=$(ls /lib/modules/ 2>/dev/null | tr '\n' ' ') ashmem=$(grep -c ashmem /lib/modules/6.12.49+git+f21cbcc9ed9a/modules.dep 2>/dev/null)"
 echo "system=$([ -e /home/root/android-system/system/bin/init ] && echo ok || echo missing) data_sentinel=$([ -e /home/root/native-android-data-v1/.paper-expanded-data-v1 ] && echo ok || echo missing) udhcpd=$([ -e /etc/paperhome/udhcpd-usb.conf ] && echo ok || echo missing)"
 echo "root_free=$(df -kP / | awk 'END{print $4}')KB home_free=$(df -kP /home | awk 'END{print $4}')KB"
+echo "== 网络 (Android 模式下才有意义) =="
+echo "saved_wifi_networks=$(grep -c '^network=' /home/root/.config/remarkable/wifi_networks.conf 2>/dev/null)"
+ip -br addr 2>/dev/null | grep -E "eth0|wlan0|usb" || echo "(无 eth0/wlan0)"
+echo "wpa_supplicant=$(pgrep -f 'wpa_supplicant.*eth0' >/dev/null 2>&1 && echo running || echo not-running)"
+for i in eth0 wlan0; do wpa_cli -i $i status 2>/dev/null | grep -E "^wpa_state|^ssid|^ip_address" | sed "s/^/$i: /"; done
+echo "default_route=$(ip route show default 2>/dev/null | head -n 1)"
+echo "host_ping_223.5.5.5=$(ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1 && echo ok || echo fail)"
+grep -iE "wpa|wlan|eth0" /native-boot.log 2>/dev/null | tail -n 4
 echo "== boot-android.sh --check =="; sh /home/root/boot-android.sh --check 2>&1
 echo "== /native-boot.log 最后一轮 =="
 if [ -f /native-boot.log ]; then awk '/native Android boot wrapper started/{n++} {l[NR]=$0; s[NR]=n} END{for(i=1;i<=NR;i++) if(s[i]==n) print l[i]}' /native-boot.log | tail -n 60; else echo "(没有 /native-boot.log: android 内核从未起来过, 或包装脚本没进 Android 分支)"; fi
