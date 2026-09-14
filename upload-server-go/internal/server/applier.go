@@ -673,6 +673,34 @@ func writeSleepScreenPath(confPath, value string) error {
 	return nil
 }
 
+// weReadLauncher 是 RemarkableWeRead (微信读书 reMarkable 版, 3.28+ 走 systemd takeover) 的启动器:
+// 它 link + start remarkable-weread-app.service, 该服务会停掉 xochitl 独占屏幕, 退出后自动拉回。
+const weReadLauncher = "/home/root/.local/opt/remarkable-weread/bin/start-remarkable-weread.sh"
+
+// launchWeRead 启动微信读书 reMarkable 版 (高级面板"应用"区入口)。
+func (s *Server) launchWeRead(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat(weReadLauncher); err != nil {
+		httpError(w, http.StatusNotFound, "未安装微信读书 reMarkable 版: "+weReadLauncher)
+		return
+	}
+	cmd := exec.Command("/bin/sh", weReadLauncher)
+	env := os.Environ()
+	cleaned := env[:0]
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "LD_PRELOAD=") { // 不把 xochitl 的注入库带给 systemctl
+			continue
+		}
+		cleaned = append(cleaned, kv)
+	}
+	cmd.Env = cleaned
+	cmd.SysProcAttr = newSessionLeader()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		httpError(w, http.StatusInternalServerError, "启动微信读书失败: "+strings.TrimSpace(string(out)))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"launched": "weread"})
+}
+
 // singleSlotAndroidLauncher 是单槽 Android 的启动器 (2026-09-06 起): 不切槽, 在本槽置
 // /.boot-android-mode 标志 + 把 /boot/fitImage.ahab 指向 android 内核后重启,
 // /sbin/init 包装见到标志就先复位再 exec rm-android-init-ss。脚本自带本槽组件齐全性检查。

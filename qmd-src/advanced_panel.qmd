@@ -487,6 +487,43 @@ AFFECT /qml/device/view/navigator/Navigator.qml
                                     }
                                 }
                             }
+                            // \u5fae\u4fe1\u8bfb\u4e66 (RemarkableWeRead) 卡片: 图标用安装包自带的 icon.png
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 72
+                                        Layout.preferredHeight: 72
+                                        source: "file:///home/root/.local/opt/remarkable-weread/appload/icon.png"
+                                        fillMode: Image.PreserveAspectFit
+                                        sourceSize.width: 72
+                                        sourceSize.height: 72
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "\u5fae\u4fe1\u8bfb\u4e66"
+                                        font.pixelSize: 24
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        _rmhAdvancedPanel.visible = false
+                                        _rmhAdvancedPanel.launchWeRead()
+                                    }
+                                }
+                            }
+
 
                             // 五子棋 卡片
                             Rectangle {
@@ -2480,6 +2517,12 @@ AFFECT /qml/device/view/navigator/Navigator.qml
                         x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/koreader/launch")
                         x.send()
                     }
+                }
+                function launchWeRead() {
+                    // 微信读书 reMarkable 版: upload-server 启动 takeover 服务 (停 xochitl 独占屏幕, 退出自动恢复)
+                    var x = new XMLHttpRequest()
+                    x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/weread/launch")
+                    x.send()
                 }
                 function launchAndroid() {
                     // 切到 Android 槽: upload-server 执行 rootdev --switch && reboot,
