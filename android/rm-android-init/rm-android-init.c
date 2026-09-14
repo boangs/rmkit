@@ -709,7 +709,13 @@ static bool prepare_native_android_wifi(void)
     char *const set_regdom[] = {
         "/usr/sbin/iw", "reg", "set", "KR", NULL
     };
-    const char *networks = "/home/root/.config/remarkable/wifi_networks.conf";
+    /*
+     * [rmkit 单槽] 3.28 起 reMarkable 用 NetworkManager 管 Wi-Fi, 网络存在
+     * ~/.config/NetworkManager/system-connections/*.nmconnection, 旧的 wifi_networks.conf
+     * 只在老设备上残留。先用 rm-wifi-config 把两处汇总成 wpa_supplicant 配置再启动。
+     */
+    char *const wifi_config[] = { "/usr/bin/rm-wifi-config", "/run/rmkit-wifi.conf", NULL };
+    const char *networks = "/run/rmkit-wifi.conf";
     char *const supplicant_with_networks[] = {
         "/usr/sbin/wpa_supplicant", "-B", "-Dnl80211", "-ieth0",
         "-c", (char *)networks, "-I", "/etc/wpa_supplicant.conf",
@@ -740,6 +746,8 @@ static bool prepare_native_android_wifi(void)
         log_message("could not rename wlan0 to eth0 for host-managed Wi-Fi");
         return false;
     }
+    if (!command_succeeded(run_command(wifi_config)))
+        log_message("rm-wifi-config found no saved Wi-Fi networks (connect one in reMarkable first)");
     if (access(networks, R_OK) == 0) {
         if (!command_succeeded(run_command(supplicant_with_networks)))
             log_message("host wpa_supplicant (saved networks) failed to start");

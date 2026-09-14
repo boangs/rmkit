@@ -32,7 +32,7 @@ const minFW = 20260702000000
 // 需要的载荷 (bundle 内 android/ 下的名字); android-system.tar.gz 可选 (设备已有时可省)。
 var required = []string{"fitImage.ahab-android", "modules.tar.gz", "rm-android-init-ss", "rm-touch-relay",
 	"rm-epd-bridge", "rm-native-controls", "propset", "boot-android.sh", "init-wrapper.tmpl.sh",
-	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf", "udhcpd-usb1.conf"}
+	"android-kernel-revert.service.tmpl", "udhcpd-usb.conf", "udhcpd-usb1.conf", "rm-wifi-config"}
 
 // Plan 是一次单槽 Android 安装的计划。
 type Plan struct {
@@ -157,7 +157,8 @@ echo "modules=$(ls /lib/modules/ 2>/dev/null | tr '\n' ' ') ashmem=$(grep -c ash
 echo "system=$([ -e /home/root/android-system/system/bin/init ] && echo ok || echo missing) data_sentinel=$([ -e /home/root/native-android-data-v1/.paper-expanded-data-v1 ] && echo ok || echo missing) udhcpd=$([ -e /etc/paperhome/udhcpd-usb.conf ] && echo ok || echo missing)"
 echo "root_free=$(df -kP / | awk 'END{print $4}')KB home_free=$(df -kP /home | awk 'END{print $4}')KB"
 echo "== 网络 (Android 模式下才有意义) =="
-echo "saved_wifi_networks=$(grep -c '^network=' /home/root/.config/remarkable/wifi_networks.conf 2>/dev/null || echo 0) (0 = reMarkable 里从没连过 Wi-Fi, 先回原厂系统连一次)"
+echo "saved_wifi_networks: NetworkManager=$(ls /home/root/.config/NetworkManager/system-connections/*.nmconnection 2>/dev/null | wc -l) legacy=$(grep -c '^network=' /home/root/.config/remarkable/wifi_networks.conf 2>/dev/null || echo 0) (都是 0 = reMarkable 里从没连过 Wi-Fi, 先回原厂系统连一次)"
+[ -f /run/rmkit-wifi.conf ] && echo "rmkit-wifi.conf networks=$(grep -c '^network=' /run/rmkit-wifi.conf)" || echo "rmkit-wifi.conf: 不存在 (旧版 rm-android-init 或不在 Android 模式)"
 ip addr 2>/dev/null | grep -E "^[0-9]+: (eth0|wlan0|usb)|inet 10\.|inet 192\.|inet 172\." | sed 's/^ *//' || echo "(无 eth0/wlan0)"
 echo "wpa_supplicant=$(pgrep -f 'wpa_supplicant.*eth0' >/dev/null 2>&1 && echo running || echo not-running)"
 for i in eth0 wlan0; do wpa_cli -i $i status 2>/dev/null | grep -E "^wpa_state|^ssid|^ip_address" | sed "s/^/$i: /"; done

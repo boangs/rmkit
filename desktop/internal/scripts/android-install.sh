@@ -40,7 +40,7 @@ depmod "$MODNAME" 2>/dev/null || depmod -b / "$MODNAME" 2>/dev/null || true
 echo "    /lib/modules/$MODNAME ($(find /lib/modules/$MODNAME -name '*.ko*' | wc -l) 个模块, ashmem=$(grep -c ashmem /lib/modules/$MODNAME/modules.dep))"
 
 echo "  → 3/8 宿主二进制"
-for b in rm-android-init-ss rm-touch-relay rm-epd-bridge rm-native-controls; do
+for b in rm-android-init-ss rm-touch-relay rm-epd-bridge rm-native-controls rm-wifi-config; do
   [ -f "$STAGE/$b" ] || fail "载荷缺 $b"
   cp "$STAGE/$b" "/usr/bin/$b.new"; chmod 755 "/usr/bin/$b.new"; mv "/usr/bin/$b.new" "/usr/bin/$b"
 done

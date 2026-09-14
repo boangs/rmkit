@@ -1,0 +1,52 @@
+#!/bin/sh
+# [rmkit 单槽] 把 reMarkable 已保存的 Wi-Fi 网络汇总成 wpa_supplicant 配置, 给 Android 模式的宿主接管用。
+# 来源两处 (都在两槽共享的 /home):
+#   - 3.28 起 NetworkManager 的 keyfile: /home/root/.config/NetworkManager/system-connections/*.nmconnection
+#   - 旧固件 wpa_supplicant 的 /home/root/.config/remarkable/wifi_networks.conf (老设备残留, 仍然有效)
+# 输出 /run/rmkit-wifi.conf (tmpfs, 含明文 psk, 0600)。用法: rm-wifi-config [输出路径]
+OUT=${1:-/run/rmkit-wifi.conf}
+NM_DIR=/home/root/.config/NetworkManager/system-connections
+LEGACY=/home/root/.config/remarkable/wifi_networks.conf
+TMP="$OUT.tmp.$$"
+umask 077
+n=0
+{
+    echo "ctrl_interface=/run/wpa_supplicant"
+    echo "ctrl_interface_group=0"
+    echo "update_config=0"
+    # NetworkManager keyfile → network 块
+    for f in "$NM_DIR"/*.nmconnection; do
+        [ -f "$f" ] || continue
+        grep -q '^type=wifi' "$f" || continue
+        ssid=$(sed -n 's/^ssid=//p' "$f" | head -n 1)
+        [ -n "$ssid" ] || continue
+        case "$ssid" in *\;*) continue ;; esac   # 十六进制转义的非 UTF-8 SSID, 跳过
+        keymgmt=$(sed -n 's/^key-mgmt=//p' "$f" | head -n 1)
+        psk=$(sed -n 's/^psk=//p' "$f" | head -n 1)
+        hidden=$(sed -n 's/^hidden=//p' "$f" | head -n 1)
+        printf 'network={\n\tssid="%s"\n' "$ssid"
+        [ "$hidden" = "true" ] && printf '\tscan_ssid=1\n'
+        case "$keymgmt" in
+            wpa-psk)
+                [ -n "$psk" ] || { printf '\tkey_mgmt=NONE\n}\n'; n=$((n+1)); continue; }
+                printf '\tpsk="%s"\n\tkey_mgmt=WPA-PSK\n' "$psk" ;;
+            sae)
+                [ -n "$psk" ] || { printf '\tkey_mgmt=NONE\n}\n'; n=$((n+1)); continue; }
+                printf '\tpsk="%s"\n\tkey_mgmt=SAE WPA-PSK\n\tieee80211w=1\n' "$psk" ;;
+            wpa-eap|ieee8021x)
+                printf '\tkey_mgmt=NONE\n\tdisabled=1\n' ;;   # 企业网需要证书, 跳过 (保留占位便于排查)
+            *)
+                printf '\tkey_mgmt=NONE\n' ;;
+        esac
+        printf '}\n'
+        n=$((n+1))
+    done
+    # 旧固件的 wpa_supplicant 配置: 直接搬 network 块
+    if [ -f "$LEGACY" ]; then
+        sed -n '/^network={/,/^}/p' "$LEGACY"
+        n=$((n + $(grep -c '^network={' "$LEGACY")))
+    fi
+} > "$TMP" && mv -f "$TMP" "$OUT"
+chmod 600 "$OUT" 2>/dev/null
+echo "rm-wifi-config: $n networks -> $OUT"
+[ "$n" -gt 0 ]
