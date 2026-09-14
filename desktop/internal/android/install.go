@@ -165,6 +165,33 @@ for i in eth0 wlan0; do wpa_cli -i $i status 2>/dev/null | grep -E "^wpa_state|^
 echo "default_route=$(ip route show default 2>/dev/null | head -n 1)"
 echo "host_ping_223.5.5.5=$(ping -c 1 -W 2 223.5.5.5 >/dev/null 2>&1 && echo ok || echo fail)"
 grep -iE "wpa|wlan|eth0" /native-boot.log 2>/dev/null | tail -n 4
+echo "== 两个槽 (A/B 都可能装过 Android, 固件也可能不同) =="
+ROOTDEV=$(sed -n 's/.*root=\([^ ]*\).*/\1/p' /proc/cmdline); echo "current_root=$ROOTDEV"
+case "$ROOTDEV" in *p2) OTHER=/dev/mmcblk0p3;; *p3) OTHER=/dev/mmcblk0p2;; *) OTHER="";; esac
+echo "this_slot: fw=$(cat /etc/version 2>/dev/null) img=$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null) wrapper=$(grep -c boot-android-mode /sbin/init 2>/dev/null) android_kernel=$([ -f /boot/fitImage.ahab-android ] && echo yes || echo no) init_ss=$([ -x /usr/bin/rm-android-init-ss ] && echo yes || echo no) bridge=$(stat -c %s /usr/bin/rm-epd-bridge 2>/dev/null)B"
+if [ -n "$OTHER" ]; then
+  M=/tmp/rmkit-diag-other; mkdir -p $M
+  if mount -o ro "$OTHER" $M 2>/dev/null; then
+    echo "other_slot ($OTHER): fw=$(cat $M/etc/version 2>/dev/null) img=$(sed -n 's/^IMG_VERSION=//p' $M/etc/os-release 2>/dev/null) wrapper=$(grep -c boot-android-mode $M/sbin/init 2>/dev/null) android_kernel=$([ -f $M/boot/fitImage.ahab-android ] && echo yes || echo no) init_ss=$([ -x $M/usr/bin/rm-android-init-ss ] && echo yes || echo no) bridge=$(stat -c %s $M/usr/bin/rm-epd-bridge 2>/dev/null)B kernel_link=$(readlink $M/boot/fitImage.ahab 2>/dev/null)"
+    umount $M 2>/dev/null
+  else
+    echo "other_slot ($OTHER): 无法挂载"
+  fi
+  rmdir $M 2>/dev/null
+fi
+echo "== Android 运行状态 (Android 模式下才有意义) =="
+if [ -d /android ] && [ "$(cat /proc/1/comm)" != systemd ]; then
+  echo "uptime=$(cut -d. -f1 /proc/uptime)s"
+  echo "processes: $(for p in rm-epd-bridge rm-touch-relay rm-native-controls surfaceflinger zygote64 system_server; do printf '%s=%s ' $p $(pgrep -c -x $p 2>/dev/null || echo 0); done)"
+  echo "ready_markers: display=$([ -e /native-display-ready ] && echo yes || echo no) touch=$([ -e /native-touch-ready ] && echo yes || echo no)"
+  echo "input_devices: $(grep '^N: Name=' /proc/bus/input/devices 2>/dev/null | sed 's/N: Name=//' | tr '\n' ' ')"
+  echo "-- touch relay log 尾 --"; tail -n 4 /native-touch-relay.log 2>/dev/null
+  echo "-- bridge log 尾 (received/displayed 帧数) --"; tail -n 6 /android-data/local/tmp/native-epd-bridge.log 2>/dev/null | cut -c1-200
+  echo "-- Android init 服务重启 (zygote 循环则很大) --"; echo "zygote_restarts=$(grep -c "starting service 'zygote'" /native-kmsg.log 2>/dev/null)"
+  echo "-- 最近 Android 崩溃 --"; grep -iE 'FATAL|beginning of crash|ANR in' /android-data/local/tmp/*.log 2>/dev/null | tail -n 3 | cut -c1-160
+else
+  echo "(当前是 reMarkable 模式)"
+fi
 echo "== boot-android.sh --check =="; sh /home/root/boot-android.sh --check 2>&1
 echo "== /native-boot.log 最后一轮 =="
 if [ -f /native-boot.log ]; then awk '/native Android boot wrapper started/{n++} {l[NR]=$0; s[NR]=n} END{for(i=1;i<=NR;i++) if(s[i]==n) print l[i]}' /native-boot.log | tail -n 60; else echo "(没有 /native-boot.log: android 内核从未起来过, 或包装脚本没进 Android 分支)"; fi
