@@ -157,8 +157,8 @@ echo "modules=$(ls /lib/modules/ 2>/dev/null | tr '\n' ' ') ashmem=$(grep -c ash
 echo "system=$([ -e /home/root/android-system/system/bin/init ] && echo ok || echo missing) data_sentinel=$([ -e /home/root/native-android-data-v1/.paper-expanded-data-v1 ] && echo ok || echo missing) udhcpd=$([ -e /etc/paperhome/udhcpd-usb.conf ] && echo ok || echo missing)"
 echo "root_free=$(df -kP / | awk 'END{print $4}')KB home_free=$(df -kP /home | awk 'END{print $4}')KB"
 echo "== 网络 (Android 模式下才有意义) =="
-echo "saved_wifi_networks=$(grep -c '^network=' /home/root/.config/remarkable/wifi_networks.conf 2>/dev/null)"
-ip -br addr 2>/dev/null | grep -E "eth0|wlan0|usb" || echo "(无 eth0/wlan0)"
+echo "saved_wifi_networks=$(grep -c '^network=' /home/root/.config/remarkable/wifi_networks.conf 2>/dev/null || echo 0) (0 = reMarkable 里从没连过 Wi-Fi, 先回原厂系统连一次)"
+ip addr 2>/dev/null | grep -E "^[0-9]+: (eth0|wlan0|usb)|inet 10\.|inet 192\.|inet 172\." | sed 's/^ *//' || echo "(无 eth0/wlan0)"
 echo "wpa_supplicant=$(pgrep -f 'wpa_supplicant.*eth0' >/dev/null 2>&1 && echo running || echo not-running)"
 for i in eth0 wlan0; do wpa_cli -i $i status 2>/dev/null | grep -E "^wpa_state|^ssid|^ip_address" | sed "s/^/$i: /"; done
 echo "default_route=$(ip route show default 2>/dev/null | head -n 1)"
