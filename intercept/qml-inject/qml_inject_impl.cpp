@@ -745,6 +745,8 @@ static void doInject(QQmlEngine *engine) {
         const char *panelUrl = useSpace ? "file:///home/root/rmkit-cn/space/shell/Space.qml"
                                         : "file:///home/root/rmkit-cn/bin/adv_panel.qml";
         const char *label = useSpace ? "\\u7a7a\\u95f4" : "\\u9ad8\\u7ea7"; // 空间 / 高级
+        // 开发模式 (~/.local/share/rmkit-cn/space/.dev): 每次点击都带时间戳重新读 QML, 改外壳不用重启 xochitl
+        const bool devMode = useSpace && access("/home/root/.local/share/rmkit-cn/space/.dev", F_OK) == 0;
         fprintf(stderr, "[impl] 侧栏就绪, 注入%s...\n", useSpace ? "空间" : "高级");
         QQmlComponent comp(engine);
         comp.setData(QByteArray(
@@ -775,7 +777,8 @@ static void doInject(QQmlEngine *engine) {
             "        r = p;\n"
             "        if (('' + p).indexOf('MainView') === 0) { host = p; break; }\n"
             "      }\n"
-            "      var c = advItem.panelComp;\n"
+            "      var c = ") + (devMode ? QByteArray("Qt.createComponent(\"") + panelUrl + "?t=\" + Date.now())"
+                                        : QByteArray("advItem.panelComp")) + QByteArray(";\n"
             "      var mk = function() {\n"
             "        if (c.status === Component.Ready) c.createObject(host ? host : r);\n"
             "        else if (c.status === Component.Error) console.log(\"[advpanel] ERR: \" + c.errorString());\n"

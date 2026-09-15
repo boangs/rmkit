@@ -150,14 +150,15 @@ Rectangle {
     function halfWidgetApps() {
         return filterApps(function(a) { return a.widgetUrl && a.widget_size !== "hero" && !a.error })
     }
+    // "应用" = 非设置类 (设置类只出现在"设置"标签)
+    function isSetting(a) { return a.category === "settings" || a.category === "system" }
+    function userApps() { return filterApps(function(a) { return !isSetting(a) }) }
     function homeApps() {
-        var l = filterApps(function(a) { return !a.error })
+        var l = filterApps(function(a) { return !a.error && !isSetting(a) })
         var n = homeGrid.columns * 2   // 首页只放两行, 其余在"应用"页
         return l.length > n ? l.slice(0, n) : l
     }
-    function settingsApps() {
-        return filterApps(function(a) { return a.category === "settings" || a.category === "system" })
-    }
+    function settingsApps() { return filterApps(isSetting) }
 
     function openById(id) {
         for (var i = 0; i < apps.length; i++) if (apps[i].id === id) { open(apps[i]); return }
@@ -539,7 +540,7 @@ Rectangle {
                 rowSpacing: space.px(24)
                 columnSpacing: space.px(24)
                 Repeater {
-                    model: space.apps
+                    model: space.userApps()
                     delegate: Kit.STile {
                         required property var modelData
                         Layout.fillWidth: true
