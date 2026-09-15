@@ -111,6 +111,11 @@ if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q captive_portal_http_url $S/
     '/system/bin/settings put global captive_portal_https_url https://connect.rom.miui.com/generate_204' \
     '/system/bin/settings put global captive_portal_fallback_url http://www.google.cn/generate_204' >> $S/system/bin/paper-tuning.sh
 fi
+# 亮屏设置写入加固 (不插线进 Android 一会儿"死机" = 熄屏): 老版 paper-tuning.sh 单次 put 可能静默失败
+if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q 'put_verified' $S/system/bin/paper-tuning.sh; then
+  sed -i 's|^\$S put system screen_off_timeout 2147483647$|put_verified() { for _t in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do $S put "$1" "$2" "$3" 2>/dev/null; [ "$($S get "$1" "$2" 2>/dev/null)" = "$3" ] \&\& { echo "ok $1 $2=$3"; return 0; }; sleep 3; done; echo "FAIL $1 $2"; return 1; }\nput_verified system screen_off_timeout 2147483647|; s|^\$S put secure sleep_timeout -1$|put_verified secure sleep_timeout -1|; s|^\$S put global stay_on_while_plugged_in 3$|put_verified global stay_on_while_plugged_in 3|' $S/system/bin/paper-tuning.sh
+fi
+echo "    paper-tuning 亮屏加固: $(grep -c 'put_verified' $S/system/bin/paper-tuning.sh 2>/dev/null) 处"
 echo "    post-fs-data 自愈: $(grep -c '^# \[ -c /dev/ashmem' $S/vendor/bin/post-fs-data.redroid.sh 2>/dev/null) 处已关; paper-tuning chmod: $(grep -c 'chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh 2>/dev/null)"
 
 echo "  → 7/8 /sbin/init 包装"

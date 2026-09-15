@@ -12,9 +12,19 @@ $S put global animator_duration_scale 0
 $S put global disable_window_blurs 1
 $S put secure accessibility_display_animation_scale 0
 # --- 屏幕常亮（e-ink 不耗电，且唤醒要重刷整屏）---
-$S put system screen_off_timeout 2147483647
-$S put secure sleep_timeout -1
-$S put global stay_on_while_plugged_in 3
+# 这三项是"不插线进 Android 一会儿就死"的关键: settings 服务起得慢时首次 put 会静默失败,
+# 亮屏超时就停在 AOSP 默认值, 到点 Android 熄屏 → 墨水屏停在最后一帧、触摸无反应。写后读回, 不对就重试。
+put_verified() {   # put_verified <ns> <key> <value>
+    for _t in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        $S put "$1" "$2" "$3" 2>/dev/null
+        [ "$($S get "$1" "$2" 2>/dev/null)" = "$3" ] && { echo "ok $1 $2=$3 (第 $_t 次)"; return 0; }
+        sleep 3
+    done
+    echo "FAIL $1 $2 未能写入"; return 1
+}
+put_verified system screen_off_timeout 2147483647
+put_verified secure sleep_timeout -1
+put_verified global stay_on_while_plugged_in 3
 # --- 关掉自动亮度/自适应（无背光屏无意义且耗 CPU）---
 $S put system screen_brightness_mode 0
 # --- 深色主题关闭（反射式墨水屏上深色=一片黑）---

@@ -185,7 +185,7 @@ fi
 echo "== Android 运行状态 (Android 模式下才有意义) =="
 if [ -d /android ] && [ "$(cat /proc/1/comm)" != systemd ]; then
   echo "uptime=$(cut -d. -f1 /proc/uptime)s"
-  echo "processes: $(for p in rm-epd-bridge rm-touch-relay rm-native-controls surfaceflinger zygote64 system_server; do printf '%s=%s ' $p $(pgrep -c -x $p 2>/dev/null || echo 0); done)"
+  echo "processes: $(for p in rm-epd-bridge rm-touch-relay rm-native-controls surfaceflinger zygote64 system_server; do printf '%s=%s ' $p $(pgrep -x $p 2>/dev/null | wc -l | tr -d " "); done)"
   echo "ready_markers: display=$([ -e /native-display-ready ] && echo yes || echo no) touch=$([ -e /native-touch-ready ] && echo yes || echo no)"
   echo "input_devices: $(grep '^N: Name=' /proc/bus/input/devices 2>/dev/null | sed 's/N: Name=//' | tr '\n' ' ')"
   echo "-- touch relay log 尾 --"; tail -n 4 /native-touch-relay.log 2>/dev/null
