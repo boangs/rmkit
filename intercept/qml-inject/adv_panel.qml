@@ -33,6 +33,9 @@ import QtQuick.Layouts
                 property var _rmhImeSchemas: []
                 property string _rmhImeSchema: ""
                 property string _rmhImeStatus: ""
+                property var _rmhBtDevices: []
+                property string _rmhBtStatus: ""
+                property bool _rmhBtBusy: false
                 property bool _rmhAiTesting: false
 
                 // 大屏 (rmpp Ferrari 11 寸 ~2160px) vs 小屏 (rmppm Move 8 寸 ~1696px)
@@ -229,6 +232,7 @@ import QtQuick.Layouts
                         if (_rmhAdvancedPanel._rmhPage === 7) return "\u51fd\u6570\u7ed8\u56fe"
                         if (_rmhAdvancedPanel._rmhPage === 8) return "AI \u8bbe\u7f6e"
                         if (_rmhAdvancedPanel._rmhPage === 9) return "\u8f93\u5165\u6cd5"
+                        if (_rmhAdvancedPanel._rmhPage === 10) return "\u84dd\u7259"
                         return "\u9ad8\u7ea7"
                     }
                     font.pixelSize: 56
@@ -407,6 +411,41 @@ import QtQuick.Layouts
                                     onClicked: {
                                         _rmhAdvancedPanel._rmhPage = 9
                                         _rmhAdvancedPanel.imeLoadSchema()
+                                    }
+                                }
+                            }
+
+                            // 卡片 5: 蓝牙 (耳机配对)
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 80
+                                        Layout.preferredHeight: 80
+                                        source: "file:///home/root/xovi/exthome/qt-resource-rebuilder/chess/bluetooth.svg"
+                                        fillMode: Image.PreserveAspectFit
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "\u84dd\u7259"
+                                        font.pixelSize: 26
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        _rmhAdvancedPanel._rmhPage = 10
+                                        _rmhAdvancedPanel.btLoad()
                                     }
                                 }
                             }
@@ -2528,6 +2567,46 @@ import QtQuick.Layouts
                         x.send()
                     }
                 }
+                // ─── 蓝牙耳机配对 (page=10): upload-server /bt/* ───
+                function btRequest(method, path, body, cb) {
+                    var x = new XMLHttpRequest()
+                    x.onreadystatechange = function() {
+                        if (x.readyState !== 4) return
+                        var r = null
+                        try { r = JSON.parse(x.responseText) } catch (e) { r = null }
+                        cb(x.status, r)
+                    }
+                    x.open(method, _rmhAdvancedPanel._rmhBaseUrl + path)
+                    x.setRequestHeader("Content-Type", "application/json")
+                    x.send(body ? JSON.stringify(body) : null)
+                }
+                function btLoad() {
+                    btRequest("GET", "/bt/status", null, function(st, r) {
+                        if (st !== 200 || !r) { _rmhAdvancedPanel._rmhBtStatus = "\u540e\u7aef\u672a\u54cd\u5e94 (" + st + ")"; return }
+                        _rmhAdvancedPanel._rmhBtDevices = r.devices || []
+                        _rmhAdvancedPanel._rmhBtStatus = r.adapter === "powered" ? "" : (r.adapter === "absent" ? "\u84dd\u7259\u672a\u542f\u7528\uff0c\u70b9\u201c\u626b\u63cf\u201d\u4f1a\u81ea\u52a8\u5f00\u542f" : "\u84dd\u7259\u672a\u4e0a\u7535")
+                        if (!r.audioReady) _rmhAdvancedPanel._rmhBtStatus += (_rmhAdvancedPanel._rmhBtStatus ? "\uff1b" : "") + "\u672a\u5b89\u88c5\u97f3\u9891\u7ec4\u4ef6\uff0c\u53ea\u80fd\u914d\u5bf9\u4e0d\u80fd\u51fa\u58f0"
+                    })
+                }
+                function btScan() {
+                    _rmhAdvancedPanel._rmhBtBusy = true
+                    _rmhAdvancedPanel._rmhBtStatus = "\u626b\u63cf\u4e2d (10 \u79d2)\u2026 \u8ba9\u8033\u673a\u8fdb\u5165\u914d\u5bf9\u6a21\u5f0f"
+                    btRequest("POST", "/bt/scan?seconds=10", null, function(st, r) {
+                        _rmhAdvancedPanel._rmhBtBusy = false
+                        if (st !== 200 || !r) { _rmhAdvancedPanel._rmhBtStatus = "\u626b\u63cf\u5931\u8d25: " + (r && r.detail ? r.detail : st); return }
+                        _rmhAdvancedPanel._rmhBtDevices = r.devices || []
+                        _rmhAdvancedPanel._rmhBtStatus = (r.devices || []).length ? "" : "\u6ca1\u626b\u5230\u5e26\u540d\u5b57\u7684\u8bbe\u5907\uff0c\u786e\u8ba4\u8033\u673a\u5728\u914d\u5bf9\u6a21\u5f0f\u540e\u518d\u626b"
+                    })
+                }
+                function btAction(action, mac) {
+                    _rmhAdvancedPanel._rmhBtBusy = true
+                    _rmhAdvancedPanel._rmhBtStatus = (action === "pair" ? "\u914d\u5bf9\u4e2d\u2026" : action === "connect" ? "\u8fde\u63a5\u4e2d\u2026" : "\u5904\u7406\u4e2d\u2026")
+                    btRequest("POST", "/bt/" + action, { mac: mac }, function(st, r) {
+                        _rmhAdvancedPanel._rmhBtBusy = false
+                        _rmhAdvancedPanel._rmhBtStatus = (st === 200) ? "" : ((r && r.detail) ? r.detail : ("\u5931\u8d25 (" + st + ")"))
+                        _rmhAdvancedPanel.btLoad()
+                    })
+                }
                 function launchWeRead() {
                     // 微信读书 reMarkable 版: upload-server 启动 takeover 服务 (停 xochitl 独占屏幕, 退出自动恢复)
                     var x = new XMLHttpRequest()
@@ -4170,6 +4249,81 @@ import QtQuick.Layouts
                             font.pixelSize: 22
                             color: "#555555"
                             text: "\u70b9\u9009\u5373\u5207\u6362\uff0c\u7acb\u5373\u751f\u6548\uff0c\u91cd\u542f\u540e\u4fdd\u6301\u3002\u4e94\u7b14\u4e3a\u767d\u971c 86 \u7248\u7801\u8868\uff1b\u4e94\u7b14\u4e0b\u8f93\u5165 z \u53ef\u4e34\u65f6\u62fc\u97f3\u53cd\u67e5\u3002"
+                        }
+                    }
+                }
+
+                // ─── 子页: 蓝牙耳机配对 (page=10) ───────────────────────
+                Item {
+                    visible: _rmhAdvancedPanel._rmhPage === 10
+                    onVisibleChanged: { if (visible) _rmhAdvancedPanel.btLoad() }
+                    anchors.top: _rmhTitle.bottom
+                    anchors.topMargin: 48
+                    anchors.left: parent.left
+                    anchors.leftMargin: 80
+                    anchors.right: parent.right
+                    anchors.rightMargin: 80
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 40
+
+                    ColumnLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        spacing: 20
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text { text: "\u8033\u673a"; font.pixelSize: 32; font.weight: Font.Medium }
+                            Item { Layout.fillWidth: true }
+                            Rectangle {
+                                Layout.preferredWidth: 200; Layout.preferredHeight: 64; radius: 8
+                                color: _rmhAdvancedPanel._rmhBtBusy ? "#eeeeee" : "#222222"
+                                Text { anchors.centerIn: parent; color: _rmhAdvancedPanel._rmhBtBusy ? "#888888" : "#ffffff"; font.pixelSize: 24; text: "\u626b\u63cf\u8bbe\u5907" }
+                                MouseArea { anchors.fill: parent; enabled: !_rmhAdvancedPanel._rmhBtBusy; onClicked: _rmhAdvancedPanel.btScan() }
+                            }
+                        }
+                        Text {
+                            visible: _rmhAdvancedPanel._rmhBtStatus !== ""
+                            text: _rmhAdvancedPanel._rmhBtStatus
+                            font.pixelSize: 22; color: "#555555"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        }
+                        Text {
+                            visible: _rmhAdvancedPanel._rmhBtDevices.length === 0
+                            text: "\u8fd8\u6ca1\u6709\u8bbe\u5907\u3002\u628a\u8033\u673a\u8c03\u5230\u914d\u5bf9\u6a21\u5f0f\uff0c\u70b9\u53f3\u4e0a\u89d2\u201c\u626b\u63cf\u8bbe\u5907\u201d\u3002"
+                            font.pixelSize: 24; color: "#555555"; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                        }
+                        Repeater {
+                            model: _rmhAdvancedPanel._rmhBtDevices
+                            delegate: Item {
+                                id: _rmhBtRow
+                                required property var modelData
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 96
+                                Rectangle { anchors.fill: parent; radius: 6; color: _rmhBtRow.modelData.connected ? "#eeeeee" : "transparent"; border.color: "#e0e0e0"; border.width: 1 }
+                                RowLayout {
+                                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 24; anchors.rightMargin: 24; spacing: 16
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; spacing: 2
+                                        Text { text: _rmhBtRow.modelData.name; font.pixelSize: 26; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Text { text: _rmhBtRow.modelData.mac + (_rmhBtRow.modelData.connected ? "  \u5df2\u8fde\u63a5" : (_rmhBtRow.modelData.paired ? "  \u5df2\u914d\u5bf9" : "")); font.pixelSize: 20; color: "#777777" }
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: 150; Layout.preferredHeight: 56; radius: 6
+                                        color: "transparent"; border.color: "#333333"; border.width: 1
+                                        Text { anchors.centerIn: parent; font.pixelSize: 22; text: _rmhBtRow.modelData.connected ? "\u65ad\u5f00" : (_rmhBtRow.modelData.paired ? "\u8fde\u63a5" : "\u914d\u5bf9") }
+                                        MouseArea { anchors.fill: parent; enabled: !_rmhAdvancedPanel._rmhBtBusy; onClicked: _rmhAdvancedPanel.btAction(_rmhBtRow.modelData.connected ? "disconnect" : (_rmhBtRow.modelData.paired ? "connect" : "pair"), _rmhBtRow.modelData.mac) }
+                                    }
+                                    Rectangle {
+                                        visible: _rmhBtRow.modelData.paired && !_rmhBtRow.modelData.connected
+                                        Layout.preferredWidth: 110; Layout.preferredHeight: 56; radius: 6
+                                        color: "transparent"; border.color: "#bbbbbb"; border.width: 1
+                                        Text { anchors.centerIn: parent; font.pixelSize: 22; color: "#777777"; text: "\u5fd8\u8bb0" }
+                                        MouseArea { anchors.fill: parent; enabled: !_rmhAdvancedPanel._rmhBtBusy; onClicked: _rmhAdvancedPanel.btAction("remove", _rmhBtRow.modelData.mac) }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

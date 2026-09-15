@@ -451,6 +451,15 @@ if [ -n "$QML_INJECT_NAME" ] \
 else
   echo "  · 跳过运行时 QML 注入 (dist 无 $ARCH 产物) — 相关功能走 qmd 注入"
 fi
+
+# 蓝牙音频组件 (bluealsa + mpg123, 仅 aarch64 交叉编译产物) → audio-stage/ (设备端解包见传输后的 audio setup 段)
+AUDIO_PKG="$SCRIPT_DIR/vendor/audio/rmkit-audio-${EXT_ARCH}.tar.gz"
+DEPLOY_AUDIO=0
+if [ -f "$AUDIO_PKG" ]; then
+  DEPLOY_AUDIO=1
+  mkdir -p "$PAYLOAD/home/root/rmkit-cn/audio-stage"
+  cp "$AUDIO_PKG" "$PAYLOAD/home/root/rmkit-cn/audio-stage/rmkit-audio.tar.gz"
+fi
 chmod +x "$PAYLOAD/home/root/rmkit-cn/bin/"*
 
 # qmd-src/: fw-upgrade.sh 在 OTA 后从此重编 (compat/ 是老固件的 advanced_panel 兼容源)
@@ -489,8 +498,7 @@ done
 # /home/root/rmkit-cn/upload-server/  Go binary + 静态 web
 cp "$DIST_DIR/$UPLOAD_BIN_NAME" "$PAYLOAD/home/root/rmkit-cn/upload-server/upload-server"
 chmod +x "$PAYLOAD/home/root/rmkit-cn/upload-server/upload-server"
-cp "$SCRIPT_DIR/upload-server-go/static/index.html" \
-   "$SCRIPT_DIR/upload-server-go/static/qr.html" \
+cp "$SCRIPT_DIR/upload-server-go/static/qr.html" \
    "$PAYLOAD/home/root/rmkit-cn/upload-server/static/"
 
 # /home/root/rmkit-cn/qmd/  rmkit 自身参考用的中间存储 (排除 _obsolete/)
@@ -574,6 +582,37 @@ echo "  传输完成 (${ELAPSED}s)"
 # 跟主 xochitl 进程或 systemctl restart xochitl 冲突, 反复 fail → bootloader 切 slot → 砖。
 ssh "$DEVICE_USER@$DEVICE_IP" "printf '%s' '$FW_VERSION' > /home/root/rmkit-cn/.last_fw_version"
 echo "✓ .last_fw_version 已写入 ($FW_VERSION) — 防止 fw-upgrade.sh 误触发"
+
+# ─── 设备端: 部署蓝牙音频组件 (仅 DEPLOY_AUDIO=1, 高级面板"蓝牙"页放歌用) ──────
+if [ "${DEPLOY_AUDIO:-0}" = "1" ]; then
+  echo "  → 部署蓝牙音频组件 (bluealsa + mpg123)..."
+  ssh "$DEVICE_USER@$DEVICE_IP" 'bash -s' <<'AUDIO_EOF'
+# 蓝牙音频组件 (alsa-lib + bluez + bluez-alsa + mpg123, 交叉编译产物, 见 tools/build-audio/):
+# 解包到 /home/root/.local/opt/rmkit-audio, 不碰 / 与 /etc 下层。D-Bus 策略文件 (bluealsa 要独占
+# org.bluealsa 名字) 由 upload-server 在首次启动 bluealsa 时写进 /etc (tmpfs 上层) 并让 dbus 重载,
+# 重启后丢了也会自动补, 所以不需要双写 ext4 下层。
+set -e
+STAGE=/home/root/rmkit-cn/audio-stage
+PREFIX=/home/root/.local/opt/rmkit-audio
+PKG="$STAGE/rmkit-audio.tar.gz"
+[ -f "$PKG" ] || { echo "    (无蓝牙音频包, 跳过)"; exit 0; }
+NEWMD5=$(md5sum "$PKG" | cut -d' ' -f1)
+OLDMD5=$(cat /home/root/rmkit-cn/.audio_pkg_md5 2>/dev/null || echo "")
+if [ "$NEWMD5" = "$OLDMD5" ] && [ -x "$PREFIX/bin/bluealsa" ]; then
+  echo "    蓝牙音频组件未变, 跳过"; exit 0
+fi
+mkdir -p "$(dirname "$PREFIX")"
+rm -rf "$PREFIX.new"; mkdir -p "$PREFIX.new"
+tar xzf "$PKG" -C "$PREFIX.new" --no-same-owner --no-same-permissions   # 包根即前缀内容 (bin/ lib/ share/ etc/)
+[ -x "$PREFIX.new/bin/bluealsa" ] && [ -x "$PREFIX.new/bin/mpg123" ] || { echo "    ✗ 蓝牙音频包解包失败"; rm -rf "$PREFIX.new"; exit 1; }
+# 解包成功才停旧进程换目录 (bluealsa 一停耳机的 A2DP 链路就断, 失败时不能白白打断播放)
+killall -q mpg123 2>/dev/null || true
+killall -q bluealsa 2>/dev/null || true
+rm -rf "$PREFIX"; mv "$PREFIX.new" "$PREFIX"
+echo "$NEWMD5" > /home/root/rmkit-cn/.audio_pkg_md5
+echo "    ✓ 蓝牙音频组件已部署 ($PREFIX)"
+AUDIO_EOF
+fi
 
 # ─── 设备端: 部署 librime 词库数据 (仅 DEPLOY_RIME=1) ──────────────────
 # 词库编译好随包下发 (rime-stage/*.tar.gz), 设备端只解包 + 盖时间戳, 永不本地编译

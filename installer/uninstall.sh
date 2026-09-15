@@ -40,6 +40,11 @@ mount -o remount,rw / 2>/dev/null || true
 rm -f /usr/share/remarkable/xochitl/translations/reMarkable_zh_CN.qm
 
 rm -rf "$RMKIT_DIR"
+# 蓝牙音频组件 (bluealsa/mpg123 + D-Bus 策略只在 /etc 上层 tmpfs, 重启即消)
+killall -q mpg123 2>/dev/null || true
+killall -q bluealsa 2>/dev/null || true
+rm -rf /home/root/.local/opt/rmkit-audio
+rm -f /etc/dbus-1/system.d/bluealsa.conf 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl restart xochitl

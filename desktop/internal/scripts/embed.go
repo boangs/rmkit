@@ -13,6 +13,9 @@ var ReceivePayload string
 //go:embed rime-setup.sh
 var RimeSetup string
 
+//go:embed audio-setup.sh
+var AudioSetup string
+
 //go:embed deploy-stages.sh
 var DeployStages string
 

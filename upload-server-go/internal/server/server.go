@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ var (
 
 // Config 是构造服务器需要的所有可配项.
 type Config struct {
-	StaticDir      string // 静态资源目录 (index.html, qr.html)
+	StaticDir      string // 静态资源目录 (qr.html)
 	FontsDir       string // 字体存放目录
 	ScreensDir     string // 锁屏图存放目录
 	DocStagingDir  string // /documents 上传暂存目录 (librarian 会从此处复制)
@@ -82,6 +83,8 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /documents", s.uploadDocument)
 
+	mux.HandleFunc("GET /screenshot", s.screenshotPNG) // 排版核对用: 当前屏幕 PNG
+
 	mux.HandleFunc("GET /ai-config", s.getAIConfig)
 	mux.HandleFunc("PUT /ai-config", s.putAIConfig)
 	mux.HandleFunc("POST /ai-chat", s.aiChat)
@@ -95,6 +98,13 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("POST /apps/koreader/launch", s.launchKoreader)
 	mux.HandleFunc("POST /apps/weread/launch", s.launchWeRead)
+	// 蓝牙耳机配对 (高级面板"蓝牙"页)
+	mux.HandleFunc("GET /bt/status", s.btStatus)
+	mux.HandleFunc("POST /bt/scan", s.btScan)
+	mux.HandleFunc("POST /bt/pair", s.btPair)
+	mux.HandleFunc("POST /bt/connect", s.btConnect)
+	mux.HandleFunc("POST /bt/disconnect", s.btDisconnect)
+	mux.HandleFunc("POST /bt/remove", s.btRemove)
 	mux.HandleFunc("POST /apps/android/launch", s.launchAndroid)
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.cfg.StaticDir))))
@@ -214,8 +224,13 @@ func saveUpload(w http.ResponseWriter, r *http.Request, dir string, allowed map[
 
 // ---- 静态页面 ----
 
+// index: 旧的 index.html (只有字体/壁纸) 已并入 qr.html, 根路径直接跳过去。
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, filepath.Join(s.cfg.StaticDir, "index.html"))
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/qr", http.StatusFound)
 }
 
 func (s *Server) qrPage(w http.ResponseWriter, r *http.Request) {
@@ -808,4 +823,15 @@ func (s *Server) putAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, in)
+}
+
+// screenshotPNG 把当前屏幕抓成 PNG (只在本机/USB 网段可达的 8080 上, 用来核对面板排版)。
+func (s *Server) screenshotPNG(w http.ResponseWriter, r *http.Request) {
+	img, err := rmppScreenshot()
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_ = png.Encode(w, img)
 }

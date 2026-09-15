@@ -59,6 +59,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("server.New: %v", err)
 	}
+	server.StartAudioDaemon() // 蓝牙音频 (装了 rmkit-audio 才生效)
 
 	fmt.Printf("rmkit-cn upload-server listening on %s\n", *listen)
 	fmt.Printf("  static = %s\n  fonts  = %s\n  screens = %s\n  staging = %s\n  fonts-active = %s\n  xochitl-conf = %s\n",

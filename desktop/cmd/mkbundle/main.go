@@ -26,12 +26,12 @@ import (
 )
 
 // rmkit-cn: 目录整体收集 (递归) 与单文件
-var rmkitDirs = []string{"dist", "vendor/xovi", "vendor/extensions", "qmd-src", "assets/chess", "systemd"}
+var rmkitDirs = []string{"dist", "vendor/xovi", "vendor/extensions", "vendor/audio", "qmd-src", "assets/chess", "systemd"}
 var rmkitFiles = []string{
 	"qmd/pinyin_interceptor.qmd", "qmd/zh_CN.rcc", "qmd/zh_CN/keyboard_layout.json",
 	"scripts/version-switcher.sh",
 	"installer/reenable.sh", "installer/fw-upgrade.sh", "installer/precheck.sh", "installer/qml-inject-lib.sh", "installer/ota-watch.sh",
-	"upload-server-go/static/index.html", "upload-server-go/static/qr.html",
+	"upload-server-go/static/qr.html",
 	"intercept/qml-inject/adv_panel.qml", "intercept/qml-inject/glyph_ai_button.qml", "intercept/qml-inject/text_ai_button.qml",
 	"intercept/qml-inject/pinyin_ime.qml", "intercept/qml-inject/icon_ai.svg",
 }

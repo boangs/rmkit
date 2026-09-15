@@ -6,6 +6,11 @@ REMOTE_BASE=/home/root/rmkit-cn
     systemctl stop    rmkit-cn-ime.service rmkit-cn-ime-udev.service 2>/dev/null || true
     systemctl disable rmkit-cn-ime.service rmkit-cn-ime-udev.service 2>/dev/null || true
     rm -rf $REMOTE_BASE
+    # 蓝牙音频组件 (bluealsa/mpg123 + D-Bus 策略只在 /etc 上层 tmpfs, 重启即消)
+    killall -q mpg123 2>/dev/null || true
+    killall -q bluealsa 2>/dev/null || true
+    rm -rf /home/root/.local/opt/rmkit-audio
+    rm -f /etc/dbus-1/system.d/bluealsa.conf 2>/dev/null || true
     # 清 upper (overlay 上层 tmpfs) + lower (ext4) 的 unit / drop-in
     mount -o remount,rw / 2>/dev/null || true
     MNT=/tmp/rmkit-cn-uninst-rootfs

@@ -33,13 +33,14 @@ type FileEntry struct {
 
 // Plan 是一次 rmkit-cn 安装的完整计划, 先给用户过目再执行。
 type Plan struct {
-	Arch       string `json:"arch"`
-	ModelKey   string `json:"modelKey"`
-	FWVersion  string `json:"fwVersion"`
-	NeedXovi   bool   `json:"needXovi"`
-	DeployRime bool   `json:"deployRime"`
-	QMLInject  bool   `json:"qmlInject"`
-	Librarian  bool   `json:"librarian"`
+	Arch        string `json:"arch"`
+	ModelKey    string `json:"modelKey"`
+	FWVersion   string `json:"fwVersion"`
+	NeedXovi    bool   `json:"needXovi"`
+	DeployRime  bool   `json:"deployRime"`
+	DeployAudio bool   `json:"deployAudio"` // install.sh: vendor/audio/rmkit-audio-<arch>.tar.gz 存在即部署 (蓝牙耳机放歌)
+	QMLInject   bool   `json:"qmlInject"`
+	Librarian   bool   `json:"librarian"`
 
 	Files      []FileEntry `json:"files"`
 	TotalBytes int64       `json:"totalBytes"`
@@ -100,6 +101,7 @@ func NewPlan(info probe.Info, b *bundle.Bundle) (*Plan, error) {
 			return nil, fmt.Errorf("载荷包缺必备产物 %s", f)
 		}
 	}
+	p.DeployAudio = b.Has("vendor/audio/rmkit-audio-" + ar.ext + ".tar.gz")
 	p.Librarian = ar.ext != "armv7" // install.sh 377-381: rm2 上 librarian 漏堆, 只部署 aarch64
 	if p.Librarian && !b.Has("vendor/extensions/librarian-"+ar.ext+".so") {
 		return nil, errors.New("载荷包缺 vendor/extensions/librarian-" + ar.ext + ".so")
@@ -145,6 +147,9 @@ func NewPlan(info probe.Info, b *bundle.Bundle) (*Plan, error) {
 		add(base+"/rime-stage/rime-prebuilt.tar.gz", "dist/rime-prebuilt.tar.gz", 0o644)
 		add(base+"/rime-stage/rime-runtime-data.tar.gz", "dist/rime-runtime-data.tar.gz", 0o644)
 	}
+	if p.DeployAudio {
+		add(base+"/audio-stage/rmkit-audio.tar.gz", "vendor/audio/rmkit-audio-"+ar.ext+".tar.gz", 0o644)
+	}
 	add(base+"/bin/ime_hook.so", "dist/"+ar.imeHook, 0o755)
 	add(base+"/bin/qmd-tool", "dist/"+ar.qmdTool, 0o755)
 	// install.sh 436-453: 运行时 QML 注入 (可选)
@@ -175,7 +180,6 @@ func NewPlan(info probe.Info, b *bundle.Bundle) (*Plan, error) {
 	add(base+"/static/reMarkable_zh_CN.qm", "dist/reMarkable_zh_CN.qm", 0o644)
 	// install.sh 489-494: upload-server
 	add(base+"/upload-server/upload-server", "dist/"+ar.uploadBin, 0o755)
-	add(base+"/upload-server/static/index.html", "upload-server-go/static/index.html", 0o644)
 	add(base+"/upload-server/static/qr.html", "upload-server-go/static/qr.html", 0o644)
 	// install.sh 496-502: qmd/
 	add(base+"/qmd/pinyin_interceptor.qmd", "qmd/pinyin_interceptor.qmd", 0o644)
@@ -265,6 +269,13 @@ echo '  ✓ xovi 部署完成'`, path.Base(p.xoviTar)), nil); err != nil {
 		}
 	}
 
+	if p.DeployAudio { // install.sh AUDIO_EOF 段
+		log("部署蓝牙音频组件 (bluealsa + mpg123)...")
+		if err := c.RunScript(ctx, scripts.AudioSetup, nil); err != nil {
+			return fmt.Errorf("蓝牙音频组件部署失败: %w", err)
+		}
+	}
+
 	// install.sh 614-855: 设备端六阶段防砖部署
 	log("配置系统服务 + 编译 + 启动 (设备端六阶段)...")
 	env := map[string]string{
@@ -349,4 +360,3 @@ systemctl restart xochitl.service
 sleep 10
 if pidof xochitl >/dev/null; then echo "  ✓ xochitl 已重启 (PID $(pidof xochitl)), 注入: xovi=$(grep -c xovi /proc/$(pidof xochitl)/maps) ime_hook=$(grep -c ime_hook /proc/$(pidof xochitl)/maps)"; else echo '  ✗ xochitl 没起来, 看 journalctl -u xochitl'; exit 1; fi`, nil)
 }
-

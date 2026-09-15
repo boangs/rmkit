@@ -79,6 +79,13 @@
     font-size: 16px; font-weight: 500; cursor: pointer;
   }
   button.save:disabled { background: #aaa; }
+  .file-list { list-style: none; padding: 0; margin: 12px 0 0; text-align: left; }
+  .file-list li { display: flex; align-items: center; padding: 8px 4px; border-bottom: 1px solid #eee; font-size: 14px; }
+  .file-list li span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-list li small { color: #888; margin: 0 8px; }
+  .file-list li button { background: none; border: 1px solid #c0392b; color: #c0392b; border-radius: 4px; padding: 2px 8px; font-size: 12px; }
+  .file-list li button:disabled { border-color: #bbb; color: #bbb; }
+  .file-list li .active { color: #2e7d32; font-size: 12px; margin-right: 8px; }
 </style>
 </head>
 <body>
@@ -105,6 +112,7 @@
     <input type="file" id="file-font" data-endpoint="/fonts"
            accept=".ttf,.otf,font/ttf,font/otf">
     <p class="hint">上传后到设备「高级」面板里选择启用，启用会重启界面</p>
+    <ul class="file-list" data-list="/fonts"></ul>
   </div>
 
   <div class="panel" id="panel-screen">
@@ -112,6 +120,7 @@
     <input type="file" id="file-screen" data-endpoint="/screens"
            accept=".png,image/png">
     <p class="hint">上传后到设备「高级」面板里选作休眠壁纸，下次休眠生效</p>
+    <ul class="file-list" data-list="/screens"></ul>
   </div>
 
   <div class="panel" id="panel-ai">
@@ -194,15 +203,56 @@
 
   inputs.forEach(input => {
     input.addEventListener('change', () => {
-      const file = input.files && input.files[0];
-      if (!file) return;
+      const files = Array.from(input.files || []);
+      if (!files.length) return;
       const endpoint = input.dataset.endpoint;
-      upload(file, endpoint);
+      uploadAll(files, endpoint);
       input.value = '';
     });
   });
 
-  function upload(file, endpoint) {
+  // 多选时逐个上传 (设备端一次只收一个 file 字段), 全部完成后刷新列表
+  function uploadAll(files, endpoint) {
+    let i = 0, okCount = 0;
+    const next = () => {
+      if (i >= files.length) {
+        if (files.length > 1) showResult(okCount === files.length, (okCount === files.length ? '✅ ' : '⚠️ ') + '已上传 ' + okCount + '/' + files.length + ' 个文件');
+        loadList(endpoint);
+        return;
+      }
+      const f = files[i++];
+      upload(f, endpoint, (ok) => { if (ok) okCount++; next(); }, files.length > 1 ? (i + '/' + files.length + ' ') : '');
+    };
+    next();
+  }
+
+  // 每个标签下的文件列表 (字体/壁纸共用): GET <endpoint> 列表, DELETE <endpoint>/<name> 删除; 使用中的不让删
+  const fileLists = Array.from(document.querySelectorAll('.file-list'));
+  function fmtSize(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB'; }
+  function loadList(endpoint) {
+    const ul = fileLists.find(u => u.dataset.list === endpoint);
+    if (!ul) return;
+    fetch(endpoint).then(r => r.json()).then(items => {
+      ul.innerHTML = '';
+      (items || []).forEach(it => {
+        const li = document.createElement('li');
+        const span = document.createElement('span'); span.textContent = it.name;
+        li.appendChild(span);
+        if (it.active) { const a = document.createElement('em'); a.className = 'active'; a.textContent = '使用中'; li.appendChild(a); }
+        const small = document.createElement('small'); small.textContent = fmtSize(it.size || 0); li.appendChild(small);
+        const btn = document.createElement('button'); btn.textContent = '删除'; btn.disabled = !!it.active;
+        btn.addEventListener('click', () => {
+          fetch(endpoint + '/' + encodeURIComponent(it.name), { method: 'DELETE' }).then(() => loadList(endpoint));
+        });
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+      if (!ul.children.length) { const li = document.createElement('li'); li.textContent = '还没有文件'; ul.appendChild(li); }
+    }).catch(() => {});
+  }
+  fileLists.forEach(u => loadList(u.dataset.list));
+
+  function upload(file, endpoint, done, prefix) {
     result.style.display = 'none';
     progressWrap.style.display = 'block';
     progressBar.style.width = '0%';
@@ -218,7 +268,7 @@
       if (!e.lengthComputable) return;
       const pct = Math.round((e.loaded / e.total) * 100);
       progressBar.style.width = pct + '%';
-      progressText.textContent = '上传中 ' + pct + '%';
+      progressText.textContent = (prefix || '') + '上传中 ' + pct + '%';
     };
     xhr.onload = () => {
       progressWrap.style.display = 'none';
@@ -230,6 +280,8 @@
           if (j && typeof j.name === 'string' && j.name) displayName = j.name;
         } catch (_) {}
         showResult(true, '✅ 已上传：' + displayName);
+        loadList(endpoint);
+        if (done) done(true);
       } else {
         let msg = '上传失败 (' + xhr.status + ')';
         try {
@@ -237,12 +289,14 @@
           if (j.detail) msg = '❌ ' + j.detail;
         } catch (_) {}
         showResult(false, msg);
+        if (done) done(false);
       }
     };
     xhr.onerror = () => {
       progressWrap.style.display = 'none';
       setBusy(false);
       showResult(false, '❌ 网络错误，请确认与 reMarkable 在同一 Wi-Fi');
+      if (done) done(false);
     };
     xhr.send(fd);
   }
