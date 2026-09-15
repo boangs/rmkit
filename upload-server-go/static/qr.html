@@ -91,12 +91,13 @@
 <body>
 <div class="card">
   <h1>上传到 reMarkable</h1>
-  <p class="subtitle">文档 / 字体 / 壁纸</p>
+  <p class="subtitle">文档 / 字体 / 壁纸 / 应用</p>
 
   <div class="tabs">
     <div class="tab active" data-target="doc">文档</div>
     <div class="tab" data-target="font">字体</div>
     <div class="tab" data-target="screen">壁纸</div>
+    <div class="tab" data-target="space">应用</div>
     <div class="tab" data-target="ai">AI</div>
   </div>
 
@@ -121,6 +122,14 @@
            accept=".png,image/png">
     <p class="hint">上传后到设备「高级」面板里选作休眠壁纸，下次休眠生效</p>
     <ul class="file-list" data-list="/screens"></ul>
+  </div>
+
+  <div class="panel" id="panel-space">
+    <label class="pick" for="file-space">📦 选择应用包 (zip)</label>
+    <input type="file" id="file-space" data-endpoint="/space/apps"
+           accept=".zip,application/zip">
+    <p class="hint">「空间」应用绿色安装：上传即装，删除即卸；内置应用随 rmkit-cn 管理，不能在此删除</p>
+    <ul class="file-list" data-list="/space/apps"></ul>
   </div>
 
   <div class="panel" id="panel-ai">
@@ -233,10 +242,14 @@
     const ul = fileLists.find(u => u.dataset.list === endpoint);
     if (!ul) return;
     fetch(endpoint).then(r => r.json()).then(items => {
+      // /space/apps 返回 {apps:[...]}: 映射成通用列表项 (name 用作删除路径, label 显示)
+      if (items && !Array.isArray(items) && Array.isArray(items.apps)) {
+        items = items.apps.map(a => ({ name: a.id, label: a.name + ' ' + (a.version || '') + (a.builtin ? '（内置）' : ''), size: a.size, active: a.builtin }));
+      }
       ul.innerHTML = '';
       (items || []).forEach(it => {
         const li = document.createElement('li');
-        const span = document.createElement('span'); span.textContent = it.name;
+        const span = document.createElement('span'); span.textContent = it.label || it.name;
         li.appendChild(span);
         if (it.active) { const a = document.createElement('em'); a.className = 'active'; a.textContent = '使用中'; li.appendChild(a); }
         const small = document.createElement('small'); small.textContent = fmtSize(it.size || 0); li.appendChild(small);

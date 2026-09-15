@@ -161,6 +161,16 @@ func NewPlan(info probe.Info, b *bundle.Bundle) (*Plan, error) {
 			add(base+"/bin/"+r, "intercept/qml-inject/"+r, 0o755)
 		}
 	}
+	// install.sh: 「空间 (SPACE)」外壳 + 共享组件 + 内置应用 (整树, bin/ 下可执行)
+	for _, n := range b.Names() {
+		if strings.HasPrefix(n, "space/") {
+			mode := int64(0o644)
+			if strings.Contains(n, "/bin/") {
+				mode = 0o755
+			}
+			add(base+"/"+n, n, mode)
+		}
+	}
 	// install.sh 456-466: qmd-src (+compat)
 	for _, n := range b.Names() {
 		if strings.HasPrefix(n, "qmd-src/") && strings.HasSuffix(n, ".qmd") {

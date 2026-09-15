@@ -762,6 +762,48 @@ import QtQuick.Layouts
                                     }
                                 }
                             }
+
+                            // 空间 (SPACE) 启动台 — 过渡期入口: 旧面板各页迁完后, 注入器会直接以"空间"取代本面板
+                            Rectangle {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 180
+                                color: "transparent"
+                                border.color: "#cccccc"
+                                border.width: 1
+                                radius: 8
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    spacing: 12
+                                    Image {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Layout.preferredWidth: 72
+                                        Layout.preferredHeight: 72
+                                        source: "file:///home/root/xovi/exthome/qt-resource-rebuilder/chess/space.svg"
+                                        fillMode: Image.PreserveAspectFit
+                                        sourceSize.width: 72
+                                        sourceSize.height: 72
+                                    }
+                                    Text {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        text: "\u7a7a\u95f4"
+                                        font.pixelSize: 24
+                                        font.weight: Font.Medium
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        var c = Qt.createComponent("file:///home/root/rmkit-cn/space/shell/Space.qml")
+                                        if (c.status === Component.Ready) {
+                                            c.createObject(_rmhAdvancedPanel.parent)
+                                            _rmhAdvancedPanel.visible = false
+                                        } else {
+                                            console.log("[space] " + c.errorString())
+                                        }
+                                    }
+                                }
+                            }
                         }
                         }
                     }

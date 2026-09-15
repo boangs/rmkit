@@ -1,0 +1,11 @@
+{
+  "id": "gomoku",
+  "name": "五子棋",
+  "name_en": "Gomoku",
+  "version": "1.0.0",
+  "description": "人机 / 双人五子棋",
+  "icon": "icon.svg",
+  "entry": "main.qml",
+  "category": "game",
+  "order": 10
+}

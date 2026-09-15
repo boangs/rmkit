@@ -459,6 +459,14 @@ else
   echo "  · 跳过运行时 QML 注入 (dist 无 $ARCH 产物) — 相关功能走 qmd 注入"
 fi
 
+# 「空间 (SPACE)」启动台: 外壳 + 共享组件 + 内置应用 → /home/root/rmkit-cn/space/
+# 用户绿色安装的应用在 ~/.local/share/rmkit-cn/space/apps (不在此树, 升级不覆盖)。
+if [ -d "$SCRIPT_DIR/space/shell" ]; then
+  mkdir -p "$PAYLOAD/home/root/rmkit-cn/space"
+  cp -R "$SCRIPT_DIR/space/shell" "$SCRIPT_DIR/space/kit" "$SCRIPT_DIR/space/apps" "$PAYLOAD/home/root/rmkit-cn/space/"
+  echo "  ✓ 空间 (SPACE) 外壳与内置应用已加入 payload"
+fi
+
 # 蓝牙音频组件 (bluealsa + mpg123, 仅 aarch64 交叉编译产物) → audio-stage/ (设备端解包见传输后的 audio setup 段)
 AUDIO_PKG="$SCRIPT_DIR/vendor/audio/rmkit-audio-${EXT_ARCH}.tar.gz"
 DEPLOY_AUDIO=0
@@ -564,6 +572,8 @@ tar -czf - --uid 0 --gid 0 -C "$PAYLOAD" . | ssh "$DEVICE_USER@$DEVICE_IP" '
   mount -o remount,rw / 2>/dev/null || true
   mkdir -p /home/root/.local/share/rmkit-cn/fonts \
            /home/root/.local/share/rmkit-cn/screens \
+           /home/root/.local/share/rmkit-cn/space/apps \
+           /home/root/.local/share/rmkit-cn/space/data \
            /home/root/.local/share/fonts \
            /usr/share/remarkable/xochitl/translations \
            /home/root/xovi/exthome/qt-resource-rebuilder

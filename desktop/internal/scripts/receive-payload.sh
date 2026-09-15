@@ -3,6 +3,8 @@
   mount -o remount,rw / 2>/dev/null || true
   mkdir -p /home/root/.local/share/rmkit-cn/fonts \
            /home/root/.local/share/rmkit-cn/screens \
+           /home/root/.local/share/rmkit-cn/space/apps \
+           /home/root/.local/share/rmkit-cn/space/data \
            /home/root/.local/share/fonts \
            /usr/share/remarkable/xochitl/translations \
            /home/root/xovi/exthome/qt-resource-rebuilder

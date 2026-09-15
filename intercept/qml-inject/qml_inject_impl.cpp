@@ -738,9 +738,16 @@ static void doInject(QQmlEngine *engine) {
         for (QQuickItem *c : col->childItems())
             if (c->objectName().toUtf8() == "advancedItem")
                 return;
-        fprintf(stderr, "[impl] 侧栏就绪, 注入高级...\n");
+        // 「空间 (SPACE)」启动台就绪后 (安装器落下 space/.primary 标记), 侧栏入口改为"空间"并加载外壳;
+        // 否则沿用"高级"面板。用标记文件切换, 不用重编本库。
+        const bool useSpace = access("/home/root/rmkit-cn/space/.primary", F_OK) == 0
+                           && access("/home/root/rmkit-cn/space/shell/Space.qml", F_OK) == 0;
+        const char *panelUrl = useSpace ? "file:///home/root/rmkit-cn/space/shell/Space.qml"
+                                        : "file:///home/root/rmkit-cn/bin/adv_panel.qml";
+        const char *label = useSpace ? "\\u7a7a\\u95f4" : "\\u9ad8\\u7ea7"; // 空间 / 高级
+        fprintf(stderr, "[impl] 侧栏就绪, 注入%s...\n", useSpace ? "空间" : "高级");
         QQmlComponent comp(engine);
-        comp.setData(
+        comp.setData(QByteArray(
             "import QtQuick\n"
             "import QtQuick.Layouts\n"
             "Rectangle {\n"
@@ -750,12 +757,12 @@ static void doInject(QQmlEngine *engine) {
             "  Layout.preferredHeight: 112\n"
             // 注入时就异步预编译面板 (Component.Asynchronous), 点击时直接用缓存, 首开不卡
             "  property var panelComp: Qt.createComponent(\n"
-            "      \"file:///home/root/rmkit-cn/bin/adv_panel.qml\", Component.Asynchronous)\n"
+            "      \"") + panelUrl + QByteArray("\", Component.Asynchronous)\n"
             "  color: mouse.pressed ? \"#dddddd\" : \"transparent\"\n"
             "  Row { x:32; y:32; spacing:16\n"
             "    Image { width:48; height:48; fillMode: Image.PreserveAspectFit\n"
             "            source:\"qrc:/ark/icons/sliders_horizontal\" }\n"
-            "    Text { text:\"\\u9ad8\\u7ea7\"; font.pixelSize:30; color:\"black\"\n"
+            "    Text { text:\"") + label + QByteArray("\"; font.pixelSize:30; color:\"black\"\n"
             "           anchors.verticalCenter: parent.verticalCenter }\n"
             "  }\n"
             "  MouseArea { id: mouse; anchors.fill: parent\n"
@@ -776,7 +783,7 @@ static void doInject(QQmlEngine *engine) {
             "      if (c.status === Component.Loading) c.statusChanged.connect(mk); else mk();\n"
             "    }\n"
             "  }\n"
-            "}\n",
+            "}\n"),
             QUrl());
         if (comp.isError()) {
             fprintf(stderr, "[impl] comp ERR: %s\n", comp.errorString().toUtf8().constData());
