@@ -317,7 +317,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
-        height: space.px(220)
+        height: space.px(250)
         IconButton {
             anchors.top: parent.top
             anchors.topMargin: 10
@@ -329,7 +329,7 @@ Rectangle {
         }
         Text {
             id: pageTitle
-            y: space.px(72)
+            y: space.px(104)
             text: space.tabTitle()
             font.pixelSize: space.fpx(56)
             font.weight: Font.Medium
@@ -344,7 +344,7 @@ Rectangle {
         Image {
             visible: space.tab === "home"
             anchors.right: parent.right
-            y: space.px(64)
+            y: space.px(112)
             width: space.fpx(44); height: width
             source: space.kitDir + "/icons/gear.svg"
             fillMode: Image.PreserveAspectFit
@@ -354,7 +354,7 @@ Rectangle {
         Image {
             visible: space.tab !== "home"
             anchors.right: parent.right
-            y: space.px(64)
+            y: space.px(112)
             width: space.fpx(44); height: width
             source: "qrc:/ark/icons/restore"
             fillMode: Image.PreserveAspectFit

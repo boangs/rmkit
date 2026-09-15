@@ -5,9 +5,11 @@
   "version": "1.0.0",
   "description": "重启进入本机的 Android (rmkit 助手安装后可用)",
   "icon": "qrc:/ark/icons/restore",
-  "category": "system",
+  "category": "settings",
   "order": 90,
-  "arch": ["aarch64"],
+  "arch": [
+    "aarch64"
+  ],
   "launch": {
     "type": "post",
     "path": "/apps/android/launch",
