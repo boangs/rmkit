@@ -198,7 +198,7 @@ Rectangle {
         currentItem = obj
     }
 
-    function closeApp() {
+    function closeApp(closing) {
         if (currentItem) { currentItem.destroy(); currentItem = null }
         var app = current
         current = null
@@ -207,7 +207,8 @@ Rectangle {
         appTitle = ""
         if (app && app.service && !app.service.keepalive)
             request("POST", baseUrl + "/space/apps/" + app.id + "/service/stop", null, null)
-        reload() // 小组件可能要反映应用里的变化
+        // 小组件可能要反映应用里的变化; 但整个启动台正在关闭时不刷 —— 回调会在外壳销毁后才回来
+        if (!closing) reload()
     }
 
     function back() {
@@ -217,7 +218,7 @@ Rectangle {
     }
 
     function close() {
-        closeApp()
+        closeApp(true)
         space.visible = false
         space.destroy()
     }

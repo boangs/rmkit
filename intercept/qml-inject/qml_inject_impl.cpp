@@ -812,7 +812,7 @@ static void doInject(QQmlEngine *engine) {
         }
         if (guide)
             item->stackBefore(guide);
-        fprintf(stderr, "[impl] 高级 注入完成 (%s)\n", guide ? "已排到指南上面" : "留末尾");
+        fprintf(stderr, "[impl] %s 注入完成 (%s)\n", useSpace ? "空间" : "高级", guide ? "已排到指南上面" : "留末尾");
         return; // 本轮成功
     }
 }
