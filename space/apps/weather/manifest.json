@@ -1,0 +1,13 @@
+{
+  "id": "weather",
+  "name": "天气",
+  "name_en": "Weather",
+  "version": "1.0.0",
+  "description": "当前天气、逐小时与 7 天预报、生活指数，首页整宽大卡",
+  "icon": "icon.svg",
+  "entry": "main.qml",
+  "widget": "widget.qml",
+  "widget_size": "hero",
+  "category": "tool",
+  "order": 1
+}

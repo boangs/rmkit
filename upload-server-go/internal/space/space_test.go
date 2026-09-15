@@ -3,6 +3,8 @@ package space
 import (
 	"archive/zip"
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,5 +169,35 @@ func TestSupervisorStartStop(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(app.DataDir, "service.log"))
 	if !strings.Contains(string(b), "started echo") {
 		t.Errorf("日志没写到数据目录: %q", b)
+	}
+}
+
+func TestDataGetPut(t *testing.T) {
+	tmp := t.TempDir()
+	h := New(filepath.Join(tmp, "b"), filepath.Join(tmp, "u"), filepath.Join(tmp, "d"), "aarch64", "")
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec
+	}
+	if rec := do("GET", "/space/apps/weather/data/last", ""); rec.Code != 404 {
+		t.Errorf("未写入应 404, 得到 %d", rec.Code)
+	}
+	if rec := do("PUT", "/space/apps/weather/data/last", `{"temp": 24}`); rec.Code != 200 {
+		t.Fatalf("写入失败 %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do("GET", "/space/apps/weather/data/last", ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "24") {
+		t.Errorf("读回不对 %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do("PUT", "/space/apps/weather/data/last", `not json`); rec.Code != 400 {
+		t.Errorf("非 JSON 应 400, 得到 %d", rec.Code)
+	}
+	if rec := do("PUT", "/space/apps/weather/data/..%2Fx", `{}`); rec.Code == 200 {
+		t.Errorf("路径穿越 key 不应成功")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "d", "weather", "last.json")); err != nil {
+		t.Errorf("文件没落在数据目录: %v", err)
 	}
 }

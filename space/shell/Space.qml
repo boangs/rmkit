@@ -84,6 +84,10 @@ Rectangle {
         function post(path, body, cb) { space.request("POST", space.baseUrl + path, body, cb) }
         function svcGet(path, cb) { space.request("GET", serviceUrl + path, null, cb) }
         function svcPost(path, body, cb) { space.request("POST", serviceUrl + path, body, cb) }
+        function localNow() { return space.localNow() }   // 按设备时区 (见 /space/apps 的 tzOffset) 的当前时间
+        // 应用数据: 存到 dataDir/<key>.json (纯 QML 应用的持久化); 小组件要传自己的 app.id
+        function dataGet(id, key, cb) { space.request("GET", space.baseUrl + "/space/apps/" + id + "/data/" + key, null, cb) }
+        function dataPut(id, key, obj, cb) { space.request("PUT", space.baseUrl + "/space/apps/" + id + "/data/" + key, obj, cb) }
     }
 
     // ─── 逻辑 ─────────────────────────────────────────────────────────
@@ -415,7 +419,7 @@ Rectangle {
                 // 顶部大卡: 日期 + 时间; 装了 hero 小组件 (如天气) 则由它整卡接管
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(260)
+                    Layout.preferredHeight: space.px(320)
                     radius: 12
                     border.color: "#d0d0d0"
                     border.width: 1
@@ -442,10 +446,21 @@ Rectangle {
                         }
                     }
                     Loader {
+                        id: heroLoader
                         anchors.fill: parent
-                        active: space.heroWidgetApp() !== null
-                        onActiveChanged: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api, "app": space.heroWidgetApp() }) }
-                        Component.onCompleted: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api, "app": space.heroWidgetApp() }) }
+                        property string loadedUrl: ""
+                        // 监听 apps 变化 (注册表刷新), 只在 hero 小组件换了才重新加载
+                        property var appsWatch: space.apps
+                        onAppsWatchChanged: sync()
+                        Component.onCompleted: sync()
+                        function sync() {
+                            var a = space.heroWidgetApp()
+                            var u = a ? a.widgetUrl : ""
+                            if (u === loadedUrl) return
+                            loadedUrl = u
+                            if (u === "") { source = ""; return }
+                            setSource(space.bust(u), { "space": api, "app": a })
+                        }
                     }
                 }
 
@@ -461,7 +476,7 @@ Rectangle {
                         delegate: Rectangle {
                             required property var modelData
                             Layout.fillWidth: true
-                            Layout.preferredHeight: space.px(220)
+                            Layout.preferredHeight: space.px(230)
                             radius: 12
                             border.color: "#d0d0d0"
                             border.width: 1

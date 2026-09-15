@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ import (
 //	GET    /space/apps/{id}/service         后台状态
 //	POST   /space/apps/{id}/service/start   拉起后台 (就绪后返回)
 //	POST   /space/apps/{id}/service/stop    收掉后台
+//	GET    /space/apps/{id}/data/{key}      读应用数据 (JSON, 存在 dataDir/<key>.json; 纯 QML 应用的持久化)
+//	PUT    /space/apps/{id}/data/{key}      写应用数据 (body 是 JSON, ≤1MB)
 type Handler struct {
 	Reg *Registry
 	Sup *Supervisor
@@ -57,7 +60,56 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /space/apps/{id}/service", h.serviceStatus)
 	mux.HandleFunc("POST /space/apps/{id}/service/start", h.serviceStart)
 	mux.HandleFunc("POST /space/apps/{id}/service/stop", h.serviceStop)
+	mux.HandleFunc("GET /space/apps/{id}/data/{key}", h.dataGet)
+	mux.HandleFunc("PUT /space/apps/{id}/data/{key}", h.dataPut)
 	mux.HandleFunc("GET /space/store", h.store)
+}
+
+var dataKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+// dataPath 把 (应用 id, key) 映射到 dataDir/<id>/<key>.json; id/key 都严格限制字符, 不会出目录。
+func (h *Handler) dataPath(id, key string) (string, bool) {
+	if !idRe.MatchString(id) || !dataKeyRe.MatchString(key) {
+		return "", false
+	}
+	return filepath.Join(h.Reg.DataDir, id, key+".json"), true
+}
+
+func (h *Handler) dataGet(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.dataPath(r.PathValue("id"), r.PathValue("key"))
+	if !ok {
+		fail(w, http.StatusBadRequest, "id 或 key 不合法")
+		return
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		fail(w, http.StatusNotFound, "没有这份数据")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write(b)
+}
+
+func (h *Handler) dataPut(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.dataPath(r.PathValue("id"), r.PathValue("key"))
+	if !ok {
+		fail(w, http.StatusBadRequest, "id 或 key 不合法")
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, 1<<20+1))
+	if err != nil || len(b) > 1<<20 || !json.Valid(b) {
+		fail(w, http.StatusBadRequest, "body 必须是 ≤1MB 的合法 JSON")
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := os.WriteFile(p, b, 0o644); err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // store 转发应用商店索引 (带缓存)。索引格式:

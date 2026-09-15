@@ -101,6 +101,8 @@ Item {
 | `onBack` | 赋一个函数；返回 true 表示应用自己消费了返回键 |
 | `exit()` `closeSpace()` `toast(msg)` `openApp(id)` | 退出 / 关启动台 / 提示 / 跳到别的应用 |
 | `get/post(path, cb)` `svcGet/svcPost(path, cb)` `request(method, url, body, cb)` | HTTP 帮手，`cb(status, json)` |
+| `localNow()` | 设备时区的当前时间（系统时区是 UTC，别直接 `new Date()` 显示） |
+| `dataGet(id, key, cb)` `dataPut(id, key, obj, cb)` | 应用数据持久化（`dataDir/<key>.json`，≤1MB JSON），纯 QML 应用也能存配置和缓存 |
 
 小组件 (`widget.qml`)：根 Item + `property var space` + `property var app`（本应用的注册表条目，含 `serviceUrl` `iconUrl` `dataDir`；`space.serviceUrl` 指的是正在打开的应用，小组件别用它）。外壳把它放进固定高度的卡片里；点开自己用 `space.openApp(app.id)`。
 
@@ -121,6 +123,7 @@ Item {
 | POST | `/space/apps/install-url` | `{"url", "sha256"}` 从网址安装 |
 | DELETE | `/space/apps/{id}` | 卸载（仅用户目录；数据目录保留） |
 | GET/POST | `/space/apps/{id}/service`, `…/service/start`, `…/service/stop` | 应用后台状态 / 拉起（就绪后返回）/ 收掉 |
+| GET/PUT | `/space/apps/{id}/data/{key}` | 应用数据（JSON 文件，`dataDir/<key>.json`） |
 | GET | `/space/store` | 商店索引（设备端拉取 + 缓存 10 分钟；`?refresh=1` 强刷） |
 
 zip 里 `manifest.json` 在根或唯一顶级目录下都行；拒绝路径穿越与符号链接；解压到临时目录校验后原子替换，失败不影响已装版本；同名后台先收掉。
