@@ -102,7 +102,7 @@ Item {
 | `exit()` `closeSpace()` `toast(msg)` `openApp(id)` | 退出 / 关启动台 / 提示 / 跳到别的应用 |
 | `get/post(path, cb)` `svcGet/svcPost(path, cb)` `request(method, url, body, cb)` | HTTP 帮手，`cb(status, json)` |
 
-小组件 (`widget.qml`) 契约相同：根 Item + `property var space`，外壳把它放进固定高度的卡片里；点开自己用 `space.openApp(space.appId)`。
+小组件 (`widget.qml`)：根 Item + `property var space` + `property var app`（本应用的注册表条目，含 `serviceUrl` `iconUrl` `dataDir`；`space.serviceUrl` 指的是正在打开的应用，小组件别用它）。外壳把它放进固定高度的卡片里；点开自己用 `space.openApp(app.id)`。
 
 ### 尺寸不写死
 
@@ -127,7 +127,7 @@ zip 里 `manifest.json` 在根或唯一顶级目录下都行；拒绝路径穿�
 
 ## 应用商店
 
-索引是一份静态 JSON（默认 `-space-store` 指向 GitHub raw，可换成国内镜像）：
+索引是一份静态 JSON（默认 `-space-store` 指向 `https://boangs.com/rmkit-space/index.json`，由各应用项目的 build.sh 生成并上传）：
 
 ```json
 {"apps": [{"id": "music", "name": "音乐", "version": "1.0.0", "description": "…",

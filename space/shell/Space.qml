@@ -444,8 +444,8 @@ Rectangle {
                     Loader {
                         anchors.fill: parent
                         active: space.heroWidgetApp() !== null
-                        onActiveChanged: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api }) }
-                        Component.onCompleted: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api }) }
+                        onActiveChanged: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api, "app": space.heroWidgetApp() }) }
+                        Component.onCompleted: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api, "app": space.heroWidgetApp() }) }
                     }
                 }
 
@@ -469,7 +469,8 @@ Rectangle {
                             clip: true
                             Loader {
                                 anchors.fill: parent
-                                Component.onCompleted: setSource(space.bust(modelData.widgetUrl), { "space": api })
+                                // 小组件拿到自己的注册表条目 (app.serviceUrl 等), 因为 api 对象上的 serviceUrl 是"正在打开的应用"的
+                                Component.onCompleted: setSource(space.bust(modelData.widgetUrl), { "space": api, "app": modelData })
                             }
                         }
                     }

@@ -23,7 +23,7 @@ func main() {
 		spaceDir       = flag.String("space", "/home/root/rmkit-cn/space", "「空间」内置应用目录 (含 shell/ kit/ apps/)")
 		spaceUserDir   = flag.String("space-apps", "", "「空间」用户应用目录 (默认: $HOME/.local/share/rmkit-cn/space/apps)")
 		spaceDataDir   = flag.String("space-data", "", "「空间」应用数据目录 (默认: $HOME/.local/share/rmkit-cn/space/data)")
-		spaceStore     = flag.String("space-store", "https://raw.githubusercontent.com/boangs/rmkit-space-apps/main/index.json", "「空间」应用商店索引 URL (空 = 关闭商店)")
+		spaceStore     = flag.String("space-store", "https://boangs.com/rmkit-space/index.json", "「空间」应用商店索引 URL (空 = 关闭商店)")
 	)
 	flag.Parse()
 
