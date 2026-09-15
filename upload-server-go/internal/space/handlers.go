@@ -112,12 +112,49 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	tzName, tzOffset := localTimezone()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"shell":   ShellVersion,
-		"arch":    h.Reg.Arch,
-		"userDir": h.Reg.UserDir,
-		"apps":    apps,
+		"shell":    ShellVersion,
+		"arch":     h.Reg.Arch,
+		"userDir":  h.Reg.UserDir,
+		"apps":     apps,
+		"timezone": tzName,
+		"tzOffset": tzOffset, // 分钟, 东八区 = 480; 设备系统时区是 UTC, 外壳用它显示本地时间
+		"dev":      devMode(h.Reg.UserDir),
 	})
+}
+
+// devMode: 用户应用目录旁放一个 .dev 文件, 外壳每次打开应用都绕过 QML 组件缓存 (改完 QML 不用重启 xochitl)。
+// 生产环境别开: 每次打开都会多缓存一份编译单元。
+func devMode(userDir string) bool {
+	_, err := os.Stat(filepath.Join(filepath.Dir(userDir), ".dev"))
+	return err == nil
+}
+
+// localTimezone 决定外壳显示用的时区: 环境变量 TZ > ~/.config/rmkit-cn/space.json 的 timezone > Asia/Shanghai。
+// reMarkable 系统时区固定是 UTC, xochitl 自己不显示时钟, 所以只能我们自己定。
+func localTimezone() (string, int) {
+	name := os.Getenv("TZ")
+	if name == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			var cfg struct {
+				Timezone string `json:"timezone"`
+			}
+			if b, err := os.ReadFile(filepath.Join(home, ".config/rmkit-cn/space.json")); err == nil {
+				_ = json.Unmarshal(b, &cfg)
+				name = cfg.Timezone
+			}
+		}
+	}
+	if name == "" {
+		name = "Asia/Shanghai"
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return "Asia/Shanghai", 480
+	}
+	_, off := time.Now().In(loc).Zone()
+	return name, off / 60
 }
 
 func (h *Handler) installUpload(w http.ResponseWriter, r *http.Request) {

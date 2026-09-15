@@ -1,7 +1,7 @@
 // Space.qml — 「空间 (SPACE)」启动台外壳
 //
 // 职责只有三件事, 别往这里塞功能:
-//   1. 首页与标签页: 空间 (小组件 + 我的应用) / 文件 (回 reMarkable) / 应用 (全部) / 发现 (商店) / 我的 (设置)
+//   1. 首页与标签页: 空间 (小组件 + 我的应用) / 应用 (全部) / 发现 (商店) / 设置 (设置类应用列表)
 //      数据全部来自 upload-server 的 /space/* (注册表、商店索引), 外壳不认任何具体应用
 //   2. 打开/关闭应用: 按注册表里的 file:// 入口动态创建组件, 退出即销毁; 声明了后台的先拉起后台
 //   3. 给应用一个稳定的 API 对象 (space): 基址、目录、标题/边框控制、返回拦截、HTTP 帮手
@@ -32,13 +32,17 @@ Rectangle {
     function fpx(n) { return Math.round(n * fs) }       // 字号
     function cols(contentWidth, minTile) { return Math.max(2, Math.floor(contentWidth / (minTile * fs))) }
 
-    property string tab: "home"       // home / apps / discover / mine
+    property string tab: "home"       // home / apps / discover / settings
     property var apps: []
     property string listError: ""
     property var storeApps: []
     property string storeError: ""
     property bool storeLoaded: false
+    property int tzOffset: 480            // 后端给的本地时区偏移 (分钟); 设备系统时区是 UTC
+    property bool devMode: false          // 后端 .dev 标记: 打开应用绕过 QML 组件缓存
     property date now: new Date()
+    // 本地时间 = 当前时刻按 tzOffset 平移后, 用进程时区 (UTC) 的表示来显示; 若进程时区不是 UTC 也能纠正
+    function localNow() { return new Date(now.getTime() + (tzOffset + now.getTimezoneOffset()) * 60000) }
 
     property var current: null        // 正在打开的应用 (注册表条目)
     property var currentItem: null    // 应用根 Item
@@ -102,8 +106,13 @@ Rectangle {
         request("GET", baseUrl + "/space/apps", null, function(st, r) {
             if (st !== 200 || !r) { listError = "后端未响应 (" + st + ")"; return }
             apps = r.apps || []
+            if (r.tzOffset !== undefined) tzOffset = r.tzOffset
+            devMode = !!r.dev
         })
     }
+
+    // 开发模式下给 file:// 加时间戳查询串: 引擎按完整 URL 缓存编译单元, 换个查询串就会重新读盘
+    function bust(url) { return devMode ? url + "?t=" + Date.now() : url }
 
     function loadStore(refresh) {
         storeError = ""
@@ -182,7 +191,7 @@ Rectangle {
         chrome = true
         appError = ""
         current = app
-        var c = Qt.createComponent(app.entryUrl)
+        var c = Qt.createComponent(bust(app.entryUrl))
         if (c.status === Component.Error) { appError = c.errorString(); return }
         var obj = c.createObject(appHost, { "space": api })
         if (!obj) { appError = "createObject 失败: " + c.errorString(); return }
@@ -248,17 +257,17 @@ Rectangle {
     function tabTitle() {
         if (tab === "apps") return "应用"
         if (tab === "discover") return "发现"
-        if (tab === "mine") return "我的"
+        if (tab === "settings") return "设置"
         return "空间"
     }
     function tabSubtitle() {
         if (tab === "apps") return "所有应用，一目了然"
         if (tab === "discover") return "发现更多可能"
-        if (tab === "mine") return "简单 · 实用 · 不打扰"
+        if (tab === "settings") return "简单 · 实用 · 不打扰"
         return "专注当下，记录生活"
     }
     function dateLine() {
-        return now.toLocaleDateString(Qt.locale("zh_CN"), "M月d日 dddd")
+        return localNow().toLocaleDateString(Qt.locale("zh_CN"), "M月d日 dddd")
     }
 
     Timer { id: toastTimer; interval: 4000; repeat: false; onTriggered: space.toastText = "" }
@@ -306,10 +315,19 @@ Rectangle {
         anchors.right: parent.right
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
-        height: space.px(170)
+        height: space.px(220)
+        IconButton {
+            anchors.top: parent.top
+            anchors.topMargin: 10
+            anchors.left: parent.left
+            anchors.leftMargin: 10 - space.margin
+            iconSource: "qrc:/ark/icons/chevron_left"
+            title: "返回"
+            onClicked: space.close()
+        }
         Text {
             id: pageTitle
-            y: space.px(52)
+            y: space.px(72)
             text: space.tabTitle()
             font.pixelSize: space.fpx(56)
             font.weight: Font.Medium
@@ -329,7 +347,7 @@ Rectangle {
             source: space.kitDir + "/icons/gear.svg"
             fillMode: Image.PreserveAspectFit
             sourceSize.width: width; sourceSize.height: width
-            MouseArea { anchors.fill: parent; anchors.margins: -16; onClicked: space.tab = "mine" }
+            MouseArea { anchors.fill: parent; anchors.margins: -16; onClicked: space.tab = "settings" }
         }
         Image {
             visible: space.tab !== "home"
@@ -410,7 +428,7 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 8
                             Text { text: space.dateLine(); font.pixelSize: space.fpx(26); color: "#444444" }
-                            Text { text: Qt.formatTime(space.now, "HH:mm"); font.pixelSize: space.fpx(88); font.weight: Font.Light }
+                            Text { text: Qt.formatTime(space.localNow(), "HH:mm"); font.pixelSize: space.fpx(88); font.weight: Font.Light }
                             Text { text: "今天也是安静的一天。"; font.pixelSize: space.fpx(22); color: "#777777" }
                         }
                         Rectangle {
@@ -424,8 +442,8 @@ Rectangle {
                     Loader {
                         anchors.fill: parent
                         active: space.heroWidgetApp() !== null
-                        onActiveChanged: { if (active) setSource(space.heroWidgetApp().widgetUrl, { "space": api }) }
-                        Component.onCompleted: { if (active) setSource(space.heroWidgetApp().widgetUrl, { "space": api }) }
+                        onActiveChanged: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api }) }
+                        Component.onCompleted: { if (active) setSource(space.bust(space.heroWidgetApp().widgetUrl), { "space": api }) }
                     }
                 }
 
@@ -449,7 +467,7 @@ Rectangle {
                             clip: true
                             Loader {
                                 anchors.fill: parent
-                                Component.onCompleted: setSource(modelData.widgetUrl, { "space": api })
+                                Component.onCompleted: setSource(space.bust(modelData.widgetUrl), { "space": api })
                             }
                         }
                     }
@@ -615,9 +633,9 @@ Rectangle {
             }
         }
 
-        // ── 我的 (设置) ──
+        // ── 设置 (设置类应用的行列表) ──
         Flickable {
-            visible: space.current === null && space.tab === "mine"
+            visible: space.current === null && space.tab === "settings"
             anchors.fill: parent
             contentWidth: width
             contentHeight: mineCol.height + space.px(24)
@@ -683,10 +701,9 @@ Rectangle {
             Repeater {
                 model: [
                     { key: "home", label: "空间", icon: "house" },
-                    { key: "files", label: "文件", icon: "folder" },
                     { key: "apps", label: "应用", icon: "squares-four" },
                     { key: "discover", label: "发现", icon: "compass" },
-                    { key: "mine", label: "我的", icon: "user" }
+                    { key: "settings", label: "设置", icon: "gear" }
                 ]
                 delegate: Item {
                     id: tabItem
@@ -720,11 +737,7 @@ Rectangle {
                     }
                     MouseArea {
                         anchors.fill: parent
-                        onClicked: {
-                            // "文件" = 回到 reMarkable 自己的文件首页 (关掉启动台)
-                            if (tabItem.modelData.key === "files") space.close()
-                            else space.tab = tabItem.modelData.key
-                        }
+                        onClicked: space.tab = tabItem.modelData.key
                     }
                 }
             }

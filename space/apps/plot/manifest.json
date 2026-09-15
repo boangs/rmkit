@@ -1,0 +1,11 @@
+{
+  "id": "plot",
+  "name": "函数绘图",
+  "name_en": "Plot",
+  "version": "1.0.0",
+  "description": "函数图像绘制",
+  "icon": "icon.svg",
+  "entry": "main.qml",
+  "category": "tool",
+  "order": 50
+}

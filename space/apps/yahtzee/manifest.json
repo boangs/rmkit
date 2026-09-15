@@ -1,0 +1,11 @@
+{
+  "id": "yahtzee",
+  "name": "快艇骰子",
+  "name_en": "Yahtzee",
+  "version": "1.0.0",
+  "description": "快艇骰子 (Yahtzee)",
+  "icon": "icon.svg",
+  "entry": "main.qml",
+  "category": "game",
+  "order": 40
+}

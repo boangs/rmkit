@@ -1,0 +1,11 @@
+{
+  "id": "huarong",
+  "name": "华容道",
+  "name_en": "Klotski",
+  "version": "1.0.0",
+  "description": "华容道滑块解谜, 自动保存进度",
+  "icon": "icon.svg",
+  "entry": "main.qml",
+  "category": "game",
+  "order": 30
+}

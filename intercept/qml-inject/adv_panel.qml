@@ -794,7 +794,8 @@ import QtQuick.Layouts
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        var c = Qt.createComponent("file:///home/root/rmkit-cn/space/shell/Space.qml")
+                                        // 带时间戳绕过引擎的组件缓存: 改了 Space.qml 重新点一下就是新版, 不用重启 xochitl
+                                        var c = Qt.createComponent("file:///home/root/rmkit-cn/space/shell/Space.qml?t=" + Date.now())
                                         if (c.status === Component.Ready) {
                                             c.createObject(_rmhAdvancedPanel.parent)
                                             _rmhAdvancedPanel.visible = false
