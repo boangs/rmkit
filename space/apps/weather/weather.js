@@ -31,7 +31,8 @@ function codeText(c) { return CODES[c] !== undefined ? CODES[c] : "未知" }
 function codeIcon(c, day) {
     if (day === undefined) day = true
     if (c === 0) return day ? "w-sun" : "w-moon"
-    if (c === 1 || c === 2) return day ? "w-partly" : "w-partly-night"
+    if (c === 1) return day ? "w-partly" : "w-partly-night"   // 晴间多云 = 太阳加云
+    if (c === 2) return "w-cloud"                              // 多云 = 只有云
     if (c === 3) return "w-cloud"
     if (c === 45 || c === 48) return "w-fog"
     if (c >= 95) return "w-thunder"

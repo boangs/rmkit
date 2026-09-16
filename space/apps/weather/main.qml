@@ -16,9 +16,10 @@ Item {
     function f(n) { return Math.round(n * root.fs) }
     function u(n) { return Math.round(n * root.un) }
 
-    readonly property color paper: "#F7F5F0"
+    // 墨水屏没有背光, 浅色底要靠抖动铺, 看起来就发灰。一律纯白, 层次交给描边。
+    readonly property color paper: "#FFFFFF"
     readonly property color card: "#FFFFFF"
-    readonly property color line: "#E4E0D7"
+    readonly property color line: "#D8D5CE"
     readonly property color ink: "#2B2B2B"
     readonly property color ink2: "#7C786F"
 
