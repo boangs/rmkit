@@ -281,8 +281,12 @@ fi
 # rm-touch-relay 造的虚拟设备 event4 都在宿主早期就已存在，冷启动扫描不到，
 # 于是 /dev/input 里只有 redroid 自己造的 event5 —— 触摸全程无响应，
 # 而 /proc/bus/input/devices 里设备明明都在，极具迷惑性。
-# EventHub 用 inotify 监控该目录，节点何时补建都能被识别，故时机不敏感。
-# 属主须为 root:input(1004)、模式 0660，与 ueventd 自建的 event5 保持一致。
+# EventHub 用 inotify 监控该目录：mknod 的瞬间它就会 open(O_RDWR)，失败即
+# 永久放弃该设备，不再重试。所以节点在创建的那一刻就必须让 system_server
+# (uid system, 组 input) 打得开——先 mknod 再 chmod/chown 会输给它 (2026-09-16
+# 实测：重装后每次开机必现"点不动"，dumpsys input 里没有触摸中继)。
+# 做法：umask 0 + mknod -m 0666 让节点一出生就可读写，再收紧为 root:input 0660，
+# 与 ueventd 自建的 event5 保持一致。
 (
     for _round in $(seq 1 40); do
         for _sys in /sys/class/input/event*; do
@@ -290,9 +294,9 @@ fi
             _name=$(basename "$_sys")
             [ -e "/dev/input/$_name" ] && continue
             _mm=$(cat "$_sys/dev")
-            mknod "/dev/input/$_name" c "${_mm%%:*}" "${_mm##*:}" 2>/dev/null || continue
-            chmod 660 "/dev/input/$_name" 2>/dev/null
+            (umask 000; mknod -m 0666 "/dev/input/$_name" c "${_mm%%:*}" "${_mm##*:}") 2>/dev/null || continue
             chown root:1004 "/dev/input/$_name" 2>/dev/null
+            chmod 660 "/dev/input/$_name" 2>/dev/null
             echo "$(date) created /dev/input/$_name c ${_mm%%:*} ${_mm##*:}" \
                 >>/native-input-diag.log
         done
