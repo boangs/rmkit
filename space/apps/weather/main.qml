@@ -215,11 +215,10 @@ Item {
                     Layout.preferredHeight: root.u(300)
                     radius: 14; color: root.card; border.color: root.line; border.width: 1; clip: true
                     Image {
-                        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-                        height: parent.height * 0.72
+                        anchors.fill: parent
                         source: root.dir + "scene.svg"
                         fillMode: Image.PreserveAspectCrop
-                        sourceSize.width: 800
+                        sourceSize.width: 900
                     }
                     Image {
                         anchors.right: parent.right; anchors.top: parent.top

@@ -144,12 +144,15 @@ zip 里 `manifest.json` 在根或唯一顶级目录下都行；拒绝路径穿�
 
 1. **已完成**：外壳 + 后端 + 组件库；旧面板全部页面已迁成内置应用 —— 设置类（扫码上传、个性化、AI 设置、输入法、蓝牙、Android）在「设置」标签按行列出，游戏/工具（五子棋、国际象棋、华容道、快艇骰子、函数绘图）与 KOReader / 微信读书 在「应用」。旧「高级」面板首页保留一个「空间」磁贴作为过渡入口。
 2. 在设备上落 `/home/root/rmkit-cn/space/.primary`（已重编的注入器会据此把侧栏入口切成「空间」），之后删除 `adv_panel.qml` 与 qmd 版本（qmd/qmldiff 路径不再承载新功能）。
-3. 音乐作为第一个第三方应用（源码在仓库外），验证 service/keepalive/widget 全链路。
+3. 音乐作为第一个第三方应用（源码在仓库外），验证 service/keepalive/widget 全链路。已完成。
+   天气为第一个自带 hero 小组件的内置应用（Open-Meteo 数据源，多城市，生活指数）。已完成。
 4. 开发模式：`touch ~/.local/share/rmkit-cn/space/.dev` 后外壳打开应用会绕过 QML 组件缓存，改完 QML 重新点开即生效。
 
 ## 本地开发
 
-- 外壳与应用都是 file:// 加载的普通 QML：改完 `scp` 到设备对应目录，重新打开「空间」即生效，不用重启 xochitl。
+- 开发模式（`touch ~/.local/share/rmkit-cn/space/.dev`）下，外壳与应用的 **QML 文件**改完 `scp` 过去，重新打开「空间」即生效，不用重启 xochitl —— 外壳给每个 QML 的 URL 加了时间戳绕开引擎缓存。
+- **但 .js 与图片资源没有这个待遇**：`import "x.js"` 的 URL 是静态的，SVG/PNG 也按 URL 进 QQuickPixmapCache，改完必须重启一次 xochitl 才会重新读。改 QML 不用，改 JS 或图标/插画要。
+- 注册表里的 `dev` 标记要在 `apps` 赋值之前设好（外壳 `reload()` 里的顺序），否则第一次挂载小组件时还没开免缓存，旧版会被引擎缓存住，之后改 QML 都不生效。
 - 应用加载失败时外壳会把 `Component.errorString()` 直接显示在内容区。
 - `qmllint space/shell/Space.qml` 会因为 Mac 上没有 `device.ui.controls` 和绝对路径 import 报一堆 warning，只看 `Error` 行。
 - 后端：`cd upload-server-go && go test ./internal/space/`。

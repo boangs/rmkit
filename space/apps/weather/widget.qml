@@ -101,11 +101,10 @@ Item {
         clip: true
         Image {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-            height: parent.height * 0.6
+            height: width * 0.375          // 与插画 400x150 的比例一致, 不裁不变形
             source: w.dir + "scene.svg"
-            fillMode: Image.PreserveAspectCrop
+            fillMode: Image.Stretch
             sourceSize.width: 600
-            opacity: 0.95
         }
         Image {
             anchors.right: parent.right; anchors.rightMargin: w.u(28)

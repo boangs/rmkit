@@ -109,9 +109,11 @@ Rectangle {
         listError = ""
         request("GET", baseUrl + "/space/apps", null, function(st, r) {
             if (st !== 200 || !r) { listError = "后端未响应 (" + st + ")"; return }
-            apps = r.apps || []
+            // 先设开发模式与时区: apps 一赋值就会触发小组件挂载, 那时 devMode 必须已经就位,
+            // 否则第一次加载不带免缓存后缀, Qt 会把旧版编译结果缓存住, 之后改 QML 都不生效
             if (r.tzOffset !== undefined) tzOffset = r.tzOffset
             devMode = !!r.dev
+            apps = r.apps || []
         })
     }
 
@@ -257,6 +259,17 @@ Rectangle {
         x.open("POST", baseUrl + l.path)
         x.send()
         space.visible = false
+    }
+
+    // 挂载小组件: 与打开应用同一条路径 (createObject 时父项与初始属性都已就位)
+    function mountWidget(host, app) {
+        if (host.wItem) { host.wItem.destroy(); host.wItem = null }
+        if (!app || !app.widgetUrl) return
+        var c = Qt.createComponent(bust(app.widgetUrl))
+        if (c.status === Component.Error) { console.log("[space] 小组件 " + app.id + ": " + c.errorString()); return }
+        var o = c.createObject(host, { "space": api, "app": app })
+        if (o) host.wItem = o
+        else console.log("[space] 小组件 " + app.id + " 创建失败: " + c.errorString())
     }
 
     function showToast(msg) { toastText = msg; toastTimer.restart() }
@@ -445,22 +458,13 @@ Rectangle {
                             color: "#e4e4e4"
                         }
                     }
-                    Loader {
-                        id: heroLoader
+                    Item {
+                        id: heroHost
                         anchors.fill: parent
-                        property string loadedUrl: ""
-                        // 监听 apps 变化 (注册表刷新), 只在 hero 小组件换了才重新加载
-                        property var appsWatch: space.apps
-                        onAppsWatchChanged: sync()
-                        Component.onCompleted: sync()
-                        function sync() {
-                            var a = space.heroWidgetApp()
-                            var u = a ? a.widgetUrl : ""
-                            if (u === loadedUrl) return
-                            loadedUrl = u
-                            if (u === "") { source = ""; return }
-                            setSource(space.bust(u), { "space": api, "app": a })
-                        }
+                        property var wItem: null
+                        property var heroApp: space.heroWidgetApp()
+                        onHeroAppChanged: space.mountWidget(heroHost, heroApp)
+                        Component.onCompleted: space.mountWidget(heroHost, heroApp)
                     }
                 }
 
@@ -482,10 +486,12 @@ Rectangle {
                             border.width: 1
                             color: "white"
                             clip: true
-                            Loader {
+                            // 小组件拿到自己的注册表条目 (app.serviceUrl 等), 因为 api 上的 serviceUrl 指的是"正在打开的应用"
+                            Item {
+                                id: halfHost
                                 anchors.fill: parent
-                                // 小组件拿到自己的注册表条目 (app.serviceUrl 等), 因为 api 对象上的 serviceUrl 是"正在打开的应用"的
-                                Component.onCompleted: setSource(space.bust(modelData.widgetUrl), { "space": api, "app": modelData })
+                                property var wItem: null
+                                Component.onCompleted: space.mountWidget(halfHost, modelData)
                             }
                         }
                     }
