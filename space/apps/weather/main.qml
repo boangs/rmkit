@@ -107,7 +107,7 @@ Item {
     Item {
         id: header
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: root.u(112)
+        height: root.u(132)
 
         Image {
             id: backBtn
@@ -121,18 +121,27 @@ Item {
             text: root.tab === "home" ? "" : (root.tab === "forecast" ? "预报" : root.tab === "life" ? "生活指数" : root.tab === "city" ? "城市管理" : "设置")
             font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
         }
-        // 首页顶栏: 城市 + 日期; 其它页: 右上角城市名 / 刷新
-        Row {
+        // 首页顶栏: 城市 + 日期居中 (其它页在中间显示页名, 右上角显示城市)
+        Column {
             visible: root.tab === "home"
-            x: root.u(80); anchors.verticalCenter: parent.verticalCenter
-            spacing: root.u(8)
-            Image {
-                width: root.f(26); height: width; sourceSize.width: width; sourceSize.height: width
-                anchors.verticalCenter: parent.verticalCenter
-                source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
+            anchors.centerIn: parent
+            spacing: 2
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: root.u(8)
+                Image {
+                    width: root.f(26); height: width; sourceSize.width: width; sourceSize.height: width
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
+                }
+                Text { text: root.city().name; font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
+                       anchors.verticalCenter: parent.verticalCenter }
             }
-            Text { text: root.city().name; font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
-                   anchors.verticalCenter: parent.verticalCenter }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.wx ? (root.wx.date.substring(5, 7) + "月" + root.wx.date.substring(8, 10) + "日 " + W.weekday(root.wx.date)) : ""
+                font.pixelSize: root.f(21); color: root.ink2
+            }
         }
         Text {
             visible: root.tab !== "home" && root.tab !== "city" && root.tab !== "setting"
@@ -173,109 +182,121 @@ Item {
         anchors.left: parent.left; anchors.right: parent.right
         anchors.leftMargin: root.u(28); anchors.rightMargin: root.u(28)
 
-        // ─────── 首页 ───────
-        Flickable {
+        // ─────── 首页 (版式按概念图: 大温度 + 大图标 / 整块插画 / 三项速览 / 一句建议) ───────
+        ColumnLayout {
             visible: root.tab === "home"
             anchors.fill: parent
-            contentWidth: width; contentHeight: homeCol.height + root.u(20); clip: true
-            ColumnLayout {
-                id: homeCol
-                width: parent.width
-                spacing: root.u(16)
+            spacing: root.u(14)
 
-                Text {
-                    Layout.topMargin: root.u(4)
-                    text: root.wx ? (root.wx.date.substring(5, 7) + "月" + root.wx.date.substring(8, 10) + "日 " + W.weekday(root.wx.date)) : ""
-                    font.pixelSize: root.f(22); color: root.ink2
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: root.u(10)
-                    Text {
-                        text: root.wx ? String(root.t(root.wx.temp)) : "--"
-                        font.pixelSize: root.f(88); font.weight: Font.Light; color: root.ink
-                    }
-                    Text {
-                        Layout.alignment: Qt.AlignTop; Layout.topMargin: root.f(16)
-                        text: W.unitSign(root.unit()); font.pixelSize: root.f(28); color: root.ink
-                    }
-                    Item { Layout.fillWidth: true }
-                }
+            // 温度 + 大天气图标
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: root.u(8)
                 ColumnLayout {
                     spacing: 2
-                    Text { text: root.wx ? root.wx.text : (root.busy ? "获取中…" : "暂无数据")
-                           font.pixelSize: root.f(32); font.weight: Font.Medium; color: root.ink }
-                    Text { visible: !!root.wx
-                           text: root.wx ? ("体感 " + root.t(root.wx.feels) + "°   ↑" + root.t(root.wx.hi) + "° ↓" + root.t(root.wx.lo) + "°") : ""
-                           font.pixelSize: root.f(22); color: root.ink2 }
-                }
-
-                // 插画卡
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: root.u(300)
-                    radius: 14; color: root.card; border.color: root.line; border.width: 1; clip: true
-                    Image {
-                        anchors.fill: parent
-                        source: root.dir + "scene.svg"
-                        fillMode: Image.PreserveAspectCrop
-                        sourceSize.width: 900
-                    }
-                    Image {
-                        anchors.right: parent.right; anchors.top: parent.top
-                        anchors.margins: root.u(26)
-                        width: root.u(110); height: width
-                        sourceSize.width: 220; sourceSize.height: 220
-                        source: root.wx ? root.icon(root.wx.code, root.wx.day) : root.dir + "w-sun.svg"
-                        fillMode: Image.PreserveAspectFit
-                    }
-                }
-
-                // 三项速览
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: root.u(110)
-                    radius: 14; color: root.card; border.color: root.line; border.width: 1
                     RowLayout {
-                        anchors.fill: parent; anchors.margins: root.u(10); spacing: 0
-                        Repeater {
-                            model: [
-                                { ic: "i-wind", label: root.wx ? W.windDir(root.wx.windDeg) : "风", val: root.wx ? (W.windLevel(root.wx.wind) + " 级") : "--" },
-                                { ic: "i-humidity", label: "湿度", val: root.wx ? (root.wx.humidity + "%") : "--" },
-                                { ic: "i-leaf", label: "空气质量", val: (root.wx && root.wx.aqi !== null) ? (W.aqiText(root.wx.aqi) + " " + root.wx.aqi) : "--" }
-                            ]
-                            delegate: Item {
-                                required property var modelData
-                                required property int index
-                                Layout.fillWidth: true; Layout.fillHeight: true
-                                Row {
-                                    anchors.centerIn: parent; spacing: root.u(10)
-                                    Image {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: root.f(30); height: width; sourceSize.width: width; sourceSize.height: width
-                                        source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.8
-                                    }
-                                    Column {
-                                        spacing: 2
-                                        Text { text: modelData.label; font.pixelSize: root.f(20); color: root.ink2 }
-                                        Text { text: modelData.val; font.pixelSize: root.f(24); font.weight: Font.Medium; color: root.ink }
-                                    }
+                        spacing: root.u(8)
+                        Text {
+                            text: root.wx ? String(root.t(root.wx.temp)) : "--"
+                            font.pixelSize: root.f(92); font.weight: Font.Light; color: root.ink
+                        }
+                        Text {
+                            Layout.alignment: Qt.AlignTop; Layout.topMargin: root.f(18)
+                            text: W.unitSign(root.unit()); font.pixelSize: root.f(28); color: root.ink
+                        }
+                    }
+                    Text {
+                        text: root.wx ? root.wx.text : (root.busy ? "获取中…" : "暂无数据")
+                        font.pixelSize: root.f(34); font.weight: Font.Medium; color: root.ink
+                    }
+                    Text {
+                        visible: !!root.wx
+                        text: root.wx ? ("体感 " + root.t(root.wx.feels) + "°   ↑ " + root.t(root.wx.hi) + "°  ↓ " + root.t(root.wx.lo) + "°") : ""
+                        font.pixelSize: root.f(22); color: root.ink2
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                Image {
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.rightMargin: root.u(10)
+                    Layout.preferredWidth: root.u(150); Layout.preferredHeight: root.u(150)
+                    sourceSize.width: 300; sourceSize.height: 300
+                    source: root.wx ? root.icon(root.wx.code, root.wx.day) : root.dir + "w-sun.svg"
+                    fillMode: Image.PreserveAspectFit
+                }
+            }
+
+            // 插画: 吃掉所有剩余高度, 页面不留空白
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: root.u(260)
+                radius: 14; color: root.card; border.color: root.line; border.width: 1; clip: true
+                Image {
+                    id: sceneImg
+                    anchors.fill: parent
+                    // 自带的矢量插画是横条, 拉满会糊; 只有真素材才铺满裁切
+                    fillMode: source == fallback ? Image.PreserveAspectFit : Image.PreserveAspectCrop
+                    sourceSize.width: 1200
+                    // 选图顺序: 季节+天气(可能带夜间) → 同款白天 → 自带矢量插画
+                    property string want: root.dir + W.sceneFile(root.wx, root.space.localNow(), true)
+                    property string dayWant: root.dir + W.sceneFile(root.wx, root.space.localNow(), false)
+                    property string fallback: root.dir + "scene.svg"
+                    source: want
+                    onWantChanged: source = want
+                    onStatusChanged: {
+                        if (status !== Image.Error) return
+                        if (source == want && want != dayWant) source = dayWant
+                        else if (source != fallback) source = fallback
+                    }
+                }
+            }
+
+            // 三项速览
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: root.u(110)
+                radius: 14; color: root.card; border.color: root.line; border.width: 1
+                RowLayout {
+                    anchors.fill: parent; anchors.margins: root.u(10); spacing: 0
+                    Repeater {
+                        model: [
+                            { ic: "i-wind", label: root.wx ? W.windDir(root.wx.windDeg) : "风", val: root.wx ? (W.windLevel(root.wx.wind) + " 级") : "--" },
+                            { ic: "i-humidity", label: "湿度", val: root.wx ? (root.wx.humidity + "%") : "--" },
+                            { ic: "i-leaf", label: "空气质量", val: (root.wx && root.wx.aqi !== null) ? (W.aqiText(root.wx.aqi) + " " + root.wx.aqi) : "--" }
+                        ]
+                        delegate: Item {
+                            required property var modelData
+                            required property int index
+                            Layout.fillWidth: true; Layout.fillHeight: true
+                            Row {
+                                anchors.centerIn: parent; spacing: root.u(10)
+                                Image {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: root.f(30); height: width; sourceSize.width: width; sourceSize.height: width
+                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.8
                                 }
-                                Rectangle {
-                                    visible: index > 0
-                                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                    width: 1; height: parent.height * 0.5; color: root.line
+                                Column {
+                                    spacing: 2
+                                    Text { text: modelData.label; font.pixelSize: root.f(20); color: root.ink2 }
+                                    Text { text: modelData.val; font.pixelSize: root.f(24); font.weight: Font.Medium; color: root.ink }
                                 }
+                            }
+                            Rectangle {
+                                visible: index > 0
+                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                                width: 1; height: parent.height * 0.5; color: root.line
                             }
                         }
                     }
                 }
+            }
 
-                Text {
-                    Layout.fillWidth: true; Layout.topMargin: root.u(2)
-                    text: root.wx ? root.wx.advice : ""
-                    font.pixelSize: root.f(22); color: root.ink2; wrapMode: Text.WordWrap
-                }
+            Text {
+                Layout.fillWidth: true
+                Layout.bottomMargin: root.u(6)
+                text: root.wx ? root.wx.advice : ""
+                font.pixelSize: root.f(22); color: root.ink2; wrapMode: Text.WordWrap
             }
         }
 

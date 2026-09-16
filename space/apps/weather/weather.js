@@ -231,6 +231,31 @@ function geocode(space, name, cb) {
     })
 }
 
+// 首页插画: 按季节 + 天气挑图, 放在 assets/scenes/ 下, 缺图自动回落到自带矢量插画。
+// 命名: <季节>-<天气>[-night].png, 季节 spring|summer|autumn|winter,
+// 天气 clear|cloudy|rain|snow|storm|fog; 夜间只有 clear 与 cloudy 有 -night。
+function sceneKind(code) {
+    if (code === 0 || code === 1) return "clear"
+    if (code === 2 || code === 3) return "cloudy"
+    if (code === 45 || code === 48) return "fog"
+    if (code >= 95) return "storm"
+    if (isSnowy(code)) return "snow"
+    return "rain"
+}
+function season(d) {
+    var m = d.getMonth() + 1
+    if (m >= 3 && m <= 5) return "spring"
+    if (m >= 6 && m <= 8) return "summer"
+    if (m >= 9 && m <= 11) return "autumn"
+    return "winter"
+}
+function sceneFile(wx, now, allowNight) {
+    if (!wx) return "scene.svg"
+    var kind = sceneKind(wx.code)
+    var night = (allowNight && !wx.day && (kind === "clear" || kind === "cloudy")) ? "-night" : ""
+    return "scenes/" + season(now) + "-" + kind + night + ".png"
+}
+
 function weekday(dateStr) {
     var d = new Date(dateStr + "T00:00:00")
     return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][d.getDay()]
