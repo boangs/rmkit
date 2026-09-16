@@ -119,25 +119,25 @@ fi
 # 那 10 秒密集读盘正好压在 Android 枚举输入设备的时间窗上, 慢一点的机器就认不到触摸屏 →
 # 桌面不重绘 → 画面定格, 看起来像死机。.nomedia 让媒体库整棵树跳过。
 [ -e /home/root/.nomedia ] || touch /home/root/.nomedia
-# 触摸自愈: 万一 InputReader 首次枚举仍没拿到中继设备 (窗口配置里是 -touch), 开机后自己重启一次框架。
+# 触摸自愈: Android 的输入系统只在开机枚举一次设备, 漏了就永远漏 (新装机 /data 全新时启动负载重, 很容易踩)。
+# 开机后自检中继设备在不在, 不在就重启一次框架让它重新扫描。
 # 正常启动不会触发; 用属性做一次性标记, 不会反复重启。
 if [ -d $S/system/bin ]; then
   cat > $S/system/bin/paper-touchheal.sh <<'HEALSH'
 #!/system/bin/sh
 [ "$(getprop paper.touchheal.done)" = "1" ] && exit 0
 sleep 25
-CFG=$(dumpsys window displays 2>/dev/null | grep -m1 overrideConfig)
+# 判据用"中继设备在不在输入列表里", 不能用窗口配置的 -touch:
+# redroid 自带的 vinput 也报 TOUCH, 会让配置显示 finger, 掩盖真实故障。
+N=$(dumpsys input 2>/dev/null | grep -c "rm Android touch relay")
 setprop paper.touchheal.done 1
-case "$CFG" in
-  *-touch*)
-    log -t paper-touchheal "no touchscreen in config, restarting framework"
-    echo "$(date) no touchscreen, restarting framework" >> /data/local/tmp/paper-touchheal.log
-    stop; sleep 3; start
-    ;;
-  *)
-    echo "$(date) touchscreen ok" >> /data/local/tmp/paper-touchheal.log
-    ;;
-esac
+if [ "$N" = "0" ]; then
+  log -t paper-touchheal "touch relay not registered, restarting framework"
+  echo "$(date) relay missing, restarting framework" >> /data/local/tmp/paper-touchheal.log
+  stop; sleep 3; start
+else
+  echo "$(date) touch relay ok" >> /data/local/tmp/paper-touchheal.log
+fi
 HEALSH
   chmod 755 $S/system/bin/paper-touchheal.sh
   mkdir -p $S/system/etc/init

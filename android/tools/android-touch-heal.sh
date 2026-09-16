@@ -3,7 +3,7 @@
 #
 # 诊断结论 (三轮日志):
 #   - 触摸节点与 IDC 配置在磁盘上都在, 什么都不缺 (touch-fix 显示"补过东西: 0");
-#   - 但出故障那次 Android 的窗口配置里是 -touch, 即 Android 的输入系统没认到触摸屏;
+#   - 出故障时 Android 的输入设备列表里没有 "rm Android touch relay" (宿主的触摸中继);
 #   - 一旦重启 Android 框架 (stop; start), 触摸立刻恢复, 画面也恢复刷新。
 #   → 这是启动时序竞态: Android 的 InputReader 第一次枚举输入设备时没拿到中继设备,
 #     之后就不会再回扫。插着数据线开机时时序不同, 刚好躲开, 所以"插线就不死"。
@@ -17,25 +17,19 @@
 set -u
 
 HEAL_SH='#!/system/bin/sh
-# 触摸自愈: 开机后确认 Android 真的认到了触摸屏, 没认到就重启一次框架。
-# 由 paper-touchheal.rc 在 sys.boot_completed=1 时拉起。
 [ "$(getprop paper.touchheal.done)" = "1" ] && exit 0
 sleep 25
-CFG=$(dumpsys window displays 2>/dev/null | grep -m1 overrideConfig)
+# 判据用"中继设备在不在输入列表里", 不能用窗口配置的 -touch:
+# redroid 自带的 vinput 也报 TOUCH, 会让配置显示 finger, 掩盖真实故障。
+N=$(dumpsys input 2>/dev/null | grep -c "rm Android touch relay")
 setprop paper.touchheal.done 1
-case "$CFG" in
-  *-touch*)
-    log -t paper-touchheal "no touchscreen in config, restarting framework: $CFG"
-    echo "$(date) no touchscreen, restarting framework" >> /data/local/tmp/paper-touchheal.log
-    stop
-    sleep 3
-    start
-    ;;
-  *)
-    log -t paper-touchheal "touchscreen ok"
-    echo "$(date) touchscreen ok: $CFG" >> /data/local/tmp/paper-touchheal.log
-    ;;
-esac
+if [ "$N" = "0" ]; then
+  log -t paper-touchheal "touch relay not registered, restarting framework"
+  echo "$(date) relay missing, restarting framework" >> /data/local/tmp/paper-touchheal.log
+  stop; sleep 3; start
+else
+  echo "$(date) touch relay ok" >> /data/local/tmp/paper-touchheal.log
+fi
 '
 
 HEAL_RC='service paper-touchheal /system/bin/sh /system/bin/paper-touchheal.sh
