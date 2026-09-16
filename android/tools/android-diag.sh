@@ -61,6 +61,9 @@ if [ -d /android ] && [ "$(cat /proc/1/comm)" != systemd ]; then
 else
   echo "(当前是 reMarkable 模式)"
 fi
+echo "== 开机负载 / 触摸自愈 (画面定格 = 看这里) =="
+echo "nomedia=$([ -e /home/root/.nomedia ] && echo 有 || echo '无 (媒体库会扫几千个文件, 可能挤掉输入设备枚举)') touchheal=$([ -f /home/root/android-system/system/bin/paper-touchheal.sh ] && echo 已装 || echo 未装)"
+[ -f /android-data/local/tmp/paper-touchheal.log ] && tail -n 3 /android-data/local/tmp/paper-touchheal.log
 echo "== 电源/休眠 (不插线才死 = 看这里) =="
 echo "charger_online=$(cat /sys/class/power_supply/max77818-charger/online 2>/dev/null) autosleep=$(cat /sys/power/autosleep 2>/dev/null) wake_lock=[$(cat /sys/power/wake_lock 2>/dev/null)]"
 echo "kernel_suspend success/fail=$(cat /sys/power/suspend_stats/success 2>/dev/null)/$(cat /sys/power/suspend_stats/fail 2>/dev/null) (Android 模式下 >0 = 整机睡过)"

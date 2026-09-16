@@ -115,8 +115,48 @@ fi
 if [ -f $S/system/bin/paper-tuning.sh ] && ! grep -q 'put_verified' $S/system/bin/paper-tuning.sh; then
   sed -i 's|^\$S put system screen_off_timeout 2147483647$|put_verified() { for _t in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do $S put "$1" "$2" "$3" 2>/dev/null; [ "$($S get "$1" "$2" 2>/dev/null)" = "$3" ] \&\& { echo "ok $1 $2=$3"; return 0; }; sleep 3; done; echo "FAIL $1 $2"; return 1; }\nput_verified system screen_off_timeout 2147483647|; s|^\$S put secure sleep_timeout -1$|put_verified secure sleep_timeout -1|; s|^\$S put global stay_on_while_plugged_in 3$|put_verified global stay_on_while_plugged_in 3|' $S/system/bin/paper-tuning.sh
 fi
+# 媒体库开机会把共享进 Android 的整个 /home/root (含系统树几千个 .so) 当媒体扫一遍;
+# 那 10 秒密集读盘正好压在 Android 枚举输入设备的时间窗上, 慢一点的机器就认不到触摸屏 →
+# 桌面不重绘 → 画面定格, 看起来像死机。.nomedia 让媒体库整棵树跳过。
+[ -e /home/root/.nomedia ] || touch /home/root/.nomedia
+# 触摸自愈: 万一 InputReader 首次枚举仍没拿到中继设备 (窗口配置里是 -touch), 开机后自己重启一次框架。
+# 正常启动不会触发; 用属性做一次性标记, 不会反复重启。
+if [ -d $S/system/bin ]; then
+  cat > $S/system/bin/paper-touchheal.sh <<'HEALSH'
+#!/system/bin/sh
+[ "$(getprop paper.touchheal.done)" = "1" ] && exit 0
+sleep 25
+CFG=$(dumpsys window displays 2>/dev/null | grep -m1 overrideConfig)
+setprop paper.touchheal.done 1
+case "$CFG" in
+  *-touch*)
+    log -t paper-touchheal "no touchscreen in config, restarting framework"
+    echo "$(date) no touchscreen, restarting framework" >> /data/local/tmp/paper-touchheal.log
+    stop; sleep 3; start
+    ;;
+  *)
+    echo "$(date) touchscreen ok" >> /data/local/tmp/paper-touchheal.log
+    ;;
+esac
+HEALSH
+  chmod 755 $S/system/bin/paper-touchheal.sh
+  mkdir -p $S/system/etc/init
+  cat > $S/system/etc/init/paper-touchheal.rc <<'HEALRC'
+service paper-touchheal /system/bin/sh /system/bin/paper-touchheal.sh
+    class late_start
+    user root
+    group root log
+    oneshot
+    disabled
+
+on property:sys.boot_completed=1
+    start paper-touchheal
+HEALRC
+  chmod 644 $S/system/etc/init/paper-touchheal.rc
+fi
 echo "    paper-tuning 亮屏加固: $(grep -c 'put_verified' $S/system/bin/paper-tuning.sh 2>/dev/null) 处"
 echo "    post-fs-data 自愈: $(grep -c '^# \[ -c /dev/ashmem' $S/vendor/bin/post-fs-data.redroid.sh 2>/dev/null) 处已关; paper-tuning chmod: $(grep -c 'chmod 666 /dev/ashmem' $S/system/bin/paper-tuning.sh 2>/dev/null)"
+echo "    媒体库跳过标记: $([ -e /home/root/.nomedia ] && echo 有 || echo 无); 触摸自愈: $([ -f $S/system/bin/paper-touchheal.sh ] && echo 已装 || echo 无)"
 
 echo "  → 7/8 /sbin/init 包装"
 if [ -L /sbin/init ] && [ ! -e /sbin/init.systemd-orig ]; then
