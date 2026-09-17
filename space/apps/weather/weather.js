@@ -231,9 +231,10 @@ function geocode(space, name, cb) {
     })
 }
 
-// 首页插画: 按季节 + 天气挑图, 放在 assets/scenes/ 下, 缺图自动回落到自带矢量插画。
-// 命名: <季节>-<天气>[-night].png, 季节 spring|summer|autumn|winter,
+// 首页插画: 按季节 + 天气挑图, 放在 assets/scenes/ 下。
+// 命名: <季节>-<天气>[-night].jpg, 季节 spring|summer|autumn|winter,
 // 天气 clear|cloudy|rain|snow|storm|fog; 夜间只有 clear 与 cloudy 有 -night。
+// 缺图时按 sceneChain() 逐级回落, 最后才用自带的矢量插画。
 function sceneKind(code) {
     if (code === 0 || code === 1) return "clear"
     if (code === 2 || code === 3) return "cloudy"
@@ -253,7 +254,32 @@ function sceneFile(wx, now, allowNight) {
     if (!wx) return "scene.svg"
     var kind = sceneKind(wx.code)
     var night = (allowNight && !wx.day && (kind === "clear" || kind === "cloudy")) ? "-night" : ""
-    return "scenes/" + season(now) + "-" + kind + night + ".png"
+    return "scenes/" + season(now) + "-" + kind + night + ".jpg"
+}
+
+// 同一种天气在别的季节的备选顺序。某些组合现实中罕见 (如夏天下雪),
+// 素材可以不画; 这时优先借用气质最接近的季节, 而不是直接掉回矢量插画。
+var SEASON_ALT = {
+    spring: ["autumn", "summer", "winter"],
+    summer: ["spring", "autumn", "winter"],
+    autumn: ["spring", "winter", "summer"],
+    winter: ["autumn", "spring", "summer"]
+}
+
+// 返回按优先级排好的候选图列表: 夜间图 → 同款白天图 → 邻近季节同款 → 矢量插画。
+function sceneChain(wx, now) {
+    if (!wx) return ["scene.svg"]
+    var kind = sceneKind(wx.code)
+    var here = season(now)
+    var night = (!wx.day && (kind === "clear" || kind === "cloudy")) ? "-night" : ""
+    var out = []
+    if (night) out.push("scenes/" + here + "-" + kind + night + ".jpg")
+    out.push("scenes/" + here + "-" + kind + ".jpg")
+    var alt = SEASON_ALT[here] || []
+    for (var i = 0; i < alt.length; ++i)
+        out.push("scenes/" + alt[i] + "-" + kind + ".jpg")
+    out.push("scene.svg")
+    return out
 }
 
 function weekday(dateStr) {

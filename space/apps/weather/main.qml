@@ -238,16 +238,17 @@ Item {
                     // 自带的矢量插画是横条, 拉满会糊; 只有真素材才铺满裁切
                     fillMode: source == fallback ? Image.PreserveAspectFit : Image.PreserveAspectCrop
                     sourceSize.width: 1200
-                    // 选图顺序: 季节+天气(可能带夜间) → 同款白天 → 自带矢量插画
-                    property string want: root.dir + W.sceneFile(root.wx, root.space.localNow(), true)
-                    property string dayWant: root.dir + W.sceneFile(root.wx, root.space.localNow(), false)
+                    // 选图顺序由 sceneChain 给出: 夜间图 → 同款白天 → 邻近季节同款 → 矢量插画
+                    property var chain: W.sceneChain(root.wx, root.space.localNow())
+                    property int step: 0
                     property string fallback: root.dir + "scene.svg"
-                    source: want
-                    onWantChanged: source = want
+                    source: root.dir + chain[0]
+                    onChainChanged: { step = 0; source = root.dir + chain[0] }
                     onStatusChanged: {
                         if (status !== Image.Error) return
-                        if (source == want && want != dayWant) source = dayWant
-                        else if (source != fallback) source = fallback
+                        if (step + 1 >= chain.length) return
+                        step += 1
+                        source = root.dir + chain[step]
                     }
                 }
             }
