@@ -232,13 +232,14 @@ function geocode(space, name, cb) {
 }
 
 // 首页插画: 按季节 + 天气挑图, 放在 assets/scenes/ 下。
-// 命名: <季节>-<天气>[-night].jpg, 季节 spring|summer|autumn|winter,
-// 天气 clear|cloudy|rain|snow|storm|fog; 夜间只有 clear 与 cloudy 有 -night。
+// 命名: <季节>-<天气>.jpg, 季节 spring|summer|autumn|winter,
+// 天气 clear|cloudy|rain|snow|storm|fog|hail。
 // 缺图时按 sceneChain() 逐级回落, 最后才用自带的矢量插画。
 function sceneKind(code) {
     if (code === 0 || code === 1) return "clear"
     if (code === 2 || code === 3) return "cloudy"
     if (code === 45 || code === 48) return "fog"
+    if (code === 96 || code === 99) return "hail"   // 雷暴伴冰雹
     if (code >= 95) return "storm"
     if (isSnowy(code)) return "snow"
     return "rain"
@@ -266,18 +267,21 @@ var SEASON_ALT = {
     winter: ["autumn", "spring", "summer"]
 }
 
-// 返回按优先级排好的候选图列表: 夜间图 → 同款白天图 → 邻近季节同款 → 矢量插画。
+// 画面上足够接近、可以互相顶替的天气。冰雹本来就是雷暴的一种,
+// 只画了夏天那张, 其余季节先找本季的雷雨, 比借用别季的冰雹更协调。
+var KIND_ALT = { hail: "storm" }
+
+// 返回按优先级排好的候选图列表: 先本季 (本款 → 近似款), 再逐个邻近季节,
+// 都没有才用自带的矢量插画。
 function sceneChain(wx, now) {
     if (!wx) return ["scene.svg"]
     var kind = sceneKind(wx.code)
-    var here = season(now)
-    var night = (!wx.day && (kind === "clear" || kind === "cloudy")) ? "-night" : ""
+    var kinds = KIND_ALT[kind] ? [kind, KIND_ALT[kind]] : [kind]
+    var seasons = [season(now)].concat(SEASON_ALT[season(now)] || [])
     var out = []
-    if (night) out.push("scenes/" + here + "-" + kind + night + ".jpg")
-    out.push("scenes/" + here + "-" + kind + ".jpg")
-    var alt = SEASON_ALT[here] || []
-    for (var i = 0; i < alt.length; ++i)
-        out.push("scenes/" + alt[i] + "-" + kind + ".jpg")
+    for (var i = 0; i < seasons.length; ++i)
+        for (var j = 0; j < kinds.length; ++j)
+            out.push("scenes/" + seasons[i] + "-" + kinds[j] + ".jpg")
     out.push("scene.svg")
     return out
 }
