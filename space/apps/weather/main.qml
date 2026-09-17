@@ -21,7 +21,7 @@ Item {
     readonly property color card: "#FFFFFF"
     readonly property color line: "#D8D5CE"
     readonly property color ink: "#2B2B2B"
-    readonly property color ink2: "#7C786F"
+    readonly property color ink2: "#55524B"   // 墨水屏本身偏灰, 次要文字也要够深
 
     property var cfg: null            // {cities:[…], current, unit, refresh}
     property var cache: ({})          // cityKey → wx
@@ -107,7 +107,7 @@ Item {
     Item {
         id: header
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: root.u(132)
+        height: root.u(190)
 
         Image {
             id: backBtn
@@ -130,17 +130,17 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: root.u(8)
                 Image {
-                    width: root.f(26); height: width; sourceSize.width: width; sourceSize.height: width
+                    width: root.f(34); height: width; sourceSize.width: width; sourceSize.height: width
                     anchors.verticalCenter: parent.verticalCenter
                     source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
                 }
-                Text { text: root.city().name; font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
+                Text { text: root.city().name; font.pixelSize: root.f(46); font.weight: Font.Medium; color: root.ink
                        anchors.verticalCenter: parent.verticalCenter }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.wx ? (root.wx.date.substring(5, 7) + "月" + root.wx.date.substring(8, 10) + "日 " + W.weekday(root.wx.date)) : ""
-                font.pixelSize: root.f(21); color: root.ink2
+                font.pixelSize: root.f(30); color: root.ink2
             }
         }
         Text {
@@ -182,81 +182,87 @@ Item {
         anchors.left: parent.left; anchors.right: parent.right
         anchors.leftMargin: root.u(28); anchors.rightMargin: root.u(28)
 
-        // ─────── 首页 (版式按概念图: 大温度 + 大图标 / 整块插画 / 三项速览 / 一句建议) ───────
-        ColumnLayout {
+        // ─────── 首页 (版式按概念图: 插画整幅铺底, 温度与文字压在天空上) ───────
+        Item {
             visible: root.tab === "home"
             anchors.fill: parent
-            spacing: root.u(14)
 
-            // 温度 + 大天气图标
+            // 插画: 从内容区顶部一直铺到速览行, 顶部对齐 (画的上半是天, 正好垫文字)
+            Item {
+                id: sceneBox
+                anchors.top: parent.top
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.bottom: statRow.top; anchors.bottomMargin: root.u(14)
+                clip: true
+                Image {
+                    id: sceneImg
+                    // 候选链的最后一项永远是自带矢量插画, 用序号判断比比对 url 稳
+                    readonly property bool useFallback: step >= chain.length - 1
+                    readonly property real sw: sourceSize.width > 0 ? sourceSize.width : 1
+                    readonly property real sh: sourceSize.height > 0 ? sourceSize.height : 1
+                    // 真素材: 铺满并多出 6% 供上下左右各裁一点, 画的边缘不卡在内容区顶上
+                    readonly property real cover: Math.max(parent.width / sw, parent.height / sh) * 1.06
+                    width: useFallback ? parent.width : Math.round(sw * cover)
+                    height: useFallback ? parent.height : Math.round(sh * cover)
+                    x: useFallback ? 0 : Math.round((parent.width - width) / 2)
+                    // 多出来的高度三成裁上边、七成裁下边: 天空留多些垫文字
+                    y: useFallback ? 0 : -Math.round((height - parent.height) * 0.3)
+                    fillMode: useFallback ? Image.PreserveAspectFit : Image.Stretch
+                    // 选图顺序由 sceneChain 给出: 本季本款 → 本季近似 → 邻近季节 → 矢量插画
+                    property var chain: W.sceneChain(root.wx, root.space.localNow())
+                    property int step: 0
+                    source: root.dir + chain[0]
+                    onChainChanged: { step = 0; source = root.dir + chain[0] }
+                    onStatusChanged: {
+                        console.log("[weather-scene] status=" + status + " src=" + source
+                                    + " srcSize=" + sourceSize.width + "x" + sourceSize.height
+                                    + " box=" + parent.width + "x" + parent.height
+                                    + " img=" + width + "x" + height + " at " + x + "," + y)
+                        if (status !== Image.Error) return
+                        if (step + 1 >= chain.length) return
+                        step += 1
+                        source = root.dir + chain[step]
+                    }
+                    Component.onCompleted: console.log("[weather-scene] chain=" + JSON.stringify(chain))
+                }
+            }
+
+            // 温度 + 大天气图标: 压在插画的天空部分上
             RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: root.u(8)
+                anchors.top: sceneBox.top; anchors.topMargin: root.u(16)
+                anchors.left: parent.left; anchors.right: parent.right
                 ColumnLayout {
                     spacing: 2
                     RowLayout {
                         spacing: root.u(8)
                         Text {
                             text: root.wx ? String(root.t(root.wx.temp)) : "--"
-                            font.pixelSize: root.f(92); font.weight: Font.Light; color: root.ink
+                            font.pixelSize: root.f(210); font.weight: Font.Light; color: root.ink
                         }
                         Text {
-                            Layout.alignment: Qt.AlignTop; Layout.topMargin: root.f(18)
-                            text: W.unitSign(root.unit()); font.pixelSize: root.f(28); color: root.ink
+                            Layout.alignment: Qt.AlignTop; Layout.topMargin: root.f(42)
+                            text: W.unitSign(root.unit()); font.pixelSize: root.f(46); color: root.ink
                         }
                     }
                     Text {
                         text: root.wx ? root.wx.text : (root.busy ? "获取中…" : "暂无数据")
-                        font.pixelSize: root.f(34); font.weight: Font.Medium; color: root.ink
+                        font.pixelSize: root.f(48); font.weight: Font.Medium; color: root.ink
                     }
                     Text {
                         visible: !!root.wx
                         text: root.wx ? ("体感 " + root.t(root.wx.feels) + "°   ↑ " + root.t(root.wx.hi) + "°  ↓ " + root.t(root.wx.lo) + "°") : ""
-                        font.pixelSize: root.f(22); color: root.ink2
+                        font.pixelSize: root.f(30); color: root.ink2
                     }
                 }
                 Item { Layout.fillWidth: true }
-                Image {
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.rightMargin: root.u(10)
-                    Layout.preferredWidth: root.u(150); Layout.preferredHeight: root.u(150)
-                    sourceSize.width: 300; sourceSize.height: 300
-                    source: root.wx ? root.icon(root.wx.code, root.wx.day) : root.dir + "w-sun.svg"
-                    fillMode: Image.PreserveAspectFit
-                }
-            }
-
-            // 插画: 吃掉所有剩余高度, 页面不留空白
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumHeight: root.u(260)
-                radius: 14; color: root.card; border.color: root.line; border.width: 1; clip: true
-                Image {
-                    id: sceneImg
-                    anchors.fill: parent
-                    // 自带的矢量插画是横条, 拉满会糊; 只有真素材才铺满裁切
-                    fillMode: source == fallback ? Image.PreserveAspectFit : Image.PreserveAspectCrop
-                    sourceSize.width: 1200
-                    // 选图顺序由 sceneChain 给出: 夜间图 → 同款白天 → 邻近季节同款 → 矢量插画
-                    property var chain: W.sceneChain(root.wx, root.space.localNow())
-                    property int step: 0
-                    property string fallback: root.dir + "scene.svg"
-                    source: root.dir + chain[0]
-                    onChainChanged: { step = 0; source = root.dir + chain[0] }
-                    onStatusChanged: {
-                        if (status !== Image.Error) return
-                        if (step + 1 >= chain.length) return
-                        step += 1
-                        source = root.dir + chain[step]
-                    }
-                }
             }
 
             // 三项速览
             Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: root.u(110)
+                id: statRow
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(14)
+                height: root.u(150)
                 radius: 14; color: root.card; border.color: root.line; border.width: 1
                 RowLayout {
                     anchors.fill: parent; anchors.margins: root.u(10); spacing: 0
@@ -274,13 +280,13 @@ Item {
                                 anchors.centerIn: parent; spacing: root.u(10)
                                 Image {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: root.f(30); height: width; sourceSize.width: width; sourceSize.height: width
-                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.8
+                                    width: root.f(40); height: width; sourceSize.width: width; sourceSize.height: width
+                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.9
                                 }
                                 Column {
                                     spacing: 2
-                                    Text { text: modelData.label; font.pixelSize: root.f(20); color: root.ink2 }
-                                    Text { text: modelData.val; font.pixelSize: root.f(24); font.weight: Font.Medium; color: root.ink }
+                                    Text { text: modelData.label; font.pixelSize: root.f(30); color: root.ink }
+                                    Text { text: modelData.val; font.pixelSize: root.f(32); font.weight: Font.Medium; color: root.ink }
                                 }
                             }
                             Rectangle {
@@ -294,10 +300,11 @@ Item {
             }
 
             Text {
-                Layout.fillWidth: true
-                Layout.bottomMargin: root.u(6)
+                id: adviceText
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.bottom: parent.bottom; anchors.bottomMargin: root.u(6)
                 text: root.wx ? root.wx.advice : ""
-                font.pixelSize: root.f(22); color: root.ink2; wrapMode: Text.WordWrap
+                font.pixelSize: root.f(32); color: root.ink; wrapMode: Text.WordWrap
             }
         }
 
