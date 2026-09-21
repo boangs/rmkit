@@ -148,25 +148,27 @@ Item {
         }
         // 首页顶栏: 城市 + 日期居中 (其它页在中间显示页名, 右上角显示城市)
         Column {
+            // 宽度必须显式给满: 子项又按父宽居中、父宽又由子项撑开的话,
+            // 两边互相依赖, 居中会算偏。
             visible: root.tab === "home"
-            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.left: parent.left; anchors.right: parent.right
             y: root.u(118)
             spacing: 2
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: root.u(8)
                 Image {
-                    width: root.f(34); height: width; sourceSize.width: width; sourceSize.height: width
+                    width: root.f(40); height: width; sourceSize.width: width; sourceSize.height: width
                     anchors.verticalCenter: parent.verticalCenter
                     source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
                 }
-                Text { text: root.city().name; font.pixelSize: root.f(46); font.weight: Font.Medium; color: root.ink
+                Text { text: root.city().name; font.pixelSize: root.f(54); font.weight: Font.Medium; color: root.ink
                        anchors.verticalCenter: parent.verticalCenter }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.wx ? (root.wx.date.substring(5, 7) + "月" + root.wx.date.substring(8, 10) + "日 " + W.weekday(root.wx.date)) : ""
-                font.pixelSize: root.f(30); color: root.ink2
+                font.pixelSize: root.f(34); color: root.ink2
             }
         }
         Text {
