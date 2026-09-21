@@ -200,13 +200,13 @@ Item {
                     readonly property bool useFallback: String(source).indexOf("/scenes/") < 0
                     readonly property real sw: sourceSize.width > 0 ? sourceSize.width : 1
                     readonly property real sh: sourceSize.height > 0 ? sourceSize.height : 1
-                    // 真素材: 铺满并多出 6% 供上下左右各裁一点, 画的边缘不卡在内容区顶上
-                    readonly property real cover: Math.max(parent.width / sw, parent.height / sh) * 1.06
+                    // 素材的上缘渐隐是烤在图里的 (见 tools/make-weather-scenes.sh),
+                    // 所以顶边要对齐显示, 把这段白留全; 多出来的高度一律裁在下边。
+                    readonly property real cover: Math.max(parent.width / sw, parent.height / sh)
                     width: useFallback ? parent.width : Math.round(sw * cover)
                     height: useFallback ? parent.height : Math.round(sh * cover)
                     x: useFallback ? 0 : Math.round((parent.width - width) / 2)
-                    // 多出来的高度三成裁上边、七成裁下边: 天空留多些垫文字
-                    y: useFallback ? 0 : -Math.round((height - parent.height) * 0.3)
+                    y: 0
                     fillMode: useFallback ? Image.PreserveAspectFit : Image.Stretch
                     // 选图顺序由 sceneChain 给出: 本季本款 → 本季近似 → 邻近季节 → 矢量插画
                     property var chain: W.sceneChain(root.wx, root.space.localNow())
@@ -221,20 +221,6 @@ Item {
                     }
                 }
 
-                // 上缘渐隐: 画和页面融成一片, 不留一条硬边。
-                // 最上面一小截是纯纸白, 往下逐渐透出画面, 温度压在这一段上也更清楚。
-                Rectangle {
-                    anchors.top: parent.top
-                    anchors.left: parent.left; anchors.right: parent.right
-                    height: Math.round(parent.height * 0.32)
-                    gradient: Gradient {
-                        GradientStop { position: 0.00; color: root.paper }
-                        GradientStop { position: 0.10; color: Qt.rgba(1, 1, 1, 0.94) }
-                        GradientStop { position: 0.38; color: Qt.rgba(1, 1, 1, 0.62) }
-                        GradientStop { position: 0.68; color: Qt.rgba(1, 1, 1, 0.24) }
-                        GradientStop { position: 1.00; color: Qt.rgba(1, 1, 1, 0.00) }
-                    }
-                }
             }
 
             // 温度 + 大天气图标: 压在插画的天空部分上
