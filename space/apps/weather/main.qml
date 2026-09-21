@@ -299,7 +299,7 @@ Item {
             Rectangle {
                 id: statRow
                 anchors.left: parent.left; anchors.right: parent.right
-                anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(14)
+                anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(20)
                 height: root.u(150)
                 radius: 14; color: root.card; border.color: root.line; border.width: 1
                 RowLayout {
@@ -340,9 +340,9 @@ Item {
             Text {
                 id: adviceText
                 anchors.left: parent.left; anchors.right: parent.right
-                anchors.bottom: parent.bottom; anchors.bottomMargin: root.u(6)
+                anchors.bottom: parent.bottom; anchors.bottomMargin: root.u(20)
                 text: root.wx ? root.wx.advice : ""
-                font.pixelSize: root.f(32); color: root.ink; wrapMode: Text.WordWrap
+                font.pixelSize: root.f(36); color: root.ink; wrapMode: Text.WordWrap
             }
         }
 
