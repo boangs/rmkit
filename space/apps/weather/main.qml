@@ -16,6 +16,26 @@ Item {
     function f(n) { return Math.round(n * root.fs) }
     function u(n) { return Math.round(n * root.un) }
 
+    // ── 整屏常驻一个刷新波形标记 ──────────────────────────────────────────
+    // 症状: 进出本应用时, 只有插画那一块被整块闪黑重刷, 四周 (顶栏/速览/标签栏)
+    // 走的是另一种波形, 于是两者交界处被刷出一道撕裂的硬边。
+    // 原因不在图片边缘做得够不够柔 (直边、毛边、模糊都试过), 而在于屏幕把这块
+    // 彩色照片和周围的白底文字分给了不同的刷新波形, 边界就是波形区的边界。
+    // 办法: 整屏挂一个常驻 ScreenModeItem, 全屏同一种波形, 就没有交界可撕。
+    // 几何必须零变化 (anchors.fill 根节点), 模式图每变一次几何就整屏重新合成。
+    // 固件若没有这个类型 (非原厂 libqsgepaper), try/catch 静默降级。
+    property var _screenMode: null
+    Component.onCompleted: {
+        try {
+            _screenMode = Qt.createQmlObject(
+                'import QtQuick; import xofm.libs.epaper; ' +
+                'ScreenModeItem { anchors.fill: parent; mode: ScreenModeItem.Animation }',
+                root, "weatherScreenMode")
+        } catch (e) {
+            console.warn("[weather] ScreenModeItem 不可用, 沿用默认刷新: " + e)
+        }
+    }
+
     // 墨水屏没有背光, 浅色底要靠抖动铺, 看起来就发灰。一律纯白, 层次交给描边。
     readonly property color paper: "#FFFFFF"
     readonly property color card: "#FFFFFF"
@@ -106,7 +126,6 @@ Item {
     // ═══ 顶栏 ═══
     Item {
         id: header
-        z: 1
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
         height: root.u(190)
 
@@ -189,13 +208,10 @@ Item {
             anchors.fill: parent
 
             // 插画: 从内容区顶部一直铺到速览行, 顶部对齐 (画的上半是天, 正好垫文字)
-            // 插画出血到屏幕上沿与左右两侧: 页面内不留插画的边,
-            // 墨水屏整屏闪黑刷新时就不会在那条边上撕开。
             Item {
                 id: sceneBox
-                anchors.top: parent.top; anchors.topMargin: -header.height
-                anchors.left: parent.left; anchors.leftMargin: -root.u(28)
-                anchors.right: parent.right; anchors.rightMargin: -root.u(28)
+                anchors.top: parent.top
+                anchors.left: parent.left; anchors.right: parent.right
                 anchors.bottom: statRow.top; anchors.bottomMargin: root.u(14)
                 clip: true
                 Image {
@@ -229,7 +245,7 @@ Item {
 
             // 温度 + 大天气图标: 压在插画的天空部分上
             RowLayout {
-                anchors.top: parent.top; anchors.topMargin: root.u(16)
+                anchors.top: sceneBox.top; anchors.topMargin: root.u(16)
                 anchors.left: parent.left; anchors.right: parent.right
                 ColumnLayout {
                     spacing: 2
