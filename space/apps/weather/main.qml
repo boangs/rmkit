@@ -168,7 +168,9 @@ Item {
                     anchors.right: cityName.left; anchors.rightMargin: root.u(10)
                     anchors.verticalCenter: cityName.verticalCenter
                     width: root.f(40); height: width; sourceSize.width: width; sourceSize.height: width
-                    source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
+                    // 实心版 (Phosphor map-pin-fill): 顶栏这颗要压得住加粗的城市名;
+                    // 底部"城市"页签仍用描边版 i-pin.svg, 与其它页签统一。
+                    source: root.dir + "i-pin-fill.svg"; fillMode: Image.PreserveAspectFit
                 }
             }
             Text {
@@ -263,7 +265,8 @@ Item {
 
             // 温度 + 大天气图标: 压在插画的天空部分上
             RowLayout {
-                anchors.top: sceneBox.top; anchors.topMargin: root.u(88)
+                // 上移 5mm: 屏幕 229 DPI, 1mm ≈ 9px, 所以 88 - 45 = 43
+                anchors.top: sceneBox.top; anchors.topMargin: root.u(43)
                 anchors.left: parent.left; anchors.right: parent.right
                 ColumnLayout {
                     Layout.leftMargin: root.u(70)
