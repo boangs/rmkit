@@ -196,8 +196,8 @@ Item {
                 clip: true
                 Image {
                     id: sceneImg
-                    // 候选链的最后一项永远是自带矢量插画, 用序号判断比比对 url 稳
-                    readonly property bool useFallback: step >= chain.length - 1
+                    // 真素材都在 scenes/ 下; 用路径判断, 不受候选链更新时序影响
+                    readonly property bool useFallback: String(source).indexOf("/scenes/") < 0
                     readonly property real sw: sourceSize.width > 0 ? sourceSize.width : 1
                     readonly property real sh: sourceSize.height > 0 ? sourceSize.height : 1
                     // 真素材: 铺满并多出 6% 供上下左右各裁一点, 画的边缘不卡在内容区顶上
@@ -214,16 +214,26 @@ Item {
                     source: root.dir + chain[0]
                     onChainChanged: { step = 0; source = root.dir + chain[0] }
                     onStatusChanged: {
-                        console.log("[weather-scene] status=" + status + " src=" + source
-                                    + " srcSize=" + sourceSize.width + "x" + sourceSize.height
-                                    + " box=" + parent.width + "x" + parent.height
-                                    + " img=" + width + "x" + height + " at " + x + "," + y)
                         if (status !== Image.Error) return
                         if (step + 1 >= chain.length) return
                         step += 1
                         source = root.dir + chain[step]
                     }
-                    Component.onCompleted: console.log("[weather-scene] chain=" + JSON.stringify(chain))
+                }
+
+                // 上缘渐隐: 画和页面融成一片, 不留一条硬边。
+                // 最上面一小截是纯纸白, 往下逐渐透出画面, 温度压在这一段上也更清楚。
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.left: parent.left; anchors.right: parent.right
+                    height: Math.round(parent.height * 0.32)
+                    gradient: Gradient {
+                        GradientStop { position: 0.00; color: root.paper }
+                        GradientStop { position: 0.10; color: Qt.rgba(1, 1, 1, 0.94) }
+                        GradientStop { position: 0.38; color: Qt.rgba(1, 1, 1, 0.62) }
+                        GradientStop { position: 0.68; color: Qt.rgba(1, 1, 1, 0.24) }
+                        GradientStop { position: 1.00; color: Qt.rgba(1, 1, 1, 0.00) }
+                    }
                 }
             }
 
