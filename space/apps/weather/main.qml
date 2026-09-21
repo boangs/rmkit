@@ -154,16 +154,22 @@ Item {
             anchors.left: parent.left; anchors.right: parent.right
             y: root.u(118)
             spacing: 2
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: root.u(8)
+            // 城市名自己居中, 定位图标挂在它左边。
+            // 图标若和文字一起算进居中范围, 文字就会被推得偏右, 看着不齐。
+            Item {
+                width: parent.width; height: cityName.height
+                Text {
+                    id: cityName
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: root.city().name; font.pixelSize: root.f(54)
+                    font.weight: Font.Medium; color: root.ink
+                }
                 Image {
+                    anchors.right: cityName.left; anchors.rightMargin: root.u(10)
+                    anchors.verticalCenter: cityName.verticalCenter
                     width: root.f(40); height: width; sourceSize.width: width; sourceSize.height: width
-                    anchors.verticalCenter: parent.verticalCenter
                     source: root.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.75
                 }
-                Text { text: root.city().name; font.pixelSize: root.f(54); font.weight: Font.Medium; color: root.ink
-                       anchors.verticalCenter: parent.verticalCenter }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
