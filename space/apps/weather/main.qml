@@ -281,12 +281,12 @@ Item {
                     }
                     Text {
                         text: root.wx ? root.wx.text : (root.busy ? "获取中…" : "暂无数据")
-                        font.pixelSize: root.f(48); font.weight: Font.Medium; color: root.ink
+                        font.pixelSize: root.f(48); font.weight: Font.Bold; color: root.ink
                     }
                     Text {
                         visible: !!root.wx
                         text: root.wx ? ("体感 " + root.t(root.wx.feels) + "°   ↑ " + root.t(root.wx.hi) + "°  ↓ " + root.t(root.wx.lo) + "°") : ""
-                        font.pixelSize: root.f(30); color: root.ink2
+                        font.pixelSize: root.f(34); color: root.ink2
                     }
                 }
                 Item { Layout.fillWidth: true }
