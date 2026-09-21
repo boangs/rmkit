@@ -25,7 +25,7 @@ Item {
     // 几何必须零变化 (anchors.fill 根节点), 模式图每变一次几何就整屏重新合成。
     // 固件若没有这个类型 (非原厂 libqsgepaper), try/catch 静默降级。
     property var _screenMode: null
-    Component.onCompleted: {
+    function _markScreenMode() {
         try {
             _screenMode = Qt.createQmlObject(
                 'import QtQuick; import xofm.libs.epaper; ' +
@@ -111,6 +111,7 @@ Item {
     }
 
     Component.onCompleted: {
+        _markScreenMode()
         space.chrome = false
         space.onBack = function() { if (root.tab !== "home") { root.tab = "home"; return true } return false }
         load()
