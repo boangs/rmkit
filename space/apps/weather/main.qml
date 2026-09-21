@@ -131,18 +131,18 @@ Item {
     Item {
         id: header
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: root.u(330)
+        height: root.u(260)
 
         Image {
             id: backBtn
-            x: root.u(28); y: root.u(58)
+            x: root.u(28); y: root.u(60)
             width: root.f(34); height: width; sourceSize.width: width; sourceSize.height: width
             source: root.dir + "i-back.svg"; fillMode: Image.PreserveAspectFit
             MouseArea { anchors.fill: parent; anchors.margins: -root.u(18); onClicked: root.tab === "home" ? space.exit() : root.tab = "home" }
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            y: root.u(58)
+            y: root.u(64)
             text: root.tab === "home" ? "" : (root.tab === "forecast" ? "预报" : root.tab === "life" ? "生活指数" : root.tab === "city" ? "城市管理" : "设置")
             font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
         }
@@ -150,7 +150,7 @@ Item {
         Column {
             visible: root.tab === "home"
             anchors.horizontalCenter: parent.horizontalCenter
-            y: root.u(196)
+            y: root.u(118)
             spacing: 2
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -307,7 +307,7 @@ Item {
                                 anchors.centerIn: parent; spacing: root.u(10)
                                 Image {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: root.f(40); height: width; sourceSize.width: width; sourceSize.height: width
+                                    width: root.f(56); height: width; sourceSize.width: width; sourceSize.height: width
                                     source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.9
                                 }
                                 Column {
