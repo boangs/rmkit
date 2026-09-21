@@ -106,6 +106,7 @@ Item {
     // ═══ 顶栏 ═══
     Item {
         id: header
+        z: 1
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
         height: root.u(190)
 
@@ -188,10 +189,13 @@ Item {
             anchors.fill: parent
 
             // 插画: 从内容区顶部一直铺到速览行, 顶部对齐 (画的上半是天, 正好垫文字)
+            // 插画出血到屏幕上沿与左右两侧: 页面内不留插画的边,
+            // 墨水屏整屏闪黑刷新时就不会在那条边上撕开。
             Item {
                 id: sceneBox
-                anchors.top: parent.top
-                anchors.left: parent.left; anchors.right: parent.right
+                anchors.top: parent.top; anchors.topMargin: -header.height
+                anchors.left: parent.left; anchors.leftMargin: -root.u(28)
+                anchors.right: parent.right; anchors.rightMargin: -root.u(28)
                 anchors.bottom: statRow.top; anchors.bottomMargin: root.u(14)
                 clip: true
                 Image {
@@ -225,7 +229,7 @@ Item {
 
             // 温度 + 大天气图标: 压在插画的天空部分上
             RowLayout {
-                anchors.top: sceneBox.top; anchors.topMargin: root.u(16)
+                anchors.top: parent.top; anchors.topMargin: root.u(16)
                 anchors.left: parent.left; anchors.right: parent.right
                 ColumnLayout {
                     spacing: 2
