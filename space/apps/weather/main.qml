@@ -306,7 +306,7 @@ Item {
                             required property int index
                             Layout.fillWidth: true; Layout.fillHeight: true
                             Row {
-                                anchors.centerIn: parent; spacing: root.u(10)
+                                anchors.centerIn: parent; spacing: root.u(24)
                                 Image {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: root.f(56); height: width; sourceSize.width: width; sourceSize.height: width
