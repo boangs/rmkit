@@ -233,10 +233,14 @@ Item {
                     y: 0
                     fillMode: useFallback ? Image.PreserveAspectFit : Image.Stretch
                     // 选图顺序由 sceneChain 给出: 本季本款 → 本季近似 → 邻近季节 → 矢量插画
-                    property var chain: W.sceneChain(root.wx, root.space.localNow())
+                    // 天气没回来时直接给空链 (不依赖 weather.js 的新版本:
+                    // .js 按 URL 缓存, 不重启 xochitl 不生效)
+                    property var chain: root.wx ? W.sceneChain(root.wx, root.space.localNow()) : []
                     property int step: 0
-                    source: root.dir + chain[0]
-                    onChainChanged: { step = 0; source = root.dir + chain[0] }
+                    // 天气没回来时不给 source: 空着不画, 避免先上占位图再换真图多刷一次
+                    visible: status === Image.Ready
+                    source: chain.length ? root.dir + chain[0] : ""
+                    onChainChanged: { step = 0; source = chain.length ? root.dir + chain[0] : "" }
                     onStatusChanged: {
                         if (status !== Image.Error) return
                         if (step + 1 >= chain.length) return

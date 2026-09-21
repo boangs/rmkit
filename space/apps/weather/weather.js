@@ -274,7 +274,9 @@ var KIND_ALT = { hail: "storm" }
 // 返回按优先级排好的候选图列表: 先本季 (本款 → 近似款), 再逐个邻近季节,
 // 都没有才用自带的矢量插画。
 function sceneChain(wx, now) {
-    if (!wx) return ["scene.svg"]
+    // 还没拿到天气时返回空: 首页宁可先空着, 也不要先闪一张占位图再换成真图
+    // (墨水屏每换一次画面就多刷一次)。
+    if (!wx) return []
     var kind = sceneKind(wx.code)
     var kinds = KIND_ALT[kind] ? [kind, KIND_ALT[kind]] : [kind]
     var seasons = [season(now)].concat(SEASON_ALT[season(now)] || [])
