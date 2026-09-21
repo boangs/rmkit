@@ -131,24 +131,26 @@ Item {
     Item {
         id: header
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: root.u(190)
+        height: root.u(330)
 
         Image {
             id: backBtn
-            x: root.u(28); anchors.verticalCenter: parent.verticalCenter
+            x: root.u(28); y: root.u(58)
             width: root.f(34); height: width; sourceSize.width: width; sourceSize.height: width
             source: root.dir + "i-back.svg"; fillMode: Image.PreserveAspectFit
             MouseArea { anchors.fill: parent; anchors.margins: -root.u(18); onClicked: root.tab === "home" ? space.exit() : root.tab = "home" }
         }
         Text {
-            anchors.centerIn: parent
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: root.u(58)
             text: root.tab === "home" ? "" : (root.tab === "forecast" ? "预报" : root.tab === "life" ? "生活指数" : root.tab === "city" ? "城市管理" : "设置")
             font.pixelSize: root.f(30); font.weight: Font.Medium; color: root.ink
         }
         // 首页顶栏: 城市 + 日期居中 (其它页在中间显示页名, 右上角显示城市)
         Column {
             visible: root.tab === "home"
-            anchors.centerIn: parent
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: root.u(196)
             spacing: 2
             Row {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -169,12 +171,12 @@ Item {
         }
         Text {
             visible: root.tab !== "home" && root.tab !== "city" && root.tab !== "setting"
-            anchors.right: refreshBtn.left; anchors.rightMargin: root.u(20); anchors.verticalCenter: parent.verticalCenter
+            anchors.right: refreshBtn.left; anchors.rightMargin: root.u(20); y: root.u(64)
             text: root.city().name; font.pixelSize: root.f(24); color: root.ink2
         }
         Image {
             id: refreshBtn
-            anchors.right: parent.right; anchors.rightMargin: root.u(28); anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right; anchors.rightMargin: root.u(28); y: root.u(58)
             width: root.f(32); height: width; sourceSize.width: width; sourceSize.height: width
             source: root.dir + (root.tab === "city" ? "i-plus.svg" : "i-refresh.svg"); fillMode: Image.PreserveAspectFit
             opacity: root.busy ? 0.35 : 0.85
@@ -253,9 +255,10 @@ Item {
 
             // 温度 + 大天气图标: 压在插画的天空部分上
             RowLayout {
-                anchors.top: sceneBox.top; anchors.topMargin: root.u(16)
+                anchors.top: sceneBox.top; anchors.topMargin: root.u(88)
                 anchors.left: parent.left; anchors.right: parent.right
                 ColumnLayout {
+                    Layout.leftMargin: root.u(70)
                     spacing: 2
                     RowLayout {
                         spacing: root.u(8)
