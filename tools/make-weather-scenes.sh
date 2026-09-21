@@ -5,15 +5,21 @@
 # 墨水屏要为这片中间调做抖动, 又是局部刷新, 结果是又脏又留上一屏的残影。
 # 把渐变直接画进 JPEG, 屏幕上就是一张普通的不透明图, 没有合成, 也就没有这些问题。
 #
+# 为什么边缘要做成不规则: 进出应用时墨水屏整屏闪黑刷新, 画面里任何一条直的明暗分界
+# 都会在刷新过程中被撕成一道硬线。把渐变掺进云雾状噪声, 上缘变成水墨洇开的毛边,
+# 没有直线可撕, 观感上画也像是从纸里长出来的。
+#
 # 用法: tools/make-weather-scenes.sh <原稿目录> [输出目录]
 set -eu
 SRC=${1:?用法: $0 <原稿目录> [输出目录]}
 OUT=${2:-$(dirname "$0")/../space/apps/weather/assets/scenes}
-FADE=${FADE:-260}     # 上缘渐隐高度 (原稿像素), 原稿高 1448 时约占一成八
+FADE=${FADE:-560}     # 上缘洇开的高度 (原稿像素), 原稿高 1448 时约占四成
+ROUGH=${ROUGH:-38}    # 噪声占比 (%), 越大毛边越碎; 0 就退回一条直的渐变
 QUALITY=${QUALITY:-85}
 
 command -v magick >/dev/null || { echo "需要 ImageMagick (brew install imagemagick)"; exit 1; }
 mkdir -p "$OUT"
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 n=0
 for f in "$SRC"/*; do
@@ -26,11 +32,15 @@ for f in "$SRC"/*; do
     *) echo "跳过 $b (文件名须是 <季节>-<天气>)"; continue ;;
   esac
   w=$(magick identify -format '%w' "$f")
-  magick "$f" \
-    \( -size "${w}x${FADE}" gradient:white-none \
-       -channel A -sigmoidal-contrast 4,50% +channel \) \
-    -gravity north -composite \
+  # 罩子: 纯白 + 「竖向渐变掺云雾噪声」当透明度, 上边不透明, 往下洇开到全透
+  magick -size "${w}x${FADE}" xc:white \
+    \( -size "${w}x${FADE}" gradient:white-black \
+       \( -size "${w}x${FADE}" plasma:fractal -colorspace gray -auto-level -blur 0x12 -auto-level \) \
+       -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
+       -sigmoidal-contrast 7,52% \) \
+    -alpha off -compose CopyOpacity -composite "$TMP/overlay.png"
+  magick "$f" "$TMP/overlay.png" -gravity north -compose over -composite \
     -quality "$QUALITY" "$OUT/$b.jpg"
   n=$((n + 1))
 done
-echo "✓ $n 张 → $OUT (上缘 ${FADE}px 渐隐已烤入)"
+echo "✓ $n 张 → $OUT (上缘 ${FADE}px 不规则洇开已烤入, 噪声 ${ROUGH}%)"
