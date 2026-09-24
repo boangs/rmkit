@@ -440,7 +440,7 @@ Rectangle {
             visible: space.current === null && space.tab === "home"
             anchors.fill: parent
             contentWidth: width
-            contentHeight: homeCol.height + space.px(24)
+            contentHeight: homeCol.height + space.px(24)   // 底部留白与块间距一致
             clip: true
             ColumnLayout {
                 id: homeCol
@@ -450,7 +450,7 @@ Rectangle {
                 // 顶部大卡: 日期 + 时间; 装了 hero 小组件 (如天气) 则由它整卡接管
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(540)
+                    Layout.preferredHeight: space.px(490)
                     radius: 12
                     border.color: "#B4AFA6"
                     border.width: 1
@@ -599,7 +599,6 @@ Rectangle {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: 8
                     Text { text: "我的应用"; font.pixelSize: space.fpx(32); font.weight: Font.Medium }
                     Item { Layout.fillWidth: true }
                     Text {

@@ -1,6 +1,7 @@
 // 天气 — 「空间」首页整宽大卡 (hero 小组件)
 // 版式参考概念图首页: 日期 / 城市 / 大温度 / 天气 / 高低温 / 一句话 + 右侧插画与天气图标。
 import QtQuick
+
 import "weather.js" as W
 
 Item {
@@ -81,17 +82,48 @@ Item {
         }
     }
 
-    // 盖掉横幅在圆角外露出的方角
-    Rectangle {
-        anchors.fill: parent
-        color: "transparent"
-        radius: 12
-        border.color: "white"; border.width: 6
+    // 横幅是方角、卡片是圆角, 下面两角会露出来 (见上一版实拍)。
+    // 设备上没有 QtQuick.Effects 做遮罩, QtQuick.Shapes 实测也没画出来,
+    // 改用 Canvas: 只把"方角减去那道弧"的一小块填白, 四边不留白, 图与描边贴合。
+    Component {
+        id: cornerCut
+        Canvas {
+            property bool atRight: false
+            width: 14; height: 14
+            onPaint: {
+                var ctx = getContext("2d")
+                ctx.reset()
+                ctx.fillStyle = "white"
+                ctx.beginPath()
+                if (atRight) {
+                    ctx.moveTo(width, 0)
+                    ctx.lineTo(width, height)
+                    ctx.lineTo(0, height)
+                    ctx.arc(0, 0, width, Math.PI / 2, 0, true)
+                } else {
+                    ctx.moveTo(0, 0)
+                    ctx.lineTo(0, height)
+                    ctx.lineTo(width, height)
+                    ctx.arc(width, 0, width, Math.PI / 2, Math.PI, false)
+                }
+                ctx.closePath()
+                ctx.fill()
+            }
+        }
     }
+    Loader {
+        sourceComponent: cornerCut
+        anchors.left: parent.left; anchors.bottom: parent.bottom
+    }
+    Loader {
+        sourceComponent: cornerCut
+        anchors.right: parent.right; anchors.bottom: parent.bottom
+        onLoaded: { item.atRight = true; item.requestPaint() }
+    }
+    // 卡片自己的细描边被横幅盖住了, 补回来
     Rectangle {
         anchors.fill: parent
-        color: "transparent"
-        radius: 12
+        color: "transparent"; radius: 12
         border.color: "#B4AFA6"; border.width: 1
     }
 
