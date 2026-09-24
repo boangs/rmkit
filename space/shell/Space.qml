@@ -497,7 +497,7 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: space.px(300)
+                        Layout.preferredHeight: space.px(350)
                         radius: 12; border.color: "#B4AFA6"; border.width: 1; color: "white"; clip: true
                         readonly property var planApp: space.slotWidgetApp("plan")
 
@@ -528,7 +528,7 @@ Rectangle {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: space.px(300)
+                        Layout.preferredHeight: space.px(350)
                         radius: 12; border.color: "#B4AFA6"; border.width: 1; color: "white"; clip: true
                         readonly property bool hasRecent: space.recentDoc !== null
                         readonly property bool hasHalf: space.plainWidgetApps().length > 0
