@@ -195,7 +195,7 @@ Item {
             anchors.right: parent.right; anchors.rightMargin: root.u(28); y: root.u(58)
             width: root.f(32); height: width; sourceSize.width: width; sourceSize.height: width
             source: root.dir + (root.tab === "city" ? "i-plus.svg" : "i-refresh.svg"); fillMode: Image.PreserveAspectFit
-            opacity: root.busy ? 0.35 : 0.85
+            opacity: root.busy ? 0.35 : 1
             MouseArea {
                 anchors.fill: parent; anchors.margins: -root.u(18)
                 onClicked: { if (root.tab === "city") searchInput.forceActiveFocus(); else root.refresh() }
@@ -326,7 +326,7 @@ Item {
                                 Image {
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: root.f(56); height: width; sourceSize.width: width; sourceSize.height: width
-                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.9
+                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit
                                 }
                                 Column {
                                     spacing: 2
@@ -514,7 +514,7 @@ Item {
                                 Image {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: root.f(38); height: width; sourceSize.width: width; sourceSize.height: width
-                                    source: root.dir + modelData.icon + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.85
+                                    source: root.dir + modelData.icon + ".svg"; fillMode: Image.PreserveAspectFit
                                 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.name
                                        font.pixelSize: root.f(22); color: root.ink }
@@ -548,7 +548,7 @@ Item {
                                 Image {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     width: root.f(34); height: width; sourceSize.width: width; sourceSize.height: width
-                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit; opacity: 0.85
+                                    source: root.dir + modelData.ic + ".svg"; fillMode: Image.PreserveAspectFit
                                 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.n
                                        font.pixelSize: root.f(21); color: root.ink2 }
@@ -674,7 +674,7 @@ Item {
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: root.cfg.cities.length > 1
                                     width: root.f(28); height: width; sourceSize.width: width; sourceSize.height: width
-                                    source: root.dir + "i-trash.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.55
+                                    source: root.dir + "i-trash.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.8
                                     MouseArea { anchors.fill: parent; anchors.margins: -root.u(12); onClicked: root.removeCity(index) }
                                 }
                             }
@@ -819,7 +819,7 @@ Item {
                             width: root.f(36); height: width; sourceSize.width: width; sourceSize.height: width
                             source: (tabItem.modelData.kit ? space.kitDir + "/icons/" : root.dir) + tabItem.modelData.ic + ".svg"
                             fillMode: Image.PreserveAspectFit
-                            opacity: tabItem.sel ? 1 : 0.5
+                            opacity: tabItem.sel ? 1 : 0.75
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
