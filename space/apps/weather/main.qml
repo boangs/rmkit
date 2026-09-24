@@ -22,9 +22,10 @@ Item {
     // 原因不在图片边缘做得够不够柔 (直边、毛边、模糊都试过), 而在于屏幕把这块
     // 彩色照片和周围的白底文字分给了不同的刷新波形, 边界就是波形区的边界。
     // 办法: 整屏挂一个常驻 ScreenModeItem, 全屏同一种波形, 就没有交界可撕。
-    // 模式取 Content: 这一档带完整灰阶与彩色, 插画才是高清的。
-    // (Animation 档快且不闪, 但没有灰阶抗锯齿, 照片会被压成没有颜色的粗颗粒,
-    //  实测不可用。代价是全屏统一闪一次, 但整屏一起闪就没有那道交界线了。)
+    // 模式取 UI: 原厂 MainView 的全局标记默认就是这一档 (见 qml-dump 的
+    // globalScreenMode), 空间首页也跑在它上面 —— 又快、彩色正常、不留残影。
+    // 走过的弯路: Animation 档不闪但没有灰阶抗锯齿, 照片被压成无彩色的粗颗粒;
+    // Content 档画质满但慢, 且进应用会把上一屏的残影带进来。
     // 几何必须零变化 (anchors.fill 根节点), 模式图每变一次几何就整屏重新合成。
     // 固件若没有这个类型 (非原厂 libqsgepaper), try/catch 静默降级。
     property var _screenMode: null
@@ -32,22 +33,13 @@ Item {
         try {
             _screenMode = Qt.createQmlObject(
                 'import QtQuick; import xofm.libs.epaper; ' +
-                'ScreenModeItem { anchors.fill: parent; mode: ScreenModeItem.Content }',
+                'ScreenModeItem { anchors.fill: parent; mode: ScreenModeItem.UI }',
                 root, "weatherScreenMode")
         } catch (e) {
             console.warn("[weather] ScreenModeItem 不可用, 沿用默认刷新: " + e)
         }
     }
 
-    // 进应用会把上一屏 (空间首页) 的残影带进来, 退出反而干净又快。
-    // 差别在于: 退出时这个波形标记被销毁, 模式图几何一变就整屏重新合成一次,
-    // 等于做了一次彻底的清屏; 进来时没有这一下。
-    // 办法: 首帧画完后把标记闪断一次, 手动触发同样的整屏重合成。
-    function _blinkScreenMode() {
-        if (!_screenMode) return
-        _screenMode.visible = false
-        Qt.callLater(function() { if (_screenMode) _screenMode.visible = true })
-    }
 
     // 墨水屏没有背光, 浅色底要靠抖动铺, 看起来就发灰。一律纯白, 层次交给描边。
     readonly property color paper: "#FFFFFF"
@@ -81,7 +73,6 @@ Item {
                 cache = (st2 === 200 && r2) ? r2 : ({})
                 show()
                 ready = true
-                Qt.callLater(root._blinkScreenMode)
                 if (!wx || Date.now() - wx.at > cfg.refresh * 1000) refresh()
             })
         })
