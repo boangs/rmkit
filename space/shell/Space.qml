@@ -541,8 +541,17 @@ Rectangle {
                                 width: parent.width
                                 height: space.px(92)
                                 visible: parent.parent.hasRecent
+                                Image {
+                                    id: bookIcon
+                                    anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+                                    width: space.fpx(44); height: width
+                                    sourceSize.width: width; sourceSize.height: width
+                                    source: space.kitDir + "/icons/book-open.svg"
+                                    fillMode: Image.PreserveAspectFit
+                                }
                                 Column {
-                                    anchors.left: parent.left; anchors.right: parent.right
+                                    anchors.left: bookIcon.right; anchors.leftMargin: space.px(16)
+                                    anchors.right: parent.right
                                     anchors.verticalCenter: parent.verticalCenter
                                     spacing: space.px(8)
                                     Text {

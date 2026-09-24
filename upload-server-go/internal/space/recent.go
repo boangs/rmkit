@@ -58,6 +58,7 @@ func docsDir() string {
 
 type rawMeta struct {
 	VisibleName    string `json:"visibleName"`
+	LastModified   string `json:"lastModified"`
 	LastOpened     string `json:"lastOpened"`
 	LastOpenedPage int    `json:"lastOpenedPage"`
 	Type           string `json:"type"`
@@ -100,9 +101,15 @@ func scanRecent(n int) []RecentDoc {
 		if m.Deleted || m.Type != "DocumentType" || m.LastOpened == "" || m.Parent == "trash" {
 			continue
 		}
-		at, err := strconv.ParseInt(m.LastOpened, 10, 64)
-		if err != nil || at <= 0 {
-			continue
+		// 排序用 lastModified, 与设备文档列表默认的「修改时间」一致:
+		// 光打开不做批注只会更新 lastOpened, 于是会出现"列表第一本"与
+		// "最近打开"不是同一本的情况, 以用户看到的那个顺序为准。
+		at := parseMs(m.LastModified)
+		if at == 0 {
+			at = parseMs(m.LastOpened)
+		}
+		if at <= 0 || parseMs(m.LastOpened) <= 0 {
+			continue // 从没打开过的不算"在读"
 		}
 		items = append(items, item{id: strings.TrimSuffix(name, ".metadata"), m: m, at: at})
 	}
@@ -137,6 +144,14 @@ func scanRecent(n int) []RecentDoc {
 
 // readContent 只取需要的两个字段。.content 可能有几百 KB (逐页记录),
 // 但都在文件靠后, 直接解析整份最省事也够快 (实测三百多份文档只读前三份)。
+func parseMs(v string) int64 {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
 func readContent(p string) (rawContent, bool) {
 	b, err := os.ReadFile(p)
 	if err != nil {
