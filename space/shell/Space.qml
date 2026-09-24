@@ -356,7 +356,7 @@ Rectangle {
             anchors.topMargin: 6
             text: space.tabSubtitle()
             font.pixelSize: space.fpx(24)
-            color: "#666666"
+            color: "#3A3A36"
         }
         Image {
             visible: space.tab === "home"
@@ -392,7 +392,7 @@ Rectangle {
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
         height: toastLabel.implicitHeight + 24
-        color: "#222222"
+        color: "#000000"
         radius: 8
         Text {
             id: toastLabel
@@ -434,7 +434,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: space.px(320)
                     radius: 12
-                    border.color: "#d0d0d0"
+                    border.color: "#B4AFA6"
                     border.width: 1
                     color: "white"
                     clip: true
@@ -446,9 +446,9 @@ Rectangle {
                             anchors.leftMargin: space.px(32)
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 8
-                            Text { text: space.dateLine(); font.pixelSize: space.fpx(26); color: "#444444" }
+                            Text { text: space.dateLine(); font.pixelSize: space.fpx(26); color: "#262626" }
                             Text { text: Qt.formatTime(space.localNow(), "HH:mm"); font.pixelSize: space.fpx(88); font.weight: Font.Light }
-                            Text { text: "今天也是安静的一天。"; font.pixelSize: space.fpx(22); color: "#777777" }
+                            Text { text: "今天也是安静的一天。"; font.pixelSize: space.fpx(22); color: "#4A4842" }
                         }
                         Rectangle {
                             anchors.right: parent.right
@@ -482,7 +482,7 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: space.px(230)
                             radius: 12
-                            border.color: "#d0d0d0"
+                            border.color: "#B4AFA6"
                             border.width: 1
                             color: "white"
                             clip: true
@@ -505,7 +505,7 @@ Rectangle {
                     Text {
                         text: "全部应用 ›"
                         font.pixelSize: space.fpx(24)
-                        color: "#555555"
+                        color: "#262626"
                         MouseArea { anchors.fill: parent; anchors.margins: -12; onClicked: space.tab = "apps" }
                     }
                 }
@@ -521,7 +521,7 @@ Rectangle {
                     visible: space.listError === "" && space.apps.length === 0
                     text: "还没有应用。到「发现」安装，或用手机扫码上传应用包 (zip)。"
                     font.pixelSize: space.fpx(24)
-                    color: "#555555"
+                    color: "#262626"
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
                 }
@@ -599,24 +599,24 @@ Rectangle {
                         anchors.centerIn: parent
                         spacing: 8
                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: "让好工具"; font.pixelSize: space.fpx(34); font.weight: Font.Medium }
-                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "陪伴更好的你"; font.pixelSize: space.fpx(24); color: "#666666" }
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "陪伴更好的你"; font.pixelSize: space.fpx(24); color: "#3A3A36" }
                     }
                 }
                 Text {
                     visible: !space.storeLoaded
                     text: "正在获取应用列表…"
-                    font.pixelSize: space.fpx(24); color: "#666666"
+                    font.pixelSize: space.fpx(24); color: "#3A3A36"
                 }
                 Text {
                     visible: space.storeError !== ""
                     Layout.fillWidth: true
                     text: space.storeError + "\n应用商店需要联网。也可以用手机扫码上传应用包 (zip) 安装。"
-                    font.pixelSize: space.fpx(24); color: "#666666"; wrapMode: Text.WordWrap
+                    font.pixelSize: space.fpx(24); color: "#3A3A36"; wrapMode: Text.WordWrap
                 }
                 Text {
                     visible: space.storeLoaded && space.storeError === "" && space.storeApps.length === 0
                     text: "商店里还没有应用。"
-                    font.pixelSize: space.fpx(24); color: "#666666"
+                    font.pixelSize: space.fpx(24); color: "#3A3A36"
                 }
                 Repeater {
                     model: space.storeApps
@@ -640,7 +640,7 @@ Rectangle {
                                 Text { text: storeRow.modelData.name || storeRow.modelData.id; font.pixelSize: space.fpx(28); elide: Text.ElideRight; Layout.fillWidth: true }
                                 Text {
                                     text: (storeRow.modelData.description || "") + "  v" + (storeRow.modelData.version || "")
-                                    font.pixelSize: space.fpx(22); color: "#777777"; elide: Text.ElideRight; Layout.fillWidth: true
+                                    font.pixelSize: space.fpx(22); color: "#4A4842"; elide: Text.ElideRight; Layout.fillWidth: true
                                 }
                             }
                             Kit.SButton {
@@ -651,7 +651,7 @@ Rectangle {
                                 onClicked: space.installFromStore(storeRow.modelData)
                             }
                         }
-                        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#e0e0e0" }
+                        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#C4BFB6" }
                     }
                 }
             }
@@ -716,7 +716,7 @@ Rectangle {
         anchors.bottom: parent.bottom
         height: space.px(120)
         color: "white"
-        Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: "#dddddd" }
+        Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: "#B4AFA6" }
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: space.margin
@@ -751,7 +751,7 @@ Rectangle {
                             text: tabItem.modelData.label
                             font.pixelSize: space.fpx(22)
                             font.weight: tabItem.active ? Font.Medium : Font.Normal
-                            color: tabItem.active ? "#000000" : "#777777"
+                            color: tabItem.active ? "#000000" : "#4A4842"
                         }
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter

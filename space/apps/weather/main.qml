@@ -47,6 +47,7 @@ Item {
     readonly property color line: "#B4AFA6"   // 原 #D8D5CE 亮度 85%, 墨水屏上几乎看不见
     readonly property color ink: "#000000"   // 关键信息一律纯黑, 墨水屏上深灰会往灰里塌
     readonly property color ink2: "#1F1E1B"   // 这块屏显示出来本就发灰, 次要文字只比正文浅一点点就够
+    readonly property color ink3: "#4A4842"   // 只给"未选中"这类需要明显弱化的状态
 
     property var cfg: null            // {cities:[…], current, unit, refresh}
     property var cache: ({})          // cityKey → wx
@@ -792,7 +793,7 @@ Item {
     Rectangle {
         id: tabbar
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-        height: root.u(120)
+        height: root.u(136)
         color: root.paper
         Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: root.line }
         RowLayout {
@@ -816,20 +817,20 @@ Item {
                         anchors.centerIn: parent; spacing: root.u(6)
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            width: root.f(36); height: width; sourceSize.width: width; sourceSize.height: width
+                            width: root.f(46); height: width; sourceSize.width: width; sourceSize.height: width
                             source: (tabItem.modelData.kit ? space.kitDir + "/icons/" : root.dir) + tabItem.modelData.ic + ".svg"
                             fillMode: Image.PreserveAspectFit
-                            opacity: tabItem.sel ? 1 : 0.75
+                            opacity: tabItem.sel ? 1 : 0.72
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: tabItem.modelData.n; font.pixelSize: root.f(21)
-                            font.weight: tabItem.sel ? Font.Medium : Font.Normal
-                            color: tabItem.sel ? root.ink : root.ink2
+                            text: tabItem.modelData.n; font.pixelSize: root.f(26)
+                            font.weight: tabItem.sel ? Font.Bold : Font.Normal
+                            color: tabItem.sel ? root.ink : root.ink3
                         }
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            width: root.f(26); height: 3
+                            width: root.f(32); height: 3
                             color: tabItem.sel ? root.ink : "transparent"
                         }
                     }
