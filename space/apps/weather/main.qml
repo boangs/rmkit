@@ -299,14 +299,9 @@ Item {
             Rectangle {
                 id: statRow
                 anchors.left: parent.left; anchors.right: parent.right
-                anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(20)
+                anchors.bottom: adviceRule.top; anchors.bottomMargin: root.u(20)
                 height: root.u(150)
                 color: "transparent"
-                // 书页式: 不做卡片, 只在上方压一条细线, 靠留白和分栏说话
-                Rectangle {
-                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-                    height: 1; color: root.line
-                }
                 RowLayout {
                     anchors.fill: parent; anchors.topMargin: root.u(16); anchors.bottomMargin: root.u(6)
                     spacing: 0
@@ -341,6 +336,14 @@ Item {
                         }
                     }
                 }
+            }
+
+            // 书页式: 插画下面不压线, 只在最后这句建议上面压一条, 像注释的分界
+            Rectangle {
+                id: adviceRule
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(20)
+                height: 1; color: root.line
             }
 
             Text {
