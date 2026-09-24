@@ -12,9 +12,9 @@ Rectangle {
     implicitHeight: Math.round(64 * ui)
     radius: 8
     color: !btn.enabled ? "#eeeeee"
-         : btn.primary ? (mouse.pressed ? "#444444" : "#222222")
+         : btn.primary ? (mouse.pressed ? "#262626" : "#000000")
          : (mouse.pressed ? "#eeeeee" : "transparent")
-    border.color: btn.primary ? "transparent" : "#333333"
+    border.color: btn.primary ? "transparent" : "#1A1A1A"
     border.width: btn.primary ? 0 : 1
 
     Text {
@@ -22,7 +22,7 @@ Rectangle {
         anchors.centerIn: parent
         text: btn.text
         font.pixelSize: Math.round(24 * btn.ui)
-        color: !btn.enabled ? "#888888" : (btn.primary ? "#ffffff" : "#111111")
+        color: !btn.enabled ? "#4A4842" : (btn.primary ? "#ffffff" : "#111111")
     }
     MouseArea {
         id: mouse

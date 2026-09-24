@@ -4,7 +4,7 @@ import QtQuick
 Rectangle {
     id: clock
     property date now: new Date()
-    border.color: "#cccccc"
+    border.color: "#B4AFA6"
     border.width: 1
     radius: 8
     color: "transparent"
@@ -28,7 +28,7 @@ Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             text: clock.now.toLocaleDateString(Qt.locale("zh_CN"), "yyyy年M月d日 dddd")
             font.pixelSize: 26
-            color: "#555555"
+            color: "#262626"
         }
     }
 }

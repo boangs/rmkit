@@ -596,7 +596,7 @@ Item {
                         Text {
                             anchors.left: parent.left; anchors.leftMargin: root.u(16); anchors.verticalCenter: parent.verticalCenter
                             visible: searchInput.text === "" && !searchInput.activeFocus
-                            text: "输入城市名，如 北京"; font.pixelSize: root.f(23); color: "#B5B0A6"
+                            text: "输入城市名，如 北京"; font.pixelSize: root.f(23); color: "#7A766C"
                         }
                     }
                     Rectangle {

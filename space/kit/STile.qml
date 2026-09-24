@@ -12,7 +12,7 @@ Rectangle {
     signal clicked()
 
     color: mouse.pressed ? "#eeeeee" : "white"
-    border.color: "#d0d0d0"
+    border.color: "#B4AFA6"
     border.width: 1
     radius: 10
     opacity: dimmed ? 0.4 : 1

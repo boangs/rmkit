@@ -37,7 +37,7 @@ Item {
             visible: row.detail !== ""
             text: row.detail
             font.pixelSize: Math.round(22 * row.ui)
-            color: "#777777"
+            color: "#4A4842"
         }
         Image {
             visible: row.showArrow
@@ -50,6 +50,6 @@ Item {
             opacity: 0.6
         }
     }
-    Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#e0e0e0" }
+    Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 1; color: "#C4BFB6" }
     MouseArea { id: mouse; anchors.fill: parent; onClicked: row.clicked() }
 }
