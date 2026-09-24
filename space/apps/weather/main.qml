@@ -380,10 +380,10 @@ Item {
                     delegate: Rectangle {
                         required property var modelData
                         readonly property bool sel: root.fcTab === modelData.k
-                        width: root.f(200); height: root.f(58); radius: height / 2
+                        width: root.f(250); height: root.f(72); radius: height / 2
                         color: sel ? root.ink : "transparent"
                         border.color: sel ? root.ink : root.line; border.width: 1
-                        Text { anchors.centerIn: parent; text: modelData.n; font.pixelSize: root.f(23)
+                        Text { anchors.centerIn: parent; text: modelData.n; font.pixelSize: root.f(30)
                                color: parent.sel ? "white" : root.ink2 }
                         MouseArea { anchors.fill: parent; onClicked: root.fcTab = modelData.k }
                     }
@@ -395,17 +395,18 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: root.fcTab === "hourly" && !!root.wx
                 text: root.wx ? (root.wx.date.substring(5, 7) + "月" + root.wx.date.substring(8, 10) + "日 " + W.weekday(root.wx.date)) : ""
-                font.pixelSize: root.f(21); color: root.ink2
+                font.pixelSize: root.f(28); color: root.ink2
             }
             Rectangle {
                 anchors.top: fcDate.visible ? fcDate.bottom : seg.bottom
                 anchors.topMargin: root.u(12)
                 anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
                 anchors.bottomMargin: root.u(10)
-                radius: 14; color: root.card; border.color: root.line; border.width: 1; clip: true
+                color: "transparent"; clip: true
 
                 // 逐小时
                 Flickable {
+                    id: hourFlick
                     visible: root.fcTab === "hourly"
                     anchors.fill: parent; anchors.margins: root.u(6)
                     contentWidth: width; contentHeight: hourCol.height; clip: true
@@ -417,17 +418,17 @@ Item {
                             delegate: Item {
                                 required property var modelData
                                 required property int index
-                                width: hourCol.width; height: root.u(78)
+                                width: hourCol.width; height: root.u(104)
                                 Text { x: root.u(24); anchors.verticalCenter: parent.verticalCenter
-                                       text: modelData.time; font.pixelSize: root.f(24); color: index === 0 ? root.ink : root.ink2 }
+                                       text: modelData.time; font.pixelSize: root.f(32); color: index === 0 ? root.ink : root.ink2 }
                                 Image {
                                     anchors.centerIn: parent
-                                    width: root.f(40); height: width; sourceSize.width: 80; sourceSize.height: 80
+                                    width: root.f(54); height: width; sourceSize.width: 110; sourceSize.height: 110
                                     source: root.icon(modelData.code, modelData.day); fillMode: Image.PreserveAspectFit
                                 }
                                 Text {
                                     anchors.right: parent.right; anchors.rightMargin: root.u(24); anchors.verticalCenter: parent.verticalCenter
-                                    text: root.t(modelData.temp) + "°"; font.pixelSize: root.f(25); color: root.ink
+                                    text: root.t(modelData.temp) + "°"; font.pixelSize: root.f(34); color: root.ink
                                 }
                                 Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
                                             anchors.leftMargin: root.u(20); anchors.rightMargin: root.u(20)
@@ -439,6 +440,7 @@ Item {
 
                 // 未来 7 天
                 Flickable {
+                    id: dayFlick
                     visible: root.fcTab === "daily"
                     anchors.fill: parent; anchors.margins: root.u(6)
                     contentWidth: width; contentHeight: dayCol.height; clip: true
@@ -450,27 +452,32 @@ Item {
                             delegate: Item {
                                 required property var modelData
                                 required property int index
-                                width: dayCol.width; height: root.u(104)
+                                width: dayCol.width
+                                // 七行按可用高度均分, 页面不留空白
+                                height: {
+                                    var n = root.wx && root.wx.days ? root.wx.days.length : 0
+                                    return n > 0 ? Math.floor(dayFlick.height / n) : root.u(104)
+                                }
                                 Column {
-                                    x: root.u(24); anchors.verticalCenter: parent.verticalCenter; spacing: 2
-                                    Text { text: index === 0 ? "今天" : W.weekday(modelData.date); font.pixelSize: root.f(25); color: root.ink }
-                                    Text { text: W.mmdd(modelData.date); font.pixelSize: root.f(19); color: root.ink2 }
+                                    x: root.u(24); anchors.verticalCenter: parent.verticalCenter; spacing: root.u(4)
+                                    Text { text: index === 0 ? "今天" : W.weekday(modelData.date); font.pixelSize: root.f(34); color: root.ink }
+                                    Text { text: W.mmdd(modelData.date); font.pixelSize: root.f(26); color: root.ink2 }
                                 }
                                 Image {
                                     anchors.horizontalCenter: parent.horizontalCenter; anchors.horizontalCenterOffset: -root.u(40)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: root.f(44); height: width; sourceSize.width: 88; sourceSize.height: 88
+                                    width: root.f(62); height: width; sourceSize.width: 124; sourceSize.height: 124
                                     source: root.icon(modelData.code, true); fillMode: Image.PreserveAspectFit
                                 }
                                 Column {
                                     anchors.right: parent.right; anchors.rightMargin: root.u(24)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 2
+                                    spacing: root.u(4)
                                     Text { anchors.right: parent.right
                                            text: root.t(modelData.lo) + "° / " + root.t(modelData.hi) + "°"
-                                           font.pixelSize: root.f(24); color: root.ink }
+                                           font.pixelSize: root.f(34); color: root.ink }
                                     Text { anchors.right: parent.right; text: W.codeText(modelData.code)
-                                           font.pixelSize: root.f(20); color: root.ink2 }
+                                           font.pixelSize: root.f(28); color: root.ink2 }
                                 }
                                 Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
                                             anchors.leftMargin: root.u(20); anchors.rightMargin: root.u(20)
