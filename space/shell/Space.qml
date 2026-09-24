@@ -355,11 +355,14 @@ Rectangle {
         height: space.px(180)
         // 返回只留一个 "<" 并入标题行: 原来单占一行加"返回"二字, 白吃 70px,
         // 又与整页的克制气质不搭。退出空间在设置里也有一条, 这里是一步直达。
+        // < 不是主角: 挪到内容边距之外、贴近屏幕左沿, 把内容左边界让给标题,
+        // 让"空间"与下面所有卡片的左边对齐。
         Image {
             id: backChevron
             anchors.left: parent.left
+            anchors.leftMargin: space.px(16) - space.margin
             anchors.verticalCenter: pageTitle.verticalCenter
-            width: space.fpx(40); height: width
+            width: space.fpx(34); height: width
             sourceSize.width: width; sourceSize.height: width
             source: space.kitDir + "/icons/caret-right.svg"
             rotation: 180
@@ -368,7 +371,7 @@ Rectangle {
         }
         Text {
             id: pageTitle
-            x: backChevron.width + space.px(18)
+            x: 0
             y: space.px(42)
             text: space.tabTitle()
             font.pixelSize: space.fpx(56)
