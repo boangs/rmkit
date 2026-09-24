@@ -41,6 +41,22 @@ for f in "$SRC"/*; do
     -alpha off -compose CopyOpacity -composite "$TMP/overlay.png"
   magick "$f" "$TMP/overlay.png" -gravity north -compose over -composite \
     -quality "$QUALITY" "$OUT/$b.jpg"
+
+  # 首页大卡用的横幅: 竖图塞进 4.45:1 的横带只能取很薄一片, 取在天空那段就是一片白。
+  # 所以单独裁画面下部内容最实的一段, 再给它自己烤一条上缘渐隐。
+  h=$(magick identify -format '%h' "$f")
+  bh=$((h * 18 / 100))                 # 横幅高度约占原图一成八
+  by=$((h * 68 / 100))                 # 从纵向 68% 处起裁 (远山与近景之间)
+  bf=$((bh * 45 / 100))                # 渐隐占横幅高度的四成五
+  magick -size "${w}x${bf}" xc:white \
+    \( -size "${w}x${bf}" gradient:white-black \
+       \( -size "${w}x${bf}" plasma:fractal -colorspace gray -auto-level -blur 0x8 -auto-level \) \
+       -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
+       -sigmoidal-contrast 7,52% \) \
+    -alpha off -compose CopyOpacity -composite "$TMP/boverlay.png"
+  magick "$f" -crop "${w}x${bh}+0+${by}" +repage \
+    "$TMP/boverlay.png" -gravity north -compose over -composite \
+    -quality "$QUALITY" "$OUT/$b-band.jpg"
   n=$((n + 1))
 done
 echo "✓ $n 张 → $OUT (上缘 ${FADE}px 不规则洇开已烤入, 噪声 ${ROUGH}%)"
