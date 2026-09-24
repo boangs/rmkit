@@ -26,6 +26,7 @@ import (
 //	POST   /space/apps/{id}/service/stop    收掉后台
 //	GET    /space/apps/{id}/data/{key}      读应用数据 (JSON, 存在 dataDir/<key>.json; 纯 QML 应用的持久化)
 //	PUT    /space/apps/{id}/data/{key}      写应用数据 (body 是 JSON, ≤1MB)
+//	GET    /space/recent                    最近在读的文档 (书名/页码/进度, 取自 xochitl 元数据)
 type Handler struct {
 	Reg *Registry
 	Sup *Supervisor
@@ -63,6 +64,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /space/apps/{id}/data/{key}", h.dataGet)
 	mux.HandleFunc("PUT /space/apps/{id}/data/{key}", h.dataPut)
 	mux.HandleFunc("GET /space/store", h.store)
+	mux.HandleFunc("GET /space/recent", h.recent)
 }
 
 var dataKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
