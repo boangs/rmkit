@@ -382,7 +382,7 @@ Rectangle {
             anchors.top: pageTitle.bottom
             anchors.topMargin: 6
             text: space.tabSubtitle()
-            font.pixelSize: space.fpx(24)
+            font.pixelSize: space.fpx(30)
             color: "#1A1A18"
         }
         Image {
