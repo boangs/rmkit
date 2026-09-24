@@ -352,24 +352,30 @@ Rectangle {
         anchors.right: parent.right
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
-        height: space.px(250)
-        IconButton {
-            anchors.top: parent.top
-            anchors.topMargin: 10
+        height: space.px(180)
+        // 返回只留一个 "<" 并入标题行: 原来单占一行加"返回"二字, 白吃 70px,
+        // 又与整页的克制气质不搭。退出空间在设置里也有一条, 这里是一步直达。
+        Image {
+            id: backChevron
             anchors.left: parent.left
-            anchors.leftMargin: 10 - space.margin
-            iconSource: "qrc:/ark/icons/chevron_left"
-            title: "返回"
-            onClicked: space.close()
+            anchors.verticalCenter: pageTitle.verticalCenter
+            width: space.fpx(40); height: width
+            sourceSize.width: width; sourceSize.height: width
+            source: space.kitDir + "/icons/caret-right.svg"
+            rotation: 180
+            fillMode: Image.PreserveAspectFit
+            MouseArea { anchors.fill: parent; anchors.margins: -20; onClicked: space.close() }
         }
         Text {
             id: pageTitle
-            y: space.px(104)
+            x: backChevron.width + space.px(18)
+            y: space.px(42)
             text: space.tabTitle()
             font.pixelSize: space.fpx(56)
             font.weight: Font.Medium
         }
         Text {
+            x: pageTitle.x
             anchors.top: pageTitle.bottom
             anchors.topMargin: 6
             text: space.tabSubtitle()
@@ -377,19 +383,9 @@ Rectangle {
             color: "#1A1A18"
         }
         Image {
-            visible: space.tab === "home"
-            anchors.right: parent.right
-            y: space.px(112)
-            width: space.fpx(44); height: width
-            source: space.kitDir + "/icons/gear.svg"
-            fillMode: Image.PreserveAspectFit
-            sourceSize.width: width; sourceSize.height: width
-            MouseArea { anchors.fill: parent; anchors.margins: -16; onClicked: space.tab = "settings" }
-        }
-        Image {
             visible: space.tab !== "home"
             anchors.right: parent.right
-            y: space.px(112)
+            anchors.verticalCenter: pageTitle.verticalCenter
             width: space.fpx(44); height: width
             source: "qrc:/ark/icons/restore"
             fillMode: Image.PreserveAspectFit
