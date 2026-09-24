@@ -61,12 +61,16 @@ Item {
     function icon(code, day) { return dir + W.codeIcon(code, day) + ".svg" }
 
     // ─── 数据 ───
+    // 本地缓存读完才算"可以画了"。在此之前首页整块不显示:
+    // 否则先画一次没数据的空壳, 缓存回来再重排一次, 墨水屏就白闪一遍。
+    property bool ready: false
     function load() {
         space.dataGet(space.appId, "config", function(st, r) {
             cfg = (st === 200 && r && r.cities && r.cities.length) ? r : W.DEFAULT_CONFIG
             space.dataGet(space.appId, "cache", function(st2, r2) {
                 cache = (st2 === 200 && r2) ? r2 : ({})
                 show()
+                ready = true
                 if (!wx || Date.now() - wx.at > cfg.refresh * 1000) refresh()
             })
         })
@@ -220,7 +224,7 @@ Item {
 
         // ─────── 首页 (版式按概念图: 插画整幅铺底, 温度与文字压在天空上) ───────
         Item {
-            visible: root.tab === "home"
+            visible: root.tab === "home" && root.ready
             anchors.fill: parent
 
             // 插画: 从内容区顶部一直铺到速览行, 顶部对齐 (画的上半是天, 正好垫文字)
@@ -350,6 +354,10 @@ Item {
                 id: adviceText
                 anchors.left: parent.left; anchors.right: parent.right
                 anchors.bottom: parent.bottom; anchors.bottomMargin: root.u(20)
+                // 高度写死一行: 文字空着时高度归零会把上面那条细线拽下去,
+                // 数据回来又弹回去, 等于多刷一次屏。
+                height: root.f(36) * 1.5
+                verticalAlignment: Text.AlignVCenter
                 text: root.wx ? root.wx.advice : ""
                 font.pixelSize: root.f(36); color: root.ink; wrapMode: Text.WordWrap
             }
