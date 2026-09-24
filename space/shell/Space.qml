@@ -571,35 +571,6 @@ Rectangle {
                     }
                 }
 
-                // (旧版独立卡片, 已并入上面的「正在进行」)
-                GridLayout {
-                    visible: false
-                    Layout.fillWidth: true
-                    columns: space.largeScreen ? 3 : 2
-                    rowSpacing: space.px(24)
-                    columnSpacing: space.px(24)
-                    visible: space.halfWidgetApps().length > 0
-                    Repeater {
-                        model: space.halfWidgetApps()
-                        delegate: Rectangle {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: space.px(230)
-                            radius: 12
-                            border.color: "#B4AFA6"
-                            border.width: 1
-                            color: "white"
-                            clip: true
-                            // 小组件拿到自己的注册表条目 (app.serviceUrl 等), 因为 api 上的 serviceUrl 指的是"正在打开的应用"
-                            Item {
-                                id: halfHost
-                                anchors.fill: parent
-                                property var wItem: null
-                                Component.onCompleted: space.mountWidget(halfHost, modelData)
-                            }
-                        }
-                    }
-                }
 
                 RowLayout {
                     Layout.fillWidth: true
