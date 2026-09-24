@@ -588,7 +588,7 @@ Rectangle {
                                 delegate: Item {
                                     required property var modelData
                                     width: parent.width
-                                    height: space.px(104)
+                                    height: space.px(92)
                                     property var wItem: null
                                     Component.onCompleted: space.mountWidget(this, modelData)
                                 }
