@@ -37,7 +37,7 @@ Item {
             visible: row.detail !== ""
             text: row.detail
             font.pixelSize: Math.round(22 * row.ui)
-            color: "#4A4842"
+            color: "#26251F"
         }
         Image {
             visible: row.showArrow

@@ -356,7 +356,7 @@ Rectangle {
             anchors.topMargin: 6
             text: space.tabSubtitle()
             font.pixelSize: space.fpx(24)
-            color: "#3A3A36"
+            color: "#1A1A18"
         }
         Image {
             visible: space.tab === "home"
@@ -448,7 +448,7 @@ Rectangle {
                             spacing: 8
                             Text { text: space.dateLine(); font.pixelSize: space.fpx(26); color: "#262626" }
                             Text { text: Qt.formatTime(space.localNow(), "HH:mm"); font.pixelSize: space.fpx(88); font.weight: Font.Light }
-                            Text { text: "今天也是安静的一天。"; font.pixelSize: space.fpx(22); color: "#4A4842" }
+                            Text { text: "今天也是安静的一天。"; font.pixelSize: space.fpx(22); color: "#26251F" }
                         }
                         Rectangle {
                             anchors.right: parent.right
@@ -599,24 +599,24 @@ Rectangle {
                         anchors.centerIn: parent
                         spacing: 8
                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: "让好工具"; font.pixelSize: space.fpx(34); font.weight: Font.Medium }
-                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "陪伴更好的你"; font.pixelSize: space.fpx(24); color: "#3A3A36" }
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "陪伴更好的你"; font.pixelSize: space.fpx(24); color: "#1A1A18" }
                     }
                 }
                 Text {
                     visible: !space.storeLoaded
                     text: "正在获取应用列表…"
-                    font.pixelSize: space.fpx(24); color: "#3A3A36"
+                    font.pixelSize: space.fpx(24); color: "#1A1A18"
                 }
                 Text {
                     visible: space.storeError !== ""
                     Layout.fillWidth: true
                     text: space.storeError + "\n应用商店需要联网。也可以用手机扫码上传应用包 (zip) 安装。"
-                    font.pixelSize: space.fpx(24); color: "#3A3A36"; wrapMode: Text.WordWrap
+                    font.pixelSize: space.fpx(24); color: "#1A1A18"; wrapMode: Text.WordWrap
                 }
                 Text {
                     visible: space.storeLoaded && space.storeError === "" && space.storeApps.length === 0
                     text: "商店里还没有应用。"
-                    font.pixelSize: space.fpx(24); color: "#3A3A36"
+                    font.pixelSize: space.fpx(24); color: "#1A1A18"
                 }
                 Repeater {
                     model: space.storeApps
@@ -640,7 +640,7 @@ Rectangle {
                                 Text { text: storeRow.modelData.name || storeRow.modelData.id; font.pixelSize: space.fpx(28); elide: Text.ElideRight; Layout.fillWidth: true }
                                 Text {
                                     text: (storeRow.modelData.description || "") + "  v" + (storeRow.modelData.version || "")
-                                    font.pixelSize: space.fpx(22); color: "#4A4842"; elide: Text.ElideRight; Layout.fillWidth: true
+                                    font.pixelSize: space.fpx(22); color: "#26251F"; elide: Text.ElideRight; Layout.fillWidth: true
                                 }
                             }
                             Kit.SButton {
@@ -751,7 +751,7 @@ Rectangle {
                             text: tabItem.modelData.label
                             font.pixelSize: space.fpx(22)
                             font.weight: tabItem.active ? Font.Medium : Font.Normal
-                            color: tabItem.active ? "#000000" : "#4A4842"
+                            color: tabItem.active ? "#000000" : "#26251F"
                         }
                         Rectangle {
                             anchors.horizontalCenter: parent.horizontalCenter

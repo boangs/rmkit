@@ -59,38 +59,38 @@ Item {
             Image {
                 anchors.verticalCenter: parent.verticalCenter
                 width: w.f(24); height: width; sourceSize.width: width; sourceSize.height: width
-                source: w.dir + "i-pin.svg"; fillMode: Image.PreserveAspectFit; opacity: 0.7
+                source: w.dir + "i-pin-fill.svg"; fillMode: Image.PreserveAspectFit
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                text: w.city().name; font.pixelSize: w.f(26); font.weight: Font.Medium; color: "#2B2B2B"
+                text: w.city().name; font.pixelSize: w.f(26); font.weight: Font.Medium; color: "#000000"
             }
         }
         Text {
             text: w.now.toLocaleDateString(Qt.locale("zh_CN"), "M月d日 dddd") + "   " + Qt.formatTime(w.now, "HH:mm")
-            font.pixelSize: w.f(21); color: "#7C786F"
+            font.pixelSize: w.f(21); color: "#1F1E1B"
         }
         Row {
             spacing: w.u(4)
-            Text { text: w.wx ? String(w.t(w.wx.temp)) : "--"; font.pixelSize: w.f(78); font.weight: Font.Light; color: "#2B2B2B" }
+            Text { text: w.wx ? String(w.t(w.wx.temp)) : "--"; font.pixelSize: w.f(78); font.weight: Font.Light; color: "#000000" }
             Text {
-                text: W.unitSign(w.cfg ? w.cfg.unit : "c"); font.pixelSize: w.f(24); color: "#2B2B2B"
+                text: W.unitSign(w.cfg ? w.cfg.unit : "c"); font.pixelSize: w.f(24); color: "#000000"
                 anchors.top: parent.top; anchors.topMargin: w.f(14)
             }
         }
         Text {
             text: w.wx ? w.wx.text : (w.err !== "" ? "暂无天气数据" : "获取中…")
-            font.pixelSize: w.f(28); font.weight: Font.Medium; color: "#2B2B2B"
+            font.pixelSize: w.f(28); font.weight: Font.Medium; color: "#000000"
         }
         Text {
             visible: !!w.wx
             text: w.wx ? ("↑ " + w.t(w.wx.hi) + "°   ↓ " + w.t(w.wx.lo) + "°   湿度 " + w.wx.humidity + "%") : ""
-            font.pixelSize: w.f(20); color: "#7C786F"
+            font.pixelSize: w.f(20); color: "#1F1E1B"
         }
         Text {
             width: w.width * 0.55
             text: w.wx ? w.wx.advice : (w.err !== "" ? w.err + "，点这里重试" : "")
-            font.pixelSize: w.f(20); color: "#7C786F"; elide: Text.ElideRight
+            font.pixelSize: w.f(20); color: "#1F1E1B"; elide: Text.ElideRight
         }
     }
 

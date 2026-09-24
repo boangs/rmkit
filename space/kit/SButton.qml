@@ -22,7 +22,7 @@ Rectangle {
         anchors.centerIn: parent
         text: btn.text
         font.pixelSize: Math.round(24 * btn.ui)
-        color: !btn.enabled ? "#4A4842" : (btn.primary ? "#ffffff" : "#111111")
+        color: !btn.enabled ? "#26251F" : (btn.primary ? "#ffffff" : "#111111")
     }
     MouseArea {
         id: mouse
