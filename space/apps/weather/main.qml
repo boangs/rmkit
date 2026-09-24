@@ -42,9 +42,9 @@ Item {
     // 墨水屏没有背光, 浅色底要靠抖动铺, 看起来就发灰。一律纯白, 层次交给描边。
     readonly property color paper: "#FFFFFF"
     readonly property color card: "#FFFFFF"
-    readonly property color line: "#D8D5CE"
+    readonly property color line: "#B4AFA6"   // 原 #D8D5CE 亮度 85%, 墨水屏上几乎看不见
     readonly property color ink: "#2B2B2B"
-    readonly property color ink2: "#55524B"   // 墨水屏本身偏灰, 次要文字也要够深
+    readonly property color ink2: "#46443E"   // 墨水屏本身偏灰, 次要文字也要够深
 
     property var cfg: null            // {cities:[…], current, unit, refresh}
     property var cache: ({})          // cityKey → wx
@@ -301,9 +301,15 @@ Item {
                 anchors.left: parent.left; anchors.right: parent.right
                 anchors.bottom: adviceText.top; anchors.bottomMargin: root.u(20)
                 height: root.u(150)
-                radius: 14; color: root.card; border.color: root.line; border.width: 1
+                color: "transparent"
+                // 书页式: 不做卡片, 只在上方压一条细线, 靠留白和分栏说话
+                Rectangle {
+                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                    height: 1; color: root.line
+                }
                 RowLayout {
-                    anchors.fill: parent; anchors.margins: root.u(10); spacing: 0
+                    anchors.fill: parent; anchors.topMargin: root.u(16); anchors.bottomMargin: root.u(6)
+                    spacing: 0
                     Repeater {
                         model: [
                             { ic: "i-wind", label: root.wx ? W.windDir(root.wx.windDeg) : "风", val: root.wx ? (W.windLevel(root.wx.wind) + " 级") : "--" },
@@ -330,7 +336,7 @@ Item {
                             Rectangle {
                                 visible: index > 0
                                 anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                width: 1; height: parent.height * 0.5; color: root.line
+                                width: 1; height: parent.height * 0.62; color: root.line
                             }
                         }
                     }
