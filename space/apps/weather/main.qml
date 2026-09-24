@@ -39,6 +39,16 @@ Item {
         }
     }
 
+    // 进应用会把上一屏 (空间首页) 的残影带进来, 退出反而干净又快。
+    // 差别在于: 退出时这个波形标记被销毁, 模式图几何一变就整屏重新合成一次,
+    // 等于做了一次彻底的清屏; 进来时没有这一下。
+    // 办法: 首帧画完后把标记闪断一次, 手动触发同样的整屏重合成。
+    function _blinkScreenMode() {
+        if (!_screenMode) return
+        _screenMode.visible = false
+        Qt.callLater(function() { if (_screenMode) _screenMode.visible = true })
+    }
+
     // 墨水屏没有背光, 浅色底要靠抖动铺, 看起来就发灰。一律纯白, 层次交给描边。
     readonly property color paper: "#FFFFFF"
     readonly property color card: "#FFFFFF"
@@ -71,6 +81,7 @@ Item {
                 cache = (st2 === 200 && r2) ? r2 : ({})
                 show()
                 ready = true
+                Qt.callLater(root._blinkScreenMode)
                 if (!wx || Date.now() - wx.at > cfg.refresh * 1000) refresh()
             })
         })
