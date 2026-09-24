@@ -53,6 +53,7 @@ type Manifest struct {
 	Entry       string   `json:"entry,omitempty"`       // 界面入口 QML (相对路径), 与 launch 二选一或同时有
 	Widget      string   `json:"widget,omitempty"`      // 首页小组件 QML (相对路径, 可选)
 	WidgetSize  string   `json:"widget_size,omitempty"` // 小组件尺寸: half (半宽, 默认) / hero (首页顶部整宽大卡)
+	WidgetSlot  string   `json:"widget_slot,omitempty"` // 指定首页位置: plan (今日计划那张卡); 不填就进「正在进行」
 	Category    string   `json:"category,omitempty"`    // system / settings / reader / tool / game / other
 	Order       int      `json:"order,omitempty"`       // 同类内排序 (小的在前)
 	Arch        []string `json:"arch,omitempty"`        // 支持的架构: aarch64 / armv7; 空 = 都支持

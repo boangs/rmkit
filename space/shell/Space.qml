@@ -174,6 +174,15 @@ Rectangle {
         return l.length > n ? l.slice(0, n) : l
     }
     function settingsApps() { return filterApps(isSetting) }
+    // 声明了 widget_slot 的小组件由外壳指定位置 (如 "plan" → 今日计划那张卡)
+    function slotWidgetApp(slot) {
+        var l = filterApps(function(a) { return a.widgetUrl && a.widget_slot === slot && !a.error })
+        return l.length ? l[0] : null
+    }
+    // 没指定位置的半宽小组件, 统一进「正在进行」
+    function plainWidgetApps() {
+        return filterApps(function(a) { return a.widgetUrl && a.widget_size !== "hero" && !a.widget_slot && !a.error })
+    }
 
     function openById(id) {
         for (var i = 0; i < apps.length; i++) if (apps[i].id === id) { open(apps[i]); return }
@@ -477,100 +486,107 @@ Rectangle {
                     }
                 }
 
-                // ── 正在进行: 最近在读 + 半宽小组件 (音乐等) ──────────────────
-                // 最近在读来自 /space/recent, 后端直接读 xochitl 的文档元数据,
-                // 不需要应用配合, 也不动 xochitl。
-                Rectangle {
+                // ── 今日计划 / 正在进行: 左右两张卡 (照概念图) ────────────────
+                // 左卡交给声明了 widget_slot: "plan" 的应用; 没装就显示引导。
+                // 右卡是外壳自带: 最近在读 (/space/recent, 读 xochitl 元数据) + 其余半宽小组件。
+                GridLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(96) + (recentRow.visible ? space.px(104) : 0)
-                                            + (halfGrid.visible ? space.px(230) : 0)
-                    visible: recentRow.visible || halfGrid.visible
-                    radius: 12
-                    border.color: "#B4AFA6"; border.width: 1
-                    color: "white"
-                    clip: true
+                    columns: 2
+                    columnSpacing: space.px(24)
+                    rowSpacing: space.px(24)
 
-                    Column {
-                        anchors.fill: parent
-                        anchors.margins: space.px(22)
-                        spacing: space.px(10)
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: space.px(300)
+                        radius: 12; border.color: "#B4AFA6"; border.width: 1; color: "white"; clip: true
+                        readonly property var planApp: space.slotWidgetApp("plan")
 
-                        Text { text: "正在进行"; font.pixelSize: space.fpx(28); font.weight: Font.Medium; color: "#000000" }
-
-                        // 最近在读
-                        Item {
-                            id: recentRow
-                            width: parent.width
-                            height: space.px(92)
-                            visible: space.recentDoc !== null
-                            Image {
-                                id: bookIcon
-                                anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
-                                width: space.fpx(46); height: width
-                                sourceSize.width: width; sourceSize.height: width
-                                source: space.kitDir + "/icons/folder.svg"
-                                fillMode: Image.PreserveAspectFit
+                        Column {
+                            anchors.fill: parent; anchors.margins: space.px(22); spacing: space.px(12)
+                            visible: parent.planApp === null
+                            Text { text: "今日计划"; font.pixelSize: space.fpx(28); font.weight: Font.Medium; color: "#000000" }
+                            Text {
+                                width: parent.width
+                                text: "还没装计划应用。到「发现」里安装后，今天要做的事会显示在这里。"
+                                font.pixelSize: space.fpx(22); color: "#1F1E1B"; wrapMode: Text.WordWrap
                             }
-                            Column {
-                                anchors.left: bookIcon.right; anchors.leftMargin: space.px(18)
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: space.px(8)
-                                Text {
-                                    width: parent.width
-                                    text: space.recentDoc ? space.recentDoc.name : ""
-                                    font.pixelSize: space.fpx(26); color: "#000000"; elide: Text.ElideRight
-                                }
-                                Text {
-                                    text: space.recentDoc && space.recentDoc.pages > 0
-                                          ? ("阅读进度 " + space.recentDoc.percent + "%   第 " + space.recentDoc.page + " / " + space.recentDoc.pages + " 页")
-                                          : (space.recentDoc ? ("第 " + space.recentDoc.page + " 页") : "")
-                                    font.pixelSize: space.fpx(22); color: "#1F1E1B"
-                                }
-                                Rectangle {
-                                    width: parent.width; height: 4; radius: 2; color: "#C4BFB6"
-                                    visible: !!space.recentDoc && space.recentDoc.pages > 0
+                        }
+                        Item {
+                            id: planHost
+                            anchors.fill: parent
+                            property var wItem: null
+                            visible: parent.planApp !== null
+                            onVisibleChanged: if (visible) space.mountWidget(planHost, parent.planApp)
+                            Component.onCompleted: if (parent.planApp) space.mountWidget(planHost, parent.planApp)
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            visible: parent.planApp === null
+                            onClicked: space.tab = "discover"
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: space.px(300)
+                        radius: 12; border.color: "#B4AFA6"; border.width: 1; color: "white"; clip: true
+                        readonly property bool hasRecent: space.recentDoc !== null
+                        readonly property bool hasHalf: space.plainWidgetApps().length > 0
+
+                        Column {
+                            anchors.fill: parent; anchors.margins: space.px(22); spacing: space.px(10)
+                            Text { text: "正在进行"; font.pixelSize: space.fpx(28); font.weight: Font.Medium; color: "#000000" }
+
+                            Item {
+                                width: parent.width
+                                height: space.px(92)
+                                visible: parent.parent.hasRecent
+                                Column {
+                                    anchors.left: parent.left; anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: space.px(8)
+                                    Text {
+                                        width: parent.width
+                                        text: space.recentDoc ? space.recentDoc.name : ""
+                                        font.pixelSize: space.fpx(25); color: "#000000"; elide: Text.ElideRight
+                                    }
+                                    Text {
+                                        text: space.recentDoc && space.recentDoc.pages > 0
+                                              ? ("阅读进度 " + space.recentDoc.percent + "%")
+                                              : (space.recentDoc ? ("第 " + space.recentDoc.page + " 页") : "")
+                                        font.pixelSize: space.fpx(21); color: "#1F1E1B"
+                                    }
                                     Rectangle {
-                                        anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
-                                        width: Math.max(4, parent.width * (space.recentDoc ? space.recentDoc.percent : 0) / 100)
-                                        radius: 2; color: "#000000"
+                                        width: parent.width; height: 4; radius: 2; color: "#C4BFB6"
+                                        visible: !!space.recentDoc && space.recentDoc.pages > 0
+                                        Rectangle {
+                                            anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                            width: Math.max(4, parent.width * (space.recentDoc ? space.recentDoc.percent : 0) / 100)
+                                            radius: 2; color: "#000000"
+                                        }
                                     }
                                 }
+                                MouseArea { anchors.fill: parent; onClicked: space.exit() }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: space.exit() }
-                        }
 
-                        Rectangle {
-                            width: parent.width; height: 1; color: "#C4BFB6"
-                            visible: recentRow.visible && halfGrid.visible
-                        }
+                            Rectangle {
+                                width: parent.width; height: 1; color: "#C4BFB6"
+                                visible: parent.parent.hasRecent && parent.parent.hasHalf
+                            }
 
-                        // 半宽小组件由各应用的 widget.qml 提供
-                        GridLayout {
-                            id: halfGrid
-                            width: parent.width
-                            columns: space.largeScreen ? 2 : 1
-                            rowSpacing: space.px(12)
-                            columnSpacing: space.px(24)
-                            visible: space.halfWidgetApps().length > 0
                             Repeater {
-                                model: space.halfWidgetApps()
+                                model: space.plainWidgetApps()
                                 delegate: Item {
                                     required property var modelData
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: space.px(200)
-                                    clip: true
-                                    Item {
-                                        id: halfHost2
-                                        anchors.fill: parent
-                                        Component.onCompleted: space.mountWidget(halfHost2, modelData)
-                                    }
+                                    width: parent.width
+                                    height: space.px(104)
+                                    property var wItem: null
+                                    Component.onCompleted: space.mountWidget(this, modelData)
                                 }
                             }
                         }
                     }
                 }
-
 
                 RowLayout {
                     Layout.fillWidth: true
