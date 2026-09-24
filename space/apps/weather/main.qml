@@ -45,7 +45,7 @@ Item {
     readonly property color paper: "#FFFFFF"
     readonly property color card: "#FFFFFF"
     readonly property color line: "#B4AFA6"   // 原 #D8D5CE 亮度 85%, 墨水屏上几乎看不见
-    readonly property color ink: "#2B2B2B"
+    readonly property color ink: "#000000"   // 关键信息一律纯黑, 墨水屏上深灰会往灰里塌
     readonly property color ink2: "#46443E"   // 墨水屏本身偏灰, 次要文字也要够深
 
     property var cfg: null            // {cities:[…], current, unit, refresh}
@@ -295,7 +295,7 @@ Item {
                     Text {
                         visible: !!root.wx
                         text: root.wx ? ("体感 " + root.t(root.wx.feels) + "°   ↑ " + root.t(root.wx.hi) + "°  ↓ " + root.t(root.wx.lo) + "°") : ""
-                        font.pixelSize: root.f(34); color: root.ink2
+                        font.pixelSize: root.f(34); color: root.ink
                     }
                 }
                 Item { Layout.fillWidth: true }
@@ -420,7 +420,7 @@ Item {
                                 required property int index
                                 width: hourCol.width; height: root.u(104)
                                 Text { x: root.u(24); anchors.verticalCenter: parent.verticalCenter
-                                       text: modelData.time; font.pixelSize: root.f(32); color: index === 0 ? root.ink : root.ink2 }
+                                       text: modelData.time; font.pixelSize: root.f(32); color: root.ink }
                                 Image {
                                     anchors.centerIn: parent
                                     width: root.f(54); height: width; sourceSize.width: 110; sourceSize.height: 110
@@ -477,7 +477,7 @@ Item {
                                            text: root.t(modelData.lo) + "° / " + root.t(modelData.hi) + "°"
                                            font.pixelSize: root.f(34); color: root.ink }
                                     Text { anchors.right: parent.right; text: W.codeText(modelData.code)
-                                           font.pixelSize: root.f(28); color: root.ink2 }
+                                           font.pixelSize: root.f(28); color: root.ink }
                                 }
                                 Rectangle { anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
                                             anchors.leftMargin: root.u(20); anchors.rightMargin: root.u(20)
