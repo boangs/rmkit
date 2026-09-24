@@ -352,7 +352,9 @@ Rectangle {
         anchors.right: parent.right
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
-        height: space.px(214)   // 副标题到下面内容之间留出与块间距相称的呼吸
+        // 高度 = 副标题底 + 24, 与页面里其它块的间距一致:
+        // 标题 y 42 + 标题高 ~78 + 6 + 副标题高 ~42 = 168, 再留 24
+        height: space.px(192)
         // 返回只留一个 "<" 并入标题行: 原来单占一行加"返回"二字, 白吃 70px,
         // 又与整页的克制气质不搭。退出空间在设置里也有一条, 这里是一步直达。
         // < 不是主角: 挪到内容边距之外、贴近屏幕左沿, 把内容左边界让给标题,
@@ -449,7 +451,7 @@ Rectangle {
                 // 顶部大卡: 日期 + 时间; 装了 hero 小组件 (如天气) 则由它整卡接管
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(456)
+                    Layout.preferredHeight: space.px(514)
                     radius: 12
                     border.color: "#B4AFA6"
                     border.width: 1
@@ -634,8 +636,8 @@ Rectangle {
                         delegate: Kit.STile {
                             required property var modelData
                             Layout.fillWidth: true
-                            Layout.preferredHeight: space.px(156)
-                            iconSize: space.fpx(58)
+                            Layout.preferredHeight: space.px(170)
+                            iconSize: space.fpx(62)
                             labelSize: space.fpx(26)
                             iconSource: modelData.iconUrl || ""
                             label: modelData.name
