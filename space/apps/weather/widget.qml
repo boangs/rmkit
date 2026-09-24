@@ -54,7 +54,7 @@ Item {
     Item {
         id: band
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-        height: Math.round(parent.height * 0.42)
+        height: Math.round(parent.height * 0.47)
         clip: true
         Image {
             anchors.fill: parent
@@ -79,6 +79,20 @@ Item {
                 source = w.dir + chain[step]
             }
         }
+    }
+
+    // 盖掉横幅在圆角外露出的方角
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        radius: 12
+        border.color: "white"; border.width: 6
+    }
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        radius: 12
+        border.color: "#B4AFA6"; border.width: 1
     }
 
     // ── 左: 日期 + 时间 + 一句话 ──────────────────────────────────

@@ -450,7 +450,7 @@ Rectangle {
                 // 顶部大卡: 日期 + 时间; 装了 hero 小组件 (如天气) 则由它整卡接管
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(440)
+                    Layout.preferredHeight: space.px(540)
                     radius: 12
                     border.color: "#B4AFA6"
                     border.width: 1
