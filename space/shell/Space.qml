@@ -352,7 +352,7 @@ Rectangle {
         anchors.right: parent.right
         anchors.leftMargin: space.margin
         anchors.rightMargin: space.margin
-        height: space.px(180)
+        height: space.px(214)   // 副标题到下面内容之间留出与块间距相称的呼吸
         // 返回只留一个 "<" 并入标题行: 原来单占一行加"返回"二字, 白吃 70px,
         // 又与整页的克制气质不搭。退出空间在设置里也有一条, 这里是一步直达。
         // < 不是主角: 挪到内容边距之外、贴近屏幕左沿, 把内容左边界让给标题,
@@ -449,7 +449,7 @@ Rectangle {
                 // 顶部大卡: 日期 + 时间; 装了 hero 小组件 (如天气) 则由它整卡接管
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: space.px(490)
+                    Layout.preferredHeight: space.px(456)
                     radius: 12
                     border.color: "#B4AFA6"
                     border.width: 1
