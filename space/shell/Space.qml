@@ -529,16 +529,16 @@ Rectangle {
                     id: homeGrid
                     Layout.fillWidth: true
                     columns: space.cols(width, 200)
-                    rowSpacing: space.px(20)
-                    columnSpacing: space.px(20)
+                    rowSpacing: space.px(24)
+                    columnSpacing: space.px(24)
                     Repeater {
                         model: space.homeApps()
                         delegate: Kit.STile {
                             required property var modelData
                             Layout.fillWidth: true
-                            Layout.preferredHeight: space.px(120)
-                            iconSize: space.fpx(44)
-                            labelSize: space.fpx(22)
+                            Layout.preferredHeight: space.px(156)
+                            iconSize: space.fpx(58)
+                            labelSize: space.fpx(26)
                             iconSource: modelData.iconUrl || ""
                             label: modelData.name
                             onClicked: space.open(modelData)
@@ -566,9 +566,9 @@ Rectangle {
                     delegate: Kit.STile {
                         required property var modelData
                         Layout.fillWidth: true
-                        Layout.preferredHeight: space.px(170)
-                        iconSize: space.fpx(56)
-                        labelSize: space.fpx(24)
+                        Layout.preferredHeight: space.px(220)
+                        iconSize: space.fpx(76)
+                        labelSize: space.fpx(28)
                         iconSource: modelData.iconUrl || ""
                         label: modelData.name
                         dimmed: !!modelData.error
