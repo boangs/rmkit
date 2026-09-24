@@ -46,7 +46,7 @@ Item {
     readonly property color card: "#FFFFFF"
     readonly property color line: "#B4AFA6"   // 原 #D8D5CE 亮度 85%, 墨水屏上几乎看不见
     readonly property color ink: "#000000"   // 关键信息一律纯黑, 墨水屏上深灰会往灰里塌
-    readonly property color ink2: "#46443E"   // 墨水屏本身偏灰, 次要文字也要够深
+    readonly property color ink2: "#1F1E1B"   // 这块屏显示出来本就发灰, 次要文字只比正文浅一点点就够
 
     property var cfg: null            // {cities:[…], current, unit, refresh}
     property var cache: ({})          // cityKey → wx
