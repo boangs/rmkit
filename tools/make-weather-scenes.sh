@@ -5,6 +5,11 @@
 # 墨水屏要为这片中间调做抖动, 又是局部刷新, 结果是又脏又留上一屏的残影。
 # 把渐变直接画进 JPEG, 屏幕上就是一张普通的不透明图, 没有合成, 也就没有这些问题。
 #
+# 渐隐的曲线: 用 pow 2 (缓出), 不用 sigmoidal。
+# sigmoidal 在末端有个肩部, 透明度到 0 时斜率不为零, 压在平坦的天空上就会留下
+# 一条横贯整幅的淡台阶 (实测亮度从 916 跳到 894, 肉眼就是一条分界线)。
+# pow 2 落到 0 时斜率也是 0, 接得上, 看不出边。
+#
 # 为什么边缘要做成不规则: 进出应用时墨水屏整屏闪黑刷新, 画面里任何一条直的明暗分界
 # 都会在刷新过程中被撕成一道硬线。把渐变掺进云雾状噪声, 上缘变成水墨洇开的毛边,
 # 没有直线可撕, 观感上画也像是从纸里长出来的。
@@ -37,7 +42,7 @@ for f in "$SRC"/*; do
     \( -size "${w}x${FADE}" gradient:white-black \
        \( -size "${w}x${FADE}" plasma:fractal -colorspace gray -auto-level -blur 0x12 -auto-level \) \
        -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
-       -sigmoidal-contrast 7,52% \) \
+       -evaluate pow 2 \) \
     -alpha off -compose CopyOpacity -composite "$TMP/overlay.png"
   magick "$f" "$TMP/overlay.png" -gravity north -compose over -composite \
     -quality "$QUALITY" "$OUT/$b.jpg"
@@ -52,7 +57,7 @@ for f in "$SRC"/*; do
     \( -size "${w}x${bf}" gradient:white-black \
        \( -size "${w}x${bf}" plasma:fractal -colorspace gray -auto-level -blur 0x8 -auto-level \) \
        -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
-       -sigmoidal-contrast 7,52% \) \
+       -evaluate pow 2 \) \
     -alpha off -compose CopyOpacity -composite "$TMP/boverlay.png"
   magick "$f" -crop "${w}x${bh}+0+${by}" +repage \
     "$TMP/boverlay.png" -gravity north -compose over -composite \
