@@ -19,7 +19,10 @@ set -eu
 SRC=${1:?用法: $0 <原稿目录> [输出目录]}
 OUT=${2:-$(dirname "$0")/../space/apps/weather/assets/scenes}
 FADE=${FADE:-560}     # 上缘洇开的高度 (原稿像素), 原稿高 1448 时约占四成
-ROUGH=${ROUGH:-38}    # 噪声占比 (%), 越大毛边越碎; 0 就退回一条直的渐变
+ROUGH=${ROUGH:-0}     # 噪声占比 (%), 越大毛边越碎; 0 = 一条直的渐变 (默认)
+                      # 默认关掉的原因: 墨水屏整屏闪黑时, 变黑的范围跟着画面的
+                      # 实际边缘走, 毛边就被刷成一圈锯齿状的黑, 观感比直边差很多。
+                      # 直渐变时闪黑范围是干净的矩形。
 QUALITY=${QUALITY:-85}
 
 # mkmask <宽> <高> <噪声模糊半径> <输出>
@@ -38,7 +41,8 @@ mkmask() {
     \( -size "${_w}x${_h}" gradient:white-black \
        \( -size "${_w}x${_h}" plasma:fractal -colorspace gray -auto-level \
           -blur "0x${_blur}" -auto-level \
-          -evaluate multiply 0.5 -evaluate add 75% \) \
+          -evaluate multiply "$(awk -v r="$ROUGH" 'BEGIN{printf "%.3f", r/100}')" \
+          -evaluate add "$(awk -v r="$ROUGH" 'BEGIN{printf "%d%%", 100 - r/2}')" \) \
        -compose multiply -composite \
        -level 0%,80% \
        -evaluate pow 2 \) \
@@ -77,4 +81,4 @@ for f in "$SRC"/*; do
     -quality "$QUALITY" "$OUT/$b-band.jpg"
   n=$((n + 1))
 done
-echo "✓ $n 张 → $OUT (上缘 ${FADE}px 不规则洇开已烤入, 噪声 ${ROUGH}%)"
+echo "✓ $n 张 → $OUT (上缘 ${FADE}px 渐隐已烤入 (毛边噪声 ${ROUGH}%))"
