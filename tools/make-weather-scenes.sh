@@ -22,6 +22,29 @@ FADE=${FADE:-560}     # 上缘洇开的高度 (原稿像素), 原稿高 1448 时
 ROUGH=${ROUGH:-38}    # 噪声占比 (%), 越大毛边越碎; 0 就退回一条直的渐变
 QUALITY=${QUALITY:-85}
 
+# mkmask <宽> <高> <噪声模糊半径> <输出>
+# 造一张"上不透明、下全透、边缘不规则"的白色罩子。
+#
+# 两端必须是准确的 1 和 0, 这正是上一版的毛病: 噪声是"混"进去的 (blend),
+# 于是顶端到不了 1 (画面在最上沿就透出来, 与白底之间现出一条边),
+# 底端也到不了 0 (整幅蒙着约 4% 的白纱, 到罩子高度处戛然而止, 又是一条边)。
+# 改成"乘"进去: 噪声只在 0.75~1.25 之间缩放那条线性渐变,
+#   底端 渐变=0 → 乘完仍是 0, 接得上;
+#   顶端 再用 -level 把 ≥0.8 的全部压成 1, 保证完全不透明;
+#   最后 pow 2 缓出, 归零处斜率为 0。
+mkmask() {
+  _w=$1; _h=$2; _blur=$3; _out=$4
+  magick -size "${_w}x${_h}" xc:white \
+    \( -size "${_w}x${_h}" gradient:white-black \
+       \( -size "${_w}x${_h}" plasma:fractal -colorspace gray -auto-level \
+          -blur "0x${_blur}" -auto-level \
+          -evaluate multiply 0.5 -evaluate add 75% \) \
+       -compose multiply -composite \
+       -level 0%,80% \
+       -evaluate pow 2 \) \
+    -alpha off -compose CopyOpacity -composite "$_out"
+}
+
 command -v magick >/dev/null || { echo "需要 ImageMagick (brew install imagemagick)"; exit 1; }
 mkdir -p "$OUT"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
@@ -38,12 +61,7 @@ for f in "$SRC"/*; do
   esac
   w=$(magick identify -format '%w' "$f")
   # 罩子: 纯白 + 「竖向渐变掺云雾噪声」当透明度, 上边不透明, 往下洇开到全透
-  magick -size "${w}x${FADE}" xc:white \
-    \( -size "${w}x${FADE}" gradient:white-black \
-       \( -size "${w}x${FADE}" plasma:fractal -colorspace gray -auto-level -blur 0x12 -auto-level \) \
-       -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
-       -evaluate pow 2 \) \
-    -alpha off -compose CopyOpacity -composite "$TMP/overlay.png"
+  mkmask "$w" "$FADE" 12 "$TMP/overlay.png"
   magick "$f" "$TMP/overlay.png" -gravity north -compose over -composite \
     -quality "$QUALITY" "$OUT/$b.jpg"
 
@@ -53,12 +71,7 @@ for f in "$SRC"/*; do
   bh=$((h * 18 / 100))                 # 横幅高度约占原图一成八
   by=$((h * 68 / 100))                 # 从纵向 68% 处起裁 (远山与近景之间)
   bf=$((bh * 45 / 100))                # 渐隐占横幅高度的四成五
-  magick -size "${w}x${bf}" xc:white \
-    \( -size "${w}x${bf}" gradient:white-black \
-       \( -size "${w}x${bf}" plasma:fractal -colorspace gray -auto-level -blur 0x8 -auto-level \) \
-       -compose blend -define compose:args="$((100 - ROUGH)),${ROUGH}" -composite \
-       -evaluate pow 2 \) \
-    -alpha off -compose CopyOpacity -composite "$TMP/boverlay.png"
+  mkmask "$w" "$bf" 8 "$TMP/boverlay.png"
   magick "$f" -crop "${w}x${bh}+0+${by}" +repage \
     "$TMP/boverlay.png" -gravity north -compose over -composite \
     -quality "$QUALITY" "$OUT/$b-band.jpg"
