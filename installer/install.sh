@@ -374,11 +374,18 @@ done
 
 # ─── 校验所有需部署的 binary 在本地都存在 ───────────────────────
 DIST_DIR="$SCRIPT_DIR/dist"
-# librarian 只部署到 aarch64: rm2 (3.28) 上它永远 "Library not found", 每 200ms
-# 重试一次且每次漏 ~7KB 原生堆 (实测 32 位 xochitl 每分钟涨 2MB, 数小时后
-# std::bad_alloc 崩溃); 热导入在 rm2 上本来也不工作, 停用无功能损失。
-DEPLOY_LIBRARIAN=1
-[ "$EXT_ARCH" = "armv7" ] && DEPLOY_LIBRARIAN=0
+# librarian 一律不部署。它找不到 QML 里的 Library 节点时会无限重试 (每 ~325ms 一次),
+# 每次漏 ~7KB 原生堆, 而且永远不会放弃。
+#
+# 这条最早只在 rm2 (armv7, 3.28) 上发现, 当时的结论下窄了, 以为 aarch64 没事。
+# 2026-10-02 在 RMPPM (aarch64, 3.28) 上实测同样症状: 10 分钟 1708 条
+# "Library not found", xochitl RSS +2.7MB/分钟, 连续运行 7 天后涨到 1.63GB,
+# 整机 2GB 内存只剩 24MB 可用, 打开 PDF 直接报 low on memory。
+# 结论: 不分架构, 只要 3.28 就会这样, 热导入本来也不工作, 停用无功能损失。
+#
+# 想复活热导入, 得先找到 3.28 上那个节点的新名字, 并且把"无限重试"改成
+# "失败 N 次就放弃" —— 在那之前别把它装回去。
+DEPLOY_LIBRARIAN=0
 for f in "$DIST_DIR/$UPLOAD_BIN_NAME" "$DIST_DIR/$IME_BIN_NAME" "$DIST_DIR/$IME_HOOK_NAME" \
          "$DIST_DIR/$QMD_TOOL_NAME" \
          "$SCRIPT_DIR/vendor/extensions/xovi-message-broker-${EXT_ARCH}.so"; do
