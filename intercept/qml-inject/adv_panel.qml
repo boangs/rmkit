@@ -6,6 +6,7 @@ import QtQuick.Layouts
             Rectangle {
                 id: _rmhAdvancedPanel
                 objectName: "_rmhAdvancedPanel"
+                onVisibleChanged: if (visible) _rmhAdvancedPanel.loadCaps()
                 anchors.fill: parent
                 color: "white"
                 visible: true
@@ -276,6 +277,7 @@ import QtQuick.Layouts
 
                             // 卡片 1: 扫码上传
                             Rectangle {
+                                visible: _rmhAdvancedPanel._rmhCapAndroid
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -503,6 +505,7 @@ import QtQuick.Layouts
 
                             // KOReader 卡片
                             Rectangle {
+                                visible: _rmhAdvancedPanel._rmhCapWeRead
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -2613,6 +2616,25 @@ import QtQuick.Layouts
                     x.open("POST", _rmhAdvancedPanel._rmhBaseUrl + "/apps/weread/launch")
                     x.send()
                 }
+                // 这台机器上哪些入口该显示。两张卡原来是硬编码的, 没有任何判断,
+                // 于是 rm2 (armv7, 微信读书和 Android 都没有产物) 上也会画出来, 点了只能报错。
+                // 判据在后端 (/apps/caps), 一律看"东西在不在盘上" —— 架构对了但没装, 同样不该显示。
+                property bool _rmhCapWeRead: false
+                property bool _rmhCapAndroid: false
+                function loadCaps() {
+                    var x = new XMLHttpRequest()
+                    x.onreadystatechange = function() {
+                        if (x.readyState !== 4 || x.status !== 200) return
+                        try {
+                            var r = JSON.parse(x.responseText)
+                            _rmhAdvancedPanel._rmhCapWeRead = !!r.weread
+                            _rmhAdvancedPanel._rmhCapAndroid = !!r.android
+                        } catch (e) {}
+                    }
+                    x.open("GET", _rmhAdvancedPanel._rmhBaseUrl + "/apps/caps")
+                    x.send()
+                }
+
                 function launchAndroid() {
                     // 切到 Android 槽: upload-server 执行 rootdev --switch \&\& reboot
                     var x = new XMLHttpRequest()

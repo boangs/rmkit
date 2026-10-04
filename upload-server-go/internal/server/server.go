@@ -106,6 +106,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /bt/disconnect", s.btDisconnect)
 	mux.HandleFunc("POST /bt/remove", s.btRemove)
 	mux.HandleFunc("POST /apps/android/launch", s.launchAndroid)
+	mux.HandleFunc("GET /apps/caps", s.capabilities)
 
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(s.cfg.StaticDir))))
 

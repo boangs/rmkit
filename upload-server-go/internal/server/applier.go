@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -737,4 +738,24 @@ func (s *Server) launchAndroid(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("switching to android"))
+}
+
+// capabilities 告诉界面"这台机器上哪些入口该显示"。
+//
+// 起因: 高级面板里的「微信读书」「Android」两张卡是硬编码的, 没有任何判断,
+// 于是 rm2 (armv7, 两者都不支持) 上也会画出来, 点了只能报错。
+// 判据一律用"东西在不在盘上", 不用架构 —— 架构对了但没装, 同样不该显示。
+func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
+	exists := func(p string) bool { _, err := os.Stat(p); return err == nil }
+	// Android 只在 aarch64 上有产物 (reDroid arm64); 而且必须真的装了。
+	// 不能拿 /usr/sbin/rootdev 判断 —— 那是 reMarkable 自带的 A/B 工具, 所有机型都有,
+	// 用它会让 rm2 也显示 Android 入口。
+	android := runtime.GOARCH == "arm64" &&
+		(exists(singleSlotAndroidLauncher) || exists("/home/root/android-system"))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"weread":  exists(weReadLauncher),
+		"android": android,
+		// 「空间」启动台: 外壳文件不在就别画入口 (rm2 上的安装包就没带)
+		"space": exists("/home/root/rmkit-cn/space/shell/Space.qml"),
+	})
 }
