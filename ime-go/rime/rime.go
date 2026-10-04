@@ -25,12 +25,17 @@ package rime
 // (cgo 指令不能用环境变量, 故构建时以 CGO_LDFLAGS 追加 -L, 见 Makefile)。
 #cgo arm64 LDFLAGS: -L${SRCDIR}/../../third_party/librime/lib-arm64
 #cgo arm   LDFLAGS: -L${SRCDIR}/../../third_party/librime/lib-arm
-// 全静态链接: 设备固件不带 Boost/glog 等库, 动态链接会在设备上报
-// "libboost_regex.so.1.84.0: cannot open shared object file" 起不来。
-// -Wl,-Bstatic 段内强制取 .a; Boost 用 sysroot 里的 libboost_regex.a;
+// 设备固件不带 Boost/glog, 动态链接会在设备上报 "libboost_regex.so.1.84.0:
+// cannot open shared object file" 起不来, 所以 -Wl,-Bstatic 段内强制取 .a;
 // glog 不链 (librime 以 -DENABLE_LOGGING=OFF 编译, 不需要)。
-// 最后 -Bdynamic 段留给 libc/libm/pthread 这些设备必然有的系统库。
-#cgo LDFLAGS: -Wl,-Bstatic -lrime -lyaml-cpp -lleveldb -lmarisa -lopencc -lboost_regex -lstdc++ -Wl,-Bdynamic -lm -lpthread
+//
+// libstdc++ 必须动态链接, 不能跟着静态进来 —— SDK 的 libstdc++.a 是按该 SDK 的
+// CPU 编的, chiappa SDK 那份把 std::locale 的原子操作内联成了 LSE 指令 (ARMv8.1),
+// Paper Pro (ferrari) 的 Cortex-A53 不认, 一跑就 SIGILL。设备自带
+// /usr/lib/libstdc++.so.6.0.32, 与两个 SDK 的版本一致, 动态链过去既对 ABI 又必然
+// 匹配该机 CPU。2026-10-04 在 ferrari 上实测: 静态版退出码 132 (SIGILL), 动态版正常。
+// 最后 -Bdynamic 段留给 libstdc++/libc/libm/pthread 这些设备必然有的系统库。
+#cgo LDFLAGS: -Wl,-Bstatic -lrime -lyaml-cpp -lleveldb -lmarisa -lopencc -lboost_regex -Wl,-Bdynamic -lstdc++ -lm -lpthread
 #include <rime_api.h>
 #include <stdlib.h>
 #include <stdio.h>

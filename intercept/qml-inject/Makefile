@@ -21,9 +21,16 @@ SDK_ENV := /opt/codex/chiappa/3.27.0.97/environment-setup-cortexa55-remarkable-l
 # status=4/ILL, 然后 crash loop。2026-10-04 在 ferrari 3.28 上实测复现并定位。
 # (对照: intercept/Makefile 的 ime_hook 用的是 ferrari 的 A53 SDK, 所以一直两台通用。)
 #
-# -march 写在 $CXX 之后才能覆盖它自带的 -mcpu; tune 仍留给 a55, 只影响指令调度不影响
-# 可执行性。A53 编的在 A55 上能跑, 所以一份产物两台通用, 不必按机型分发。
-ARCH_BASELINE := -march=armv8-a
+# 必须覆盖 -mcpu 而不是加 -march: 两者同时给出时 GCC 优先用 -mcpu 并只报一句
+# "conflicts with" 警告, -march 根本不生效 (实测胖库照样编出内联 LSE)。
+#
+# 改对之后产物里仍会出现 ldaddal, 但位置变了 —— 从函数体内 (如 findAncestorByClass)
+# 挪进了 __aarch64_ldadd4_acq_rel。那是 GCC 的 outline atomics 辅助函数, 入口按
+# __aarch64_have_lse_atomics 分支, A53 上走 LL/SC。所以自检只认"函数体内直接内联"的,
+# 放过 __aarch64_* 里的 (Go 二进制能在 A53 上跑也是同一个机制)。
+# crypto 保留 —— ferrari 的 cpuinfo 有 aes/pmull/sha1/sha2, 不是瓶颈也不影响兼容。
+# A53 编的在 A55 上能跑, 所以一份产物两台通用, 不必按机型分发。
+ARCH_BASELINE := -mcpu=cortex-a53+crypto
 # rm2 (armv7hf): 用最老的 3.26.0.68 SDK 编, 向前兼容 3.26+ 全部 rm2 固件
 SDK_ENV_A7 := /opt/codex/rm2/3.26.0.68/environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi
 
@@ -58,10 +65,11 @@ $(THIN): thin_hook.cpp exports.version
 	@bash -c 'source $(SDK_ENV) && $$NM -D --defined-only $@ | grep rootContext' \
 	  || { echo "✗ rootContext 没进动态符号表, LD_PRELOAD 会抢不到"; exit 1; }
 	@bash -c 'source $(SDK_ENV) && "$${OBJDUMP:-$${CROSS_COMPILE}objdump}" -d $@ \
-	  | awk "\$$1 ~ /:$$/ && NF>=3 {print \$$3}" \
+	  | awk "/^[0-9a-f]+ </ { skip = (\$$2 ~ /<__aarch64_/) } \
+	         !skip && \$$1 ~ /:$$/ && NF>=3 { print \$$3 }" \
 	  | grep -qiE "^(cas|casa|casal|casl|casp|swp|swpa|swpal|swpl|ldadd|ldadda|ldaddal|ldaddl|ldclr|ldclral|ldeor|ldeoral|ldset|ldsetal|ldsmax|ldumax)$$"' \
-	  && { echo "✗ $@ 含 LSE 原子指令 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
-	  || echo "  ✓ 无 LSE 指令, A53/A55 通用"
+	  && { echo "✗ $@ 把 LSE 原子指令直接内联进了函数体 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
+	  || echo "  ✓ 无内联 LSE, A53/A55 通用"
 	@echo "✓ 瘦 hook: $@"
 
 # ── 胖库: 由瘦 hook dlopen, 链接 Qt6 ────────────────────────────
@@ -77,10 +85,11 @@ $(IMPL): qml_inject_impl.cpp exports-impl.version
 	@bash -c 'source $(SDK_ENV) && $$NM -D --defined-only $@ | grep pw_inject' \
 	  || { echo "✗ pw_inject 没导出"; exit 1; }
 	@bash -c 'source $(SDK_ENV) && "$${OBJDUMP:-$${CROSS_COMPILE}objdump}" -d $@ \
-	  | awk "\$$1 ~ /:$$/ && NF>=3 {print \$$3}" \
+	  | awk "/^[0-9a-f]+ </ { skip = (\$$2 ~ /<__aarch64_/) } \
+	         !skip && \$$1 ~ /:$$/ && NF>=3 { print \$$3 }" \
 	  | grep -qiE "^(cas|casa|casal|casl|casp|swp|swpa|swpal|swpl|ldadd|ldadda|ldaddal|ldaddl|ldclr|ldclral|ldeor|ldeoral|ldset|ldsetal|ldsmax|ldumax)$$"' \
-	  && { echo "✗ $@ 含 LSE 原子指令 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
-	  || echo "  ✓ 无 LSE 指令, A53/A55 通用"
+	  && { echo "✗ $@ 把 LSE 原子指令直接内联进了函数体 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
+	  || echo "  ✓ 无内联 LSE, A53/A55 通用"
 	@echo "✓ 胖库: $@"
 
 # ── armv7 (rm2) 版: 同源码, 换 SDK ─────────────────────────────
@@ -90,11 +99,6 @@ $(THIN7): thin_hook.cpp exports.version
 	  -Wl,--version-script=exports.version -o $@ thin_hook.cpp -lpthread -ldl'
 	@bash -c 'source $(SDK_ENV_A7) && $$NM -D --defined-only $@ | grep rootContext' \
 	  || { echo "✗ rootContext 没进动态符号表, LD_PRELOAD 会抢不到"; exit 1; }
-	@bash -c 'source $(SDK_ENV) && "$${OBJDUMP:-$${CROSS_COMPILE}objdump}" -d $@ \
-	  | awk "\$$1 ~ /:$$/ && NF>=3 {print \$$3}" \
-	  | grep -qiE "^(cas|casa|casal|casl|casp|swp|swpa|swpal|swpl|ldadd|ldadda|ldaddal|ldaddl|ldclr|ldclral|ldeor|ldeoral|ldset|ldsetal|ldsmax|ldumax)$$"' \
-	  && { echo "✗ $@ 含 LSE 原子指令 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
-	  || echo "  ✓ 无 LSE 指令, A53/A55 通用"
 	@echo "✓ 瘦 hook: $@"
 
 $(IMPL7): qml_inject_impl.cpp exports-impl.version
@@ -106,11 +110,6 @@ $(IMPL7): qml_inject_impl.cpp exports-impl.version
 	  $$(pkg-config --libs $(QT_MODULES))'
 	@bash -c 'source $(SDK_ENV_A7) && $$NM -D --defined-only $@ | grep pw_inject' \
 	  || { echo "✗ pw_inject 没导出"; exit 1; }
-	@bash -c 'source $(SDK_ENV) && "$${OBJDUMP:-$${CROSS_COMPILE}objdump}" -d $@ \
-	  | awk "\$$1 ~ /:$$/ && NF>=3 {print \$$3}" \
-	  | grep -qiE "^(cas|casa|casal|casl|casp|swp|swpa|swpal|swpl|ldadd|ldadda|ldaddal|ldaddl|ldclr|ldclral|ldeor|ldeoral|ldset|ldsetal|ldsmax|ldumax)$$"' \
-	  && { echo "✗ $@ 含 LSE 原子指令 (ARMv8.1+) — ferrari 的 Cortex-A53 会 SIGILL, 检查 ARCH_BASELINE"; exit 1; } \
-	  || echo "  ✓ 无 LSE 指令, A53/A55 通用"
 	@echo "✓ 胖库: $@"
 
 # 历史探针 (noqt_probe.cpp): 验证"不链 Qt 也能插桩到 Qt 符号"的最小实验,

@@ -36,6 +36,25 @@ mkdir -p "$LIBDIR" "$INCDIR" "$WORK"
 
 # shellcheck disable=SC1090
 source "$SDK_ENV"
+
+# arm64 必须把指令基线压回 ARMv8.0 —— 不压只能在 Paper Pro Move 上跑。
+#
+# chiappa SDK 的 $CC/$CXX 自带 -mcpu=cortex-a55 (ARMv8.2), 编出来的 C++ 原子操作会
+# 直接内联 LSE 原子指令 (ldaddal/casal), 没有运行时回退。Paper Pro (ferrari, i.MX8MM)
+# 是 Cortex-A53 = ARMv8.0, 执行即 SIGILL —— 2026-10-04 实测 ime-http 一起来就
+# code=dumped status=4/ILL, 旧的 ime-server-rime-aarch64 里有 3594 条 ldaddal。
+#
+# 必须覆盖 -mcpu 而不是加 -march: 两者同时出现时 GCC 优先 -mcpu, 只警告一句就把
+# -march 忽略掉。压对之后 LSE 会挪进 GCC 的 __aarch64_*_acq_rel outline 函数, 那里
+# 按 __aarch64_have_lse_atomics 分支, A53 走 LL/SC。A53 编的在 A55 上能跑, 一份产物
+# 两台通用。armv7 没有 LSE 这回事, 不用管。
+ARCH_BASELINE=""
+if [ "$GOARCH" = arm64 ]; then
+  ARCH_BASELINE="-mcpu=cortex-a53+crypto"
+  export CFLAGS="$CFLAGS $ARCH_BASELINE"
+  export CXXFLAGS="$CXXFLAGS $ARCH_BASELINE"
+  echo "== 指令基线压到 $ARCH_BASELINE (A53/A55 通用) =="
+fi
 # SDK env 导出 $CC $CXX $CFLAGS $LDFLAGS $SDKTARGETSYSROOT $CONFIGURE_FLAGS 等。
 # autotools host 三元组: 按架构定, 不从 $CC 猜 ($CC 带 flags, 且 SDK 的
 # cortexa55-remarkable-linux 不是合法 config.sub 三元组 —— marisa configure
@@ -60,6 +79,10 @@ CMAKE_COMMON=(
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   -DCMAKE_FIND_ROOT_PATH="$SDKTARGETSYSROOT;$WORK/stage"
   -DCMAKE_PREFIX_PATH="$WORK/stage"
+  # 显式传一遍 flags: OEToolchainConfig.cmake 不一定把环境里的 $CFLAGS 带进来,
+  # 而上面压的 ARCH_BASELINE 漏到哪个库哪个库就又内联 LSE 了
+  -DCMAKE_C_FLAGS="$CFLAGS"
+  -DCMAKE_CXX_FLAGS="$CXXFLAGS"
 )
 export PKG_CONFIG_PATH="$WORK/stage/lib/pkgconfig"
 mkdir -p "$WORK/stage"
@@ -153,6 +176,30 @@ collect() {
   ls -la "$LIBDIR"
 }
 
+# ── 编 ime-server 的 librime 版 ───────────────────────────────────
+# 以前这条命令没写进仓库, 每次靠回忆拼。依赖上面 collect 出来的静态库。
+build_ime_server() {
+  local repo out
+  repo="$(cd "$(dirname "$0")/../.." && pwd)"
+  case "$GOARCH" in
+    arm64) out="$repo/dist/ime-server-rime-aarch64" ;;
+    arm)   out="$repo/dist/ime-server-rime-armv7" ;;
+  esac
+  command -v go >/dev/null || { echo "!! 没有 go, 跳过 ime-server (静态库已就位, 可去别处编)"; return 0; }
+  mkdir -p "$(dirname "$out")"
+  echo "== 编 $out =="
+  # GOTOOLCHAIN=auto: 构建机常年装着老 go (实测 1.22), 而 ime-go 要 1.24.3, 靠它自动拉。
+  # CGO_CFLAGS 里只放基线就够 —— $CC 本身已带 --sysroot 等; 放在后面才能覆盖 $CC 自带的 -mcpu。
+  ( cd "$repo/ime-go" && \
+    CGO_ENABLED=1 GOOS=linux GOARCH="$GOARCH" \
+    CGO_CFLAGS="${ARCH_BASELINE:-}" CGO_CXXFLAGS="${ARCH_BASELINE:-}" \
+    CGO_LDFLAGS="-L$SDKTARGETSYSROOT/usr/lib" \
+    GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" GOTOOLCHAIN=auto \
+    go build -tags librime -trimpath -ldflags="-s -w" -o "$out" ./cmd/ime-server )
+  echo "== 完成: $out ($(du -h "$out" | cut -f1)) =="
+  grep -a -q /rime/schema "$out" && echo "   ✓ 含 /rime/schema 路由" || echo "   ✗ 缺 /rime/schema 路由!"
+}
+
 # 可选第二参数 = 只跑单步 (调试用): build.sh arm64 build_yamlcpp
 STEP="${2:-}"
 if [ -n "$STEP" ]; then
@@ -165,4 +212,5 @@ else
   build_opencc
   build_librime
   collect
+  build_ime_server
 fi
