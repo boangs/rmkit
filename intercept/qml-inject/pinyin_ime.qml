@@ -731,6 +731,17 @@ Item {
                 console.warn("XOVI-PINYIN: leave direct mode (focus left editor)")
                 return
             }
+            // 文本模式下焦点在多个输入框之间移动: 必须重新指向新的那个。
+            // 原来这里只试 direct mode, 而 enterDirectModeIfApplicable 见到 TextInput
+            // 一律返回 false, 于是 focusTarget 永远停在第一个拿到焦点的框上 ——
+            // 表现为"一个页面有两个输入框时, 点了第二个, 打出来的字跑进第一个"。
+            // (键盘已经弹着时 onVisibleChanged 不会再触发, 所以只能在这里补。)
+            if (pinyinIME.active && !pinyinIME.useDirectCommit
+                && item && item.text !== undefined && item !== pinyinIME.focusTarget) {
+                pinyinIME.clearState()
+                pinyinIME.activateForCurrentFocus()
+                return
+            }
             // RM2 上 Qt.inputMethod.visible 永远为 true，不能用它过滤。
             // enterDirectModeIfApplicable 内部用 item.text !== undefined 判断，不会误触发虚拟键盘 TextInput。
             pinyinIME.enterDirectModeIfApplicable()

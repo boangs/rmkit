@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rmkit-cn/upload-server/internal/space"
 	"image/png"
 	"io"
 	"log"
@@ -49,17 +48,10 @@ type Config struct {
 	DocStagingDir  string // /documents 上传暂存目录 (librarian 会从此处复制)
 	FontsActiveDir string // 字体激活符号链接目录 (~/.local/share/fonts)
 	XochitlConf    string // xochitl 配置路径 (~/.config/remarkable/xochitl.conf)
-	// 「空间 (SPACE)」启动台: 内置应用目录 (安装器管理) / 用户应用目录 (绿色安装) / 应用数据目录
-	SpaceDir     string
-	SpaceUserDir string
-	SpaceDataDir string
-	SpaceBaseURL string // 告诉应用后台 upload-server 在哪
-	SpaceStore   string // 应用商店索引 URL (空 = 不提供)
 }
 
 type Server struct {
-	cfg   Config
-	space *space.Handler
+	cfg Config
 }
 
 func New(cfg Config) (*Server, error) {
@@ -68,20 +60,7 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("mkdir %s: %w", d, err)
 		}
 	}
-	s := &Server{cfg: cfg}
-	if cfg.SpaceDir != "" {
-		s.space = space.New(filepath.Join(cfg.SpaceDir, "apps"), cfg.SpaceUserDir, cfg.SpaceDataDir, deviceArch(), cfg.SpaceBaseURL)
-		s.space.StoreURL = cfg.SpaceStore
-	}
-	return s, nil
-}
-
-// Space 暴露启动台后端 (main 用它做自启; 没配置时返回空实现, 调用安全)。
-func (s *Server) Space() *space.Handler {
-	if s.space == nil {
-		return space.New("", "", "", deviceArch(), "")
-	}
-	return s.space
+	return &Server{cfg: cfg}, nil
 }
 
 // deviceArch 把 Go 的架构名映射成安装器/清单用的名字。
@@ -118,11 +97,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /documents", s.uploadDocument)
 
 	mux.HandleFunc("GET /screenshot", s.screenshotPNG) // 排版核对用: 当前屏幕 PNG
-
-	// 「空间」启动台: 应用注册表 / 绿色安装 / 应用后台托管 (internal/space, 与具体应用无关)
-	if s.space != nil {
-		s.space.Mount(mux)
-	}
 
 	mux.HandleFunc("GET /ai-config", s.getAIConfig)
 	mux.HandleFunc("PUT /ai-config", s.putAIConfig)
