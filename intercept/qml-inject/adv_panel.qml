@@ -6,11 +6,12 @@ import QtQuick.Layouts
             Rectangle {
                 id: _rmhAdvancedPanel
                 objectName: "_rmhAdvancedPanel"
-                onVisibleChanged: if (visible) _rmhAdvancedPanel.loadCaps()
                 anchors.fill: parent
                 color: "white"
                 visible: true
                 z: 99999
+                // 面板每次打开都重新问一次能力: 装完微信读书 / Android 不用重启就能看到入口
+                onVisibleChanged: if (visible) _rmhAdvancedPanel.loadCaps()
 
                 property string _rmhBaseUrl: "http://127.0.0.1:8080"
                 // 已生效 (从后端拉到) vs 选中 (用户在面板内的临时选择)
@@ -277,7 +278,6 @@ import QtQuick.Layouts
 
                             // 卡片 1: 扫码上传
                             Rectangle {
-                                visible: _rmhAdvancedPanel._rmhCapAndroid
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -452,6 +452,7 @@ import QtQuick.Layouts
                                 }
                             }
                             Rectangle {
+                                visible: _rmhAdvancedPanel._rmhCapAndroid
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -505,7 +506,6 @@ import QtQuick.Layouts
 
                             // KOReader 卡片
                             Rectangle {
-                                visible: _rmhAdvancedPanel._rmhCapWeRead
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -542,6 +542,7 @@ import QtQuick.Layouts
                             }
                             // \u5fae\u4fe1\u8bfb\u4e66 (RemarkableWeRead) 卡片: 图标用安装包自带的 icon.png
                             Rectangle {
+                                visible: _rmhAdvancedPanel._rmhCapWeRead
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -765,6 +766,7 @@ import QtQuick.Layouts
 
                             // 空间 (SPACE) 启动台 — 过渡期入口: 旧面板各页迁完后, 注入器会直接以"空间"取代本面板
                             Rectangle {
+                                visible: _rmhAdvancedPanel._rmhCapSpace
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 180
                                 color: "transparent"
@@ -2664,6 +2666,7 @@ import QtQuick.Layouts
                 // 判据在后端 (/apps/caps), 一律看"东西在不在盘上" —— 架构对了但没装, 同样不该显示。
                 property bool _rmhCapWeRead: false
                 property bool _rmhCapAndroid: false
+                property bool _rmhCapSpace: false
                 function loadCaps() {
                     var x = new XMLHttpRequest()
                     x.onreadystatechange = function() {
@@ -2672,6 +2675,7 @@ import QtQuick.Layouts
                             var r = JSON.parse(x.responseText)
                             _rmhAdvancedPanel._rmhCapWeRead = !!r.weread
                             _rmhAdvancedPanel._rmhCapAndroid = !!r.android
+                            _rmhAdvancedPanel._rmhCapSpace = !!r.space
                         } catch (e) {}
                     }
                     x.open("GET", _rmhAdvancedPanel._rmhBaseUrl + "/apps/caps")
