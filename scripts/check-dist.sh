@@ -27,6 +27,8 @@ LSE_RE='^(cas|casa|casab|casah|casal|casalb|casalh|casb|cash|casl|caslb|caslh|ca
 # Go 自己管指令集, 而且崩了也只崩自己。
 IN_XOCHITL='qml_inject-aarch64\.so|qml_inject_impl-aarch64\.so|ime_hook\.so|librarian-aarch64\.so|xovi-message-broker-aarch64\.so|xovi\.so'
 
+SCANNER="$(cd "$(dirname "$0")" && pwd)/lse_scan.py"
+[ -x "$SCANNER" ] || { echo "✗ 缺 $SCANNER" >&2; exit 1; }
 OBJDUMP="${OBJDUMP:-objdump}"
 command -v "$OBJDUMP" >/dev/null 2>&1 || { echo "✗ 找不到 objdump (可设 OBJDUMP=...)" >&2; exit 1; }
 
@@ -47,31 +49,29 @@ while IFS= read -r f; do
     #   _Z*          C++ mangled, 由 CFLAGS 的基线决定, 带 LSE 就是真问题
     #   其余         Go 自己的代码 (runtime/sync/...), Go 有 internal/cpu 探测, 不拦
     # 纯 Go 二进制整体会扫出几百条, 那些都在 Go 符号里; cgo 链进来的 C++ 库才危险。
-    counts=$("$OBJDUMP" -d "$f" 2>/dev/null | awk -v re="$LSE_RE" '
-        /^[0-9a-f]+ </ { fn = $2; gsub(/[<>:]/, "", fn); skip = (fn ~ /^__aarch64_/) }
-        !skip && $1 ~ /:$/ && NF >= 3 && tolower($3) ~ re {
-            if (fn ~ /^_Z/) cpp++; else other++
-        }
-        END { printf "%d %d", cpp + 0, other + 0 }
-    ')
-    n=${counts%% *}          # C++ 符号里的 —— 这个才算数
-    n_go=${counts##* }       # 其余 (多半是 Go runtime)
+    # 判据交给 lse_scan.py: 看指令上下文有没有 CPU 能力判断, 不靠符号名 ——
+    # strip 过的二进制符号归属不可信, 按符号判会把 outline helper 误报成问题。
+    if "$SCANNER" "$f" >/dev/null 2>&1; then
+        n=0
+    else
+        n=1
+    fi
 
     checked=$((checked + 1))
     if [ "$n" -gt 0 ]; then
         if echo "$base" | grep -qE "$IN_XOCHITL"; then
-            printf '  ✗ %-40s C++ 符号里 %4s 条 LSE — 进 xochitl 进程, ferrari 会 SIGILL\n' "$base" "$n"
+            "$SCANNER" "$f" | sed 's/^/  /'
+            echo "      ↑ 进 xochitl 进程, ferrari 会 crash loop"
             fail=1
         else
             # 独立进程: 崩了只崩自己, 不拦发布, 但得说出来 —— 比如 ime-server-rime
             # 里 opencc 的那几条, 真走到那个函数输入法就没了。
-            printf '  ! %-40s C++ 符号里 %4s 条 LSE — 独立进程, 不拦, 但在 ferrari 上会崩\n' "$base" "$n"
+            "$SCANNER" "$f" | sed 's/^/  /'
+            echo "      ↑ 独立进程, 崩了只崩自己"
             warn=1
         fi
-    elif [ "$n_go" -gt 0 ]; then
-        printf '  ✓ %-40s 干净 (另有 %s 条在 Go 符号里, Go 自带 CPU 探测)\n' "$base" "$n_go"
     else
-        printf '  ✓ %-40s 干净\n' "$base"
+        "$SCANNER" "$f" | sed 's/^/  /'
     fi
 # 扫所有普通文件, 靠 file 判断是不是 aarch64 ELF —— 不能按 -perm -u+x 筛:
 # zip 不保留 Unix 权限位, 从载荷包解出来的可执行文件没有 +x, 会被整个漏掉。
