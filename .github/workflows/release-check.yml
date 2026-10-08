@@ -35,21 +35,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq binutils-aarch64-linux-gnu
 
-      - name: 取 dist.tar.gz
+      # 两个渠道都要验: install.sh 走 dist.tar.gz, 桌面助手走 rmkit-cn-bundle.zip。
+      # #7 的报告者用的是助手, 只验前者会漏掉他那条路。
+      - name: 取 dist.tar.gz 与 rmkit-cn-bundle.zip
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           set -euo pipefail
-          if [ -n "${TAG:-}" ]; then
-            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern dist.tar.gz -O dist.tar.gz
-          else
-            gh release download --repo "$GITHUB_REPOSITORY" --pattern dist.tar.gz -O dist.tar.gz
-          fi
-          mkdir -p dist-release
-          tar xzf dist.tar.gz -C dist-release --strip-components=0
-          echo "解开后:"
-          find dist-release -type f | head -40
+          args=(--repo "$GITHUB_REPOSITORY")
+          [ -n "${TAG:-}" ] && args=("$TAG" "${args[@]}")
+          gh release download "${args[@]}" --pattern dist.tar.gz -O dist.tar.gz
+          gh release download "${args[@]}" --pattern rmkit-cn-bundle.zip -O bundle.zip || \
+            echo "(这个 release 没带 rmkit-cn-bundle.zip, 跳过)"
+          mkdir -p from-tar from-bundle
+          tar xzf dist.tar.gz -C from-tar
+          [ -f bundle.zip ] && unzip -qo bundle.zip -d from-bundle || true
+          echo "dist.tar.gz: $(find from-tar -type f | wc -l) 个文件"
+          echo "bundle.zip:  $(find from-bundle -type f | wc -l) 个文件"
 
       - name: 扫 LSE
         env:
@@ -57,11 +60,19 @@ jobs:
         run: |
           set -uo pipefail
           chmod +x scripts/check-dist.sh
-          # 包里顶层可能是 dist/ 也可能直接是文件, 两种都试
-          target=dist-release
-          [ -d dist-release/dist ] && target=dist-release/dist
-          scripts/check-dist.sh "$target" | tee result.txt
-          code=${PIPESTATUS[0]}
+          code=0
+          : > result.txt
+          for src in from-tar from-bundle; do
+            [ -d "$src" ] || continue
+            find "$src" -type f -name '*.so' -o -type f -perm -u+x | head -1 | grep -q . || continue
+            # 包里顶层可能是 dist/ 也可能直接摊开, 两种都认
+            target="$src"
+            [ -d "$src/dist" ] && target="$src/dist"
+            echo "### $src" | tee -a result.txt
+            scripts/check-dist.sh "$target" 2>&1 | tee -a result.txt
+            [ "${PIPESTATUS[0]}" -ne 0 ] && code=1
+            echo | tee -a result.txt
+          done
           {
             echo "## dist.tar.gz 指令集体检"
             echo
