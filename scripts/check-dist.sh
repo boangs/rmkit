@@ -73,7 +73,9 @@ while IFS= read -r f; do
     else
         printf '  ✓ %-40s 干净\n' "$base"
     fi
-done < <(find "$DIST" -type f \( -name '*.so' -o -perm -u+x \) 2>/dev/null | sort)
+# 扫所有普通文件, 靠 file 判断是不是 aarch64 ELF —— 不能按 -perm -u+x 筛:
+# zip 不保留 Unix 权限位, 从载荷包解出来的可执行文件没有 +x, 会被整个漏掉。
+done < <(find "$DIST" -type f 2>/dev/null | sort)
 
 echo
 if [ "$checked" -eq 0 ]; then
