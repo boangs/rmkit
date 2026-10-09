@@ -42,6 +42,10 @@ func wantDist(name string) bool {
 	if strings.HasPrefix(base, "qmd-tool-") && base != "qmd-tool-aarch64" && base != "qmd-tool-armv7" {
 		return false
 	}
+	// geo.json 是「空间」天气应用的离线地名表, 跟着空间迁走了, 不该再进 rmkit 载荷
+	if base == "geo.json" {
+		return false
+	}
 	return !strings.Contains(base, ".bak")
 }
 
