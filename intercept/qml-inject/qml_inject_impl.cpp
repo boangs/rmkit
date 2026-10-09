@@ -38,6 +38,32 @@
 #include <QtQuick/QQuickWindow>
 
 // 直接写文件的日志: journal 会限流丢日志, stderr 重定向后有缓冲, 排查时都不可靠
+
+// 读「空间」的语言偏好, 决定侧栏那个词用中文还是英文。
+// 不引 JSON 库 —— 就取一个键, 字符串找足够; 读不到按中文, 和外壳 bootLang 的
+// 默认保持一致 (现有用户都是中文)。注意这只在 xochitl 启动注入时读一次,
+// 用户在设置里切了语言, 侧栏要等下次重启才跟上 —— 面板内部是实时的。
+static bool spaceLangIsEnglish()
+{
+    FILE *f = fopen("/home/root/.local/share/rmkit-cn/space/data/shell/config.json", "rb");
+    if (!f)
+        return false;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    const char *p = strstr(buf, "\"lang\"");
+    if (!p)
+        return false;
+    p = strchr(p + 6, ':');
+    if (!p)
+        return false;
+    while (*p == ':' || *p == ' ' || *p == '\t' || *p == '"')
+        ++p;
+    // normLang 只会产出 en / zh-CN, 这里连 en-US 这类也一并认成英文
+    return strncmp(p, "en", 2) == 0 && (p[2] == '"' || p[2] == '-' || p[2] == '\0');
+}
+
 static void flog(const char *fmt, ...) {
     FILE *f = fopen("/tmp/rmkit-inject.log", "a");
     if (!f)
@@ -744,7 +770,9 @@ static void doInject(QQmlEngine *engine) {
                            && access("/home/root/rmkit-cn/space/shell/Space.qml", F_OK) == 0;
         const char *panelUrl = useSpace ? "file:///home/root/rmkit-cn/space/shell/Space.qml"
                                         : "file:///home/root/rmkit-cn/bin/adv_panel.qml";
-        const char *label = useSpace ? "\\u7a7a\\u95f4" : "\\u9ad8\\u7ea7"; // 空间 / 高级
+        const bool enUI = spaceLangIsEnglish();
+        const char *label = useSpace ? (enUI ? "Space"    : "\\u7a7a\\u95f4")   // 空间
+                                     : (enUI ? "Advanced" : "\\u9ad8\\u7ea7");  // 高级
         // 开发模式 (~/.local/share/rmkit-cn/space/.dev): 每次点击都带时间戳重新读 QML, 改外壳不用重启 xochitl
         const bool devMode = useSpace && access("/home/root/.local/share/rmkit-cn/space/.dev", F_OK) == 0;
         fprintf(stderr, "[impl] 侧栏就绪, 注入%s...\n", useSpace ? "空间" : "高级");
