@@ -55,6 +55,8 @@ setup() { # $1=sandbox名 $2=有无qml_inject产物(yes/no) $3=hashtab固件版�
         -e "s#^XOVI=/home/root/xovi#XOVI=$SB/home/root/xovi#" \
         -e "s#/etc/version#$SB/etc/version#" \
         -e "s#/tmp/rmkit-no-fuse#$SB/no-fuse-absent#" \
+        -e "s#^SYSD=/etc/systemd/system#SYSD=$SB/etc/systemd/system#" \
+        -e "s#/home/root/remarkable-space/#$SB/home/root/remarkable-space/#" \
         "$SRC" > "$SB/precheck.sh"
 }
 
@@ -123,6 +125,40 @@ chk "mode=ok (lib 缺失不致命)" "ok" "$(mode "$R/inject-status.json")"
 chk "fallback 同样摘掉已迁移 qmd (5/5)" "" "$(qmds "$D")"
 chk "fallback 同样挂上 qml_inject" "ime_hook.so qml_inject.so xovi.so" "$(sos "$R/active")"
 
+
+echo "=== 场景: 空间后端单元自愈 (系统升级换槽后 /etc 里的单元没了) ==="
+setup sp yes FW1
+S="$ROOT/sp/etc/systemd/system"; R="$ROOT/sp/home/root/rmkit-cn"
+mkdir -p "$S/remarkable-space.service.d" "$S/xochitl.service.d" "$ROOT/sp/home/root/remarkable-space"
+echo unit > "$S/remarkable-space.service"; echo api > "$S/remarkable-space.service.d/10-store-api.conf"
+echo dropin > "$S/xochitl.service.d/zz-space.conf"
+printf '#!/bin/sh\n' > "$ROOT/sp/home/root/remarkable-space/space-server"; chmod +x "$ROOT/sp/home/root/remarkable-space/space-server"
+sh "$ROOT/sp/precheck.sh" 2>/dev/null
+chk "单元在时存一份到 /home" "10-store-api.conf remarkable-space.service zz-space.conf" "$(sos "$R/etc/space-systemd")"
+rm -rf "$S"   # 模拟 OTA 换槽: 新系统的 /etc 里没有空间的单元
+: > "$R/.starts"
+sh "$ROOT/sp/precheck.sh" 2>/dev/null
+chk "后端单元拷回" "unit" "$(cat "$S/remarkable-space.service" 2>/dev/null)"
+chk "商店配置拷回" "api" "$(cat "$S/remarkable-space.service.d/10-store-api.conf" 2>/dev/null)"
+chk "外壳 drop-in 拷回" "dropin" "$(cat "$S/xochitl.service.d/zz-space.conf" 2>/dev/null)"
+chk "开机自启补上" "$S/remarkable-space.service" "$(readlink "$S/multi-user.target.wants/remarkable-space.service")"
+chk "仍是 ok" "ok" "$(mode "$R/inject-status.json")"
+
+echo "=== 场景: 空间已卸载 (没有后端程序) 不复活单元 ==="
+rm -rf "$S" "$ROOT/sp/home/root/remarkable-space"
+: > "$R/.starts"
+sh "$ROOT/sp/precheck.sh" 2>/dev/null
+chk "不拷回" "no" "$([ -f "$S/remarkable-space.service" ] && echo yes || echo no)"
+
+echo "=== 场景: 熔断时不碰空间单元 ==="
+setup sf yes FW1
+S="$ROOT/sf/etc/systemd/system"; R="$ROOT/sf/home/root/rmkit-cn"
+mkdir -p "$R/etc/space-systemd" "$ROOT/sf/home/root/remarkable-space"
+echo unit > "$R/etc/space-systemd/remarkable-space.service"
+printf '#!/bin/sh\n' > "$ROOT/sf/home/root/remarkable-space/space-server"; chmod +x "$ROOT/sf/home/root/remarkable-space/space-server"
+echo "rescue@x" > "$R/.fuse_tripped"
+sh "$ROOT/sf/precheck.sh" 2>/dev/null
+chk "紧急修复/熔断后不复活空间" "no" "$([ -f "$S/remarkable-space.service" ] && echo yes || echo no)"
 echo
 echo "通过 $PASS, 失败 $FAIL"
 [ "$FAIL" -eq 0 ]

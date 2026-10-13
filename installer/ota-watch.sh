@@ -85,6 +85,21 @@ for f in "$SRC_ETC"/rmkit-cn-*.service "$SRC_ETC"/rmkit-cn-*.path "$SRC_ETC"/rmk
     fi
 done
 
+# 空间 (后加的, 原清单漏了它: 2026-10-13 实测 3.28→3.29 升级后空间后端消失)
+if [ -f "$SRC_ETC/xochitl.service.d/zz-space.conf" ]; then
+    cp "$SRC_ETC/xochitl.service.d/zz-space.conf" "$DST_ETC/xochitl.service.d/" || FAIL=1
+fi
+if [ -f "$SRC_ETC/remarkable-space.service" ]; then
+    cp "$SRC_ETC/remarkable-space.service" "$DST_ETC/" || FAIL=1
+    if [ -f "$SRC_ETC/remarkable-space.service.d/10-store-api.conf" ]; then
+        mkdir -p "$DST_ETC/remarkable-space.service.d" || FAIL=1
+        cp "$SRC_ETC/remarkable-space.service.d/10-store-api.conf" "$DST_ETC/remarkable-space.service.d/" || FAIL=1
+    fi
+    if [ -e "$SRC_ETC/multi-user.target.wants/remarkable-space.service" ]; then
+        ln -sf "../remarkable-space.service" "$DST_ETC/multi-user.target.wants/remarkable-space.service" || FAIL=1
+    fi
+fi
+
 if [ "$FAIL" != "0" ]; then
     log "警告: 部分文件写入失败, 不记录注入标记 (下轮重试; 最坏情况新系统出厂启动, reenable.sh 兜底)"
     exit 0

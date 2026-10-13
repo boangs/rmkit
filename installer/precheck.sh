@@ -18,6 +18,7 @@
 
 RMKIT=/home/root/rmkit-cn
 XOVI=/home/root/xovi
+SYSD=/etc/systemd/system
 DEPLOY=$XOVI/exthome/qt-resource-rebuilder
 ACTIVE=$RMKIT/active
 QUAR=$RMKIT/quarantine
@@ -253,6 +254,37 @@ for u in rmkit-cn-upload.service rmkit-cn-ime-http.service; do
     fi
     systemctl is-active "$u" >/dev/null 2>&1 || systemctl start --no-block "$u" 2>/dev/null
 done
+
+# ── 10. 空间后端单元自愈 ─────────────────────────────────────────
+# 空间的 systemd 单元在 /etc (系统分区), 老版 ota-watch 的拷贝清单里没有它 ——
+# 2026-10-13 实测 3.28→3.29: 升级后中文都在, 空间后端没起来, 打开空间一个应用都没有。
+# /home 两个槽共用: 单元在的时候在这里存一份, 丢了就拷回 /etc 并拉起后端。
+# 只写 /etc 上层 (tmpfs, 重启即失): 每次开机都会走到这里, 不碰下层 (ferrari 下层写入有前科)。
+# 拉起后端放进独立的 transient unit: 新单元要 daemon-reload 才认得, 在 ExecStartPre 里
+# 同步等 systemd 会和 xochitl 自己的启动事务互等。
+SNAP=$RMKIT/etc/space-systemd
+if [ -f "$SYSD/remarkable-space.service" ]; then
+    mkdir -p "$SNAP" 2>/dev/null
+    cp -p "$SYSD/remarkable-space.service" "$SNAP/" 2>/dev/null
+    [ -f "$SYSD/remarkable-space.service.d/10-store-api.conf" ] && cp -p "$SYSD/remarkable-space.service.d/10-store-api.conf" "$SNAP/" 2>/dev/null
+    [ -f "$SYSD/xochitl.service.d/zz-space.conf" ] && cp -p "$SYSD/xochitl.service.d/zz-space.conf" "$SNAP/" 2>/dev/null
+elif [ -f "$SNAP/remarkable-space.service" ] && [ -x /home/root/remarkable-space/space-server ]; then
+    mkdir -p "$SYSD" 2>/dev/null
+    cp -p "$SNAP/remarkable-space.service" "$SYSD/" 2>/dev/null
+    if [ -f "$SNAP/10-store-api.conf" ]; then
+        mkdir -p "$SYSD/remarkable-space.service.d" 2>/dev/null
+        cp -p "$SNAP/10-store-api.conf" "$SYSD/remarkable-space.service.d/" 2>/dev/null
+    fi
+    if [ -f "$SNAP/zz-space.conf" ]; then
+        mkdir -p "$SYSD/xochitl.service.d" 2>/dev/null
+        cp -p "$SNAP/zz-space.conf" "$SYSD/xochitl.service.d/" 2>/dev/null
+    fi
+    mkdir -p "$SYSD/multi-user.target.wants" 2>/dev/null
+    ln -sf "$SYSD/remarkable-space.service" "$SYSD/multi-user.target.wants/remarkable-space.service" 2>/dev/null
+    systemd-run --no-block --collect --unit=rmkit-cn-space-heal /bin/sh -c \
+        "systemctl daemon-reload; systemctl start remarkable-space.service" >/dev/null 2>&1
+    echo "[precheck] 空间后端单元缺失 (系统升级换槽?), 已从 /home 的备份恢复并拉起" >&2
+fi
 
 write_status ok "" "$QUAR_LIST"
 echo "[precheck] OK fw=$FW quarantined=[${QUAR_LIST:-无}] $RT_NOTE" >&2
