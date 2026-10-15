@@ -75,7 +75,12 @@ ssh -o ConnectTimeout=10 "$DEVICE_USER@$DEVICE_IP" "echo '连接成功'" || {
 }
 
 ARCH=$(ssh "$DEVICE_USER@$DEVICE_IP" "uname -m")
-FW_VERSION=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /etc/version 2>/dev/null | head -n 1 | tr -d '[:space:]'")
+FW_BUILD=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /etc/version 2>/dev/null | head -n 1 | tr -d '[:space:]'")
+FW_IMG=$(ssh "$DEVICE_USER@$DEVICE_IP" "sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | tr -d '\"[:space:]'")
+# 固件身份 = 构建时间-版本号 (与 precheck.sh / fw-upgrade.sh 的 fw_id 一致);
+# 3.29.0.152 → .153 构建时间相同, 只看 /etc/version 会认不出升级
+FW_VERSION=$FW_BUILD
+[ -n "$FW_BUILD" ] && [ -n "$FW_IMG" ] && FW_VERSION="$FW_BUILD-$FW_IMG"
 RESOLUTION=$(ssh "$DEVICE_USER@$DEVICE_IP" "cat /sys/class/graphics/fb0/virtual_size 2>/dev/null || echo 'unknown'" || echo "unknown")
 
 echo "设备架构：$ARCH"
@@ -333,7 +338,7 @@ if [ -d "$QMD_SRC_DIR" ]; then
       # 3.28 (build 20260629+) 重构了 Sidebar QML (SidebarItem/? 通配语法老固件不认),
       # 3.27 及以下改用 compat/ 里的旧语法源, 输出文件名不变
       if [ "$base" = "advanced_panel.qmd" ] \
-         && [ "$FW_VERSION" -lt 20260629000000 ] 2>/dev/null \
+         && [ "$FW_BUILD" -lt 20260629000000 ] 2>/dev/null \
          && [ -f "$QMD_SRC_DIR/compat/advanced_panel@pre-3.28.qmd" ]; then
         src="$QMD_SRC_DIR/compat/advanced_panel@pre-3.28.qmd"
         echo "  (固件 $FW_VERSION < 3.28, advanced_panel 用 compat 源)"

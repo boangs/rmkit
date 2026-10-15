@@ -1,7 +1,16 @@
 #!/bin/bash
 # 固件升级后自动重编 qmd 并部署所有静态资源
-# 触发条件：rmkit-cn-version.path 监听到 /etc/version 变化 → rmkit-cn-version.service 调用本脚本
-FW_NOW=$(cat /etc/version 2>/dev/null)
+# 触发条件：precheck.sh 发现固件身份 ≠ .last_fw_version (或 rmkit-cn-version.path 监听到 /etc/version 变化)
+# 固件身份 = 构建时间-版本号, 与 precheck.sh 的 fw_id 一致 (同一真相源, 改动两边同步)。
+# 只看构建时间会漏掉 3.29.0.152 → .153 这种构建时间不变的升级。
+fw_id() {
+    _v=$(head -n 1 /etc/version 2>/dev/null | tr -d '[:space:]')
+    _i=$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | tr -d '"[:space:]')
+    [ -n "$_v" ] && [ -n "$_i" ] && _v="$_v-$_i"
+    echo "$_v"
+}
+FW_NOW=$(fw_id)
+FW_BUILD=${FW_NOW%%-*}   # 纯构建时间, 只用于数值比较
 FW_LAST=$(cat /home/root/rmkit-cn/.last_fw_version 2>/dev/null)
 HASHTAB=/home/root/xovi/exthome/qt-resource-rebuilder/hashtab
 QMD_DEPLOY=/home/root/xovi/exthome/qt-resource-rebuilder
@@ -105,7 +114,7 @@ if [ "$HASHTAB_FOUND" = "false" ]; then
     exit 1
 fi
 
-# 标记 hashtab 对应的固件版本 (precheck.sh 启动前校验此标记 == /etc/version 才放行注入)
+# 标记 hashtab 对应的固件身份 (precheck.sh 启动前校验此标记 == fw_id 才放行注入)
 echo "$FW_NOW" > "$HASHTAB.fw_version"
 
 # 编译到版本缓存
@@ -126,7 +135,7 @@ for src in "$QMD_SRC"/*.qmd; do
     fi
     # 3.28 (build 20260629+) 重构了 Sidebar QML, 老固件用 compat 旧语法源 (输出名不变)
     if [ "$base" = "advanced_panel.qmd" ] \
-       && [ "$FW_NOW" -lt 20260629000000 ] 2>/dev/null \
+       && [ "$FW_BUILD" -lt 20260629000000 ] 2>/dev/null \
        && [ -f "$QMD_SRC/compat/advanced_panel@pre-3.28.qmd" ]; then
         src="$QMD_SRC/compat/advanced_panel@pre-3.28.qmd"
         echo "[fw-upgrade] (固件 $FW_NOW < 3.28, advanced_panel 用 compat 源)"

@@ -29,7 +29,17 @@ QMD_TOOL=$RMKIT/bin/qmd-tool
 STARTS=$RMKIT/.starts
 FUSE=$RMKIT/.fuse_tripped
 
-FW=$(cat /etc/version 2>/dev/null)
+# 固件身份 = 构建时间-版本号 (如 20261009073202-3.29.0.153)。只看 /etc/version 不够:
+# 3.29.0.152 → .153 的构建时间一字不差, 被当成"没升级" → 不重生 hashtab → 旧
+# hashtab 被 qmldiff 拒收 → 孤儿 hash panic → 熔断 (2026-10-15 实测)。
+# 老设备上的标记是纯构建时间, 和新身份必然不等 → 走一次重编, 正好自愈。
+fw_id() {
+    _v=$(head -n 1 /etc/version 2>/dev/null | tr -d '[:space:]')
+    _i=$(sed -n 's/^IMG_VERSION=//p' /etc/os-release 2>/dev/null | tr -d '"[:space:]')
+    [ -n "$_v" ] && [ -n "$_i" ] && _v="$_v-$_i"
+    echo "$_v"
+}
+FW=$(fw_id)
 NOW=$(date +%s)
 
 mkdir -p "$ACTIVE" "$QUAR" 2>/dev/null
@@ -111,6 +121,31 @@ disable_qmldiff() { # $1=reason
     exit 0
 }
 
+# ── 固件变化 → 后台触发重编 (必须排在熔断前面) ──────────────────────
+# 熔断一开, disable_all 直接 exit; 这一步若排在后面, 新固件上崩出来的熔断
+# 就永远等不到唯一能解开它的 fw-upgrade —— 重启多少次都是原生界面 (2026-10-15
+# 3.29.0.153 实测)。fw-upgrade 成功后自己会清熔断。
+# 只放行崩溃熔断 (crashloop@): 助手"紧急修复"写的 rescue@ 是用户主动关停,
+# 不能被一次系统升级悄悄解开。
+# 不能直接 nohup fork: precheck 跑在 xochitl.service 的 cgroup 里, fw-upgrade
+# 中途会 systemctl stop xochitl → systemd 按 cgroup 杀进程 → fw-upgrade 自杀,
+# hashtab 永远生成不了 (2026-07-24 首次真实 OTA 实战踩坑)。
+# 用 systemd-run 创建独立 transient unit (顺带隔离 LD_PRELOAD 环境不刷 ld.so 报错)。
+LAST=$(cat "$RMKIT/.last_fw_version" 2>/dev/null)
+FUSE_WHY=$(cat "$FUSE" 2>/dev/null)
+if [ -n "$FW" ] && [ "$FW" != "$LAST" ] && [ -x "$RMKIT/bin/fw-upgrade.sh" ] \
+   && { [ -z "$FUSE_WHY" ] || [ "${FUSE_WHY#crashloop@}" != "$FUSE_WHY" ]; }; then
+    if ! pgrep -f fw-upgrade.sh >/dev/null 2>&1; then
+        if command -v systemd-run >/dev/null 2>&1; then
+            systemd-run --unit=rmkit-cn-fwupgrade --collect \
+                /bin/sh -c "exec bash $RMKIT/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1" \
+                >/dev/null 2>&1 || true
+        else
+            nohup bash "$RMKIT/bin/fw-upgrade.sh" >/tmp/fw-upgrade.log 2>&1 &
+        fi
+    fi
+fi
+
 # ── 0. crash 熔断 ────────────────────────────────────────────
 # 每次启动记时间戳; 600 秒内第 3 次启动 = crashloop → 熔断。
 # 熔断标记 (.fuse_tripped) 由 fw-upgrade.sh 成功后 / install.sh / 用户手动清除。
@@ -153,24 +188,6 @@ fi
 # cache 里仍带着已迁移功能的 qmd (老版本装的 / OTA 重编产出), 运行时注入可用时
 # 立刻摘掉, 别让它们走到步 6 的 verify 去白白隔离报警。
 qml_inject_ready && prune_migrated_qmds
-
-# ── 2. 固件变化 → 后台触发重编 ──────────────────────────────────
-# 不能直接 nohup fork: precheck 跑在 xochitl.service 的 cgroup 里, fw-upgrade
-# 中途会 systemctl stop xochitl → systemd 按 cgroup 杀进程 → fw-upgrade 自杀,
-# hashtab 永远生成不了 (2026-07-24 首次真实 OTA 实战踩坑)。
-# 用 systemd-run 创建独立 transient unit (顺带隔离 LD_PRELOAD 环境不刷 ld.so 报错)。
-LAST=$(cat "$RMKIT/.last_fw_version" 2>/dev/null)
-if [ -n "$FW" ] && [ "$FW" != "$LAST" ] && [ -x "$RMKIT/bin/fw-upgrade.sh" ]; then
-    if ! pgrep -f fw-upgrade.sh >/dev/null 2>&1; then
-        if command -v systemd-run >/dev/null 2>&1; then
-            systemd-run --unit=rmkit-cn-fwupgrade --collect \
-                /bin/sh -c "exec bash $RMKIT/bin/fw-upgrade.sh >/tmp/fw-upgrade.log 2>&1" \
-                >/dev/null 2>&1 || true
-        else
-            nohup bash "$RMKIT/bin/fw-upgrade.sh" >/tmp/fw-upgrade.log 2>&1 &
-        fi
-    fi
-fi
 
 # ── 3. hashtab 必须匹配当前固件 (防: 旧 hashtab + 新固件 → qmldiff panic) ──
 [ -f "$HASHTAB" ] || disable_qmldiff "hashtab-missing"

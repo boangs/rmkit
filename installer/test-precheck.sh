@@ -54,6 +54,7 @@ setup() { # $1=sandbox名 $2=有无qml_inject产物(yes/no) $3=hashtab固件版�
     sed -e "s#^RMKIT=/home/root/rmkit-cn#RMKIT=$SB/home/root/rmkit-cn#" \
         -e "s#^XOVI=/home/root/xovi#XOVI=$SB/home/root/xovi#" \
         -e "s#/etc/version#$SB/etc/version#" \
+        -e "s#/etc/os-release#$SB/etc/os-release#" \
         -e "s#/tmp/rmkit-no-fuse#$SB/no-fuse-absent#" \
         -e "s#^SYSD=/etc/systemd/system#SYSD=$SB/etc/systemd/system#" \
         -e "s#/home/root/remarkable-space/#$SB/home/root/remarkable-space/#" \
@@ -159,6 +160,53 @@ printf '#!/bin/sh\n' > "$ROOT/sf/home/root/remarkable-space/space-server"; chmod
 echo "rescue@x" > "$R/.fuse_tripped"
 sh "$ROOT/sf/precheck.sh" 2>/dev/null
 chk "紧急修复/熔断后不复活空间" "no" "$([ -f "$S/remarkable-space.service" ] && echo yes || echo no)"
+
+# 假 fw-upgrade: 被拉起就留个记号 (沙盒里没有 systemd-run, precheck 走 nohup 分支)
+fake_fwup() { # $1=sandbox名
+    printf '#!/bin/sh\n: > "%s/fwup-ran"\n' "$ROOT/$1" > "$ROOT/$1/home/root/rmkit-cn/bin/fw-upgrade.sh"
+    chmod +x "$ROOT/$1/home/root/rmkit-cn/bin/fw-upgrade.sh"
+}
+wait_mark() { for _ in 1 2 3 4 5 6 7 8 9 10; do [ -f "$1" ] && break; sleep 0.2; done; [ -f "$1" ] && echo yes || echo no; }
+
+echo "=== 场景: 构建时间不变、版本号变了 (3.29.0.152 → .153) ==="
+setup sv yes FW1-3.29.0.152
+R="$ROOT/sv/home/root/rmkit-cn"; D="$ROOT/sv/home/root/xovi/exthome/qt-resource-rebuilder"
+echo 'IMG_VERSION="3.29.0.153"' > "$ROOT/sv/etc/os-release"
+echo FW1-3.29.0.152 > "$R/.last_fw_version"
+fake_fwup sv
+sh "$ROOT/sv/precheck.sh" 2>/dev/null
+chk "认出升级 → 拉起 fw-upgrade" "yes" "$(wait_mark "$ROOT/sv/fwup-ran")"
+chk "旧 hashtab 不放行 qmldiff (降级)" "degraded" "$(mode "$R/inject-status.json")"
+chk "不往部署目录放 qmd" "" "$(qmds "$D")"
+
+echo "=== 场景: 老设备标记是纯构建时间 → 当成换了固件重编一次 ==="
+setup sl yes FW1
+R="$ROOT/sl/home/root/rmkit-cn"
+echo 'IMG_VERSION=3.29.0.153' > "$ROOT/sl/etc/os-release"
+fake_fwup sl
+sh "$ROOT/sl/precheck.sh" 2>/dev/null
+chk "拉起 fw-upgrade" "yes" "$(wait_mark "$ROOT/sl/fwup-ran")"
+
+echo "=== 场景: 新固件上崩出熔断后, 重启仍要拉起 fw-upgrade ==="
+setup sc yes FW1-3.29.0.152
+R="$ROOT/sc/home/root/rmkit-cn"
+echo 'IMG_VERSION="3.29.0.153"' > "$ROOT/sc/etc/os-release"
+echo FW1-3.29.0.152 > "$R/.last_fw_version"
+echo "crashloop@1 fw=FW1" > "$R/.fuse_tripped"
+fake_fwup sc
+sh "$ROOT/sc/precheck.sh" 2>/dev/null
+chk "熔断照样全摘" "disabled" "$(mode "$R/inject-status.json")"
+chk "但 fw-upgrade 被拉起 (它成功后会清熔断)" "yes" "$(wait_mark "$ROOT/sc/fwup-ran")"
+
+echo "=== 场景: 紧急修复的熔断不被系统升级解开 ==="
+setup sr yes FW1-3.29.0.152
+R="$ROOT/sr/home/root/rmkit-cn"
+echo 'IMG_VERSION="3.29.0.153"' > "$ROOT/sr/etc/os-release"
+echo FW1-3.29.0.152 > "$R/.last_fw_version"
+echo "rescue@1" > "$R/.fuse_tripped"
+fake_fwup sr
+sh "$ROOT/sr/precheck.sh" 2>/dev/null
+chk "不拉起 fw-upgrade" "no" "$(wait_mark "$ROOT/sr/fwup-ran")"
 echo
 echo "通过 $PASS, 失败 $FAIL"
 [ "$FAIL" -eq 0 ]

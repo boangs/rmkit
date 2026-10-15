@@ -52,6 +52,9 @@ if [ -z "$NEWVER" ]; then
     log "读不到新 slot 版本, 跳过"
     exit 0
 fi
+# 带上版本号: 3.29.0.152 → .153 构建时间相同, 只看 /etc/version 会当成"注入过了"而跳过
+NEWIMG=$(sed -n 's/^IMG_VERSION=//p' "$MNT/etc/os-release" 2>/dev/null | tr -d '"[:space:]')
+[ -n "$NEWIMG" ] && NEWVER="$NEWVER-$NEWIMG"
 
 # ── 3. 已注入过这个版本? ────────────────────────────────────────
 if [ "$(cat "$INJECTED_MARK" 2>/dev/null)" = "$NEWVER" ]; then
