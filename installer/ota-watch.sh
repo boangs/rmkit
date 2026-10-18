@@ -14,10 +14,14 @@
 # 注入的只是"版本无关的钩子" (drop-in + service 单元, 指向 /home 下的脚本),
 # 对任何固件版本安全 — 兼容性判断全部推迟到新系统首启的 precheck。
 #
-# 仅支持 aarch64 (rmpp/rmppm): rm2 无 lpgpr/swu_status, 本脚本静默退出。
+# "有没有待装的升级" 两种机型信号不同 (2026-10-18 起两种都认, 之前只认 Paper Pro 的,
+# rm2 升级一次就得重装一次空间):
+#   Paper Pro / Move: /sys/devices/platform/lpgpr/swu_status = 1
+#   rm2:              u-boot 环境变量 upgrade_available = 1 (swupdate 写完新槽后置位,
+#                     bootcmd 据此切到 active_partition; 用 fw_printenv 读, 绝不 fw_setenv)
 #
 # 用法: ota-watch.sh [--force]
-#   --force: 跳过 swu_status 检查, 对 inactive slot 无条件注入 (测试/手动)
+#   --force: 跳过"有没有更新"的检查, 对 inactive slot 无条件注入 (测试/手动)
 
 RMKIT=/home/root/rmkit-cn
 SWU_STATUS=/sys/devices/platform/lpgpr/swu_status
@@ -26,11 +30,24 @@ MNT=/tmp/rmkit-ota-slot
 
 log() { echo "[ota-watch] $*"; }
 
+# ota_pending: 有待装的升级就输出信号来源并返回 0; 没有 (或读不到) 返回 1。
+ota_pending() {
+    if [ -e "$SWU_STATUS" ]; then
+        [ "$(cat "$SWU_STATUS" 2>/dev/null)" = "1" ] && { echo "swu_status=1"; return 0; }
+        return 1
+    fi
+    if command -v fw_printenv >/dev/null 2>&1; then
+        # fw_printenv 一次只读一个变量时输出 "name=value"; 环境区损坏时它报错, 当作没有
+        _v=$(fw_printenv upgrade_available 2>/dev/null | sed -n 's/^upgrade_available=//p' | tr -d '[:space:]')
+        [ "$_v" = "1" ] && { echo "upgrade_available=1"; return 0; }
+    fi
+    return 1
+}
+
 # ── 1. 有 pending 更新吗 ────────────────────────────────────────
 if [ "$1" != "--force" ]; then
-    STATUS=$(cat "$SWU_STATUS" 2>/dev/null)
-    [ "$STATUS" = "1" ] || exit 0   # 无更新 (或 rm2 无此文件): 静默退出
-    log "检测到 pending OTA (swu_status=1)"
+    SIGNAL=$(ota_pending) || exit 0   # 无更新: 静默退出
+    log "检测到 pending OTA ($SIGNAL)"
 fi
 
 command -v rootdev >/dev/null 2>&1 || { log "无 rootdev, 跳过"; exit 0; }
