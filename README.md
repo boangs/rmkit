@@ -1,5 +1,15 @@
 # rmkit-cn
 
+> **本仓库已归档（2026-10-20），不再更新。**
+> 底座（注入链、中文汉化、输入法后端、升级恢复脚本）已并入
+> [boangs/remarkable-space](https://github.com/boangs/remarkable-space) 的 `base/` 目录，
+> 中文界面、输入法、扫码传文件等功能现在都通过「空间」安装，请到那边下载助手。
+> Android 双启动等未迁移的内容仍可在本仓库查阅。
+>
+> **Archived (2026-10-20).** The base layer now lives in
+> [boangs/remarkable-space](https://github.com/boangs/remarkable-space) under `base/`;
+> install everything through the Space assistant there.
+
 让 reMarkable 平板说中文：系统中文界面、拼音 / 五笔输入法、AI 助手、手机扫码传文件，
 以及 Paper Pro Move 上可选的 Android。
 
